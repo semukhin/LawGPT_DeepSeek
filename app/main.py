@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from . import models, database, auth
+from app import models, database, auth
 import uvicorn
 
 app = FastAPI()

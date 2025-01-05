@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 from datetime import timedelta, datetime
 from jose import jwt, JWTError
 from random import randint
-from . import models, schemas, database, config, email
+from app import email_utils, models, schemas, database, config
 from pydantic import BaseModel
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -61,7 +61,7 @@ async def register_user(
     verification_codes[db_user.email] = code
 
     # Передаем email и код
-    background_tasks.add_task(email.send_verification_email, db_user.email, code)
+    background_tasks.add_task(email_utils.send_verification_email, db_user.email, code)
 
     return db_user
 
