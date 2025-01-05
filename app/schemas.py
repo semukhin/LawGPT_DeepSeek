@@ -19,3 +19,11 @@ class UserOut(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class VerificationRequest(BaseModel):
+    email: EmailStr
+    code: int
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
