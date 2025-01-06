@@ -27,3 +27,13 @@ class VerificationRequest(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class RegisterResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+class CodeVerificationRequest(BaseModel):
+    code: int
+
+class VerifyRequest(BaseModel):
+    code: int

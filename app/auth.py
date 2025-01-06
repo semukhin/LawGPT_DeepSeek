@@ -5,11 +5,11 @@ from datetime import timedelta, datetime
 from jose import jwt, JWTError
 from random import randint
 from app import mail_utils, models, schemas, database, config
-from app.schemas import VerificationRequest
+from app.schemas import CodeVerificationRequest
 from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
-import email
-
+from app.mail_utils import send_verification_email
+from app.models import TempUser
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
 
@@ -17,6 +17,8 @@ router = APIRouter()
 SECRET_KEY = config.SECRET_KEY
 ALGORITHM = config.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
+
+temp_user_data = {}  # Временное хранилище для данных пользователей
 
 
 def get_password_hash(password: str) -> str:
@@ -31,44 +33,44 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-@router.post("/register", response_model=schemas.UserOut)
+@router.post("/register")
 async def register_user(
-    user: schemas.UserCreate, 
-    background_tasks: BackgroundTasks, 
-    db: Session = Depends(database.get_db)
+    user: schemas.UserCreate,
+    background_tasks: BackgroundTasks,
 ):
-    existing_user = db.query(models.User).filter(models.User.email == user.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
-
-    hashed_password = get_password_hash(user.password)
-    db_user = models.User(
-        email=user.email, 
-        hashed_password=hashed_password,
-        first_name=user.first_name, 
-        last_name=user.last_name
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    # Проверяем, не проходит ли пользователь уже регистрацию
+    if user.email in temp_user_data:
+        raise HTTPException(status_code=400, detail="Пользователь уже проходит регистрацию")
 
     # Генерация кода верификации
     code = randint(100000, 999999)
-    verification_code = models.VerificationCode(user_id=db_user.id, code=code)
-    db.add(verification_code)
-    db.commit()
 
-    # Создание JWT-токена
-    access_token = create_access_token(data={"sub": db_user.email})
+    # Сохраняем данные пользователя временно
+    temp_user_data[user.email] = {
+        "password": get_password_hash(user.password),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "code": code,
+    }
 
-    # Отправка письма с кодом
-    background_tasks.add_task(email.send_verification_email, db_user.email, code)
+    # Генерация временного JWT токена
+    temp_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=15)  # Токен действует 15 минут
+    )
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    # Отправляем код подтверждения на почту
+    background_tasks.add_task(mail_utils.send_verification_email, user.email, code)
+
+    return {
+        "message": "Код подтверждения отправлен на вашу почту",
+        "temp_token": temp_token
+    }
+
 
 @router.post("/verify")
 async def verify_code(
-    code: int,
+    request: schemas.VerifyRequest,  # Используем схему для тела запроса
     token: str = Depends(config.oauth2_scheme),
     db: Session = Depends(database.get_db)
 ):
@@ -81,30 +83,39 @@ async def verify_code(
             raise HTTPException(status_code=401, detail="Неавторизован")
     except JWTError:
         raise HTTPException(status_code=401, detail="Невалидный токен")
-    
-    # Получаем пользователя по email
-    user = db.query(models.User).filter(models.User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    
-    # Проверяем код верификации
-    verification_code = db.query(models.VerificationCode).filter(
-        models.VerificationCode.user_id == user.id,
-        models.VerificationCode.code == code,
-        models.VerificationCode.is_used == False
-    ).first()
 
-    if not verification_code:
-        raise HTTPException(status_code=400, detail="Неверный код верификации")
+    # Получаем временного пользователя
+    temp_user = db.query(models.TempUser).filter(models.TempUser.email == email).first()
+    if not temp_user:
+        raise HTTPException(status_code=404, detail="Регистрация не найдена или истекла")
 
-    # Помечаем код как использованный и обновляем статус пользователя
-    verification_code.is_used = True
-    user.is_verified = True
+    # Проверяем код подтверждения
+    if temp_user.code != request.code:
+        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
+
+    # Создаем запись пользователя в основной таблице
+    db_user = models.User(
+        email=temp_user.email,
+        hashed_password=temp_user.hashed_password,
+        first_name=temp_user.first_name,
+        last_name=temp_user.last_name,
+        is_verified=True
+    )
+    db.add(db_user)
     db.commit()
 
-    return {"message": "Пользователь успешно верифицирован"}
+    # Удаляем запись из TempUser
+    db.delete(temp_user)
+    db.commit()
 
+    # Генерация JWT токена
+    access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
 
+    return {
+        "message": "Пользователь успешно зарегистрирован",
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
 
 @router.post("/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
