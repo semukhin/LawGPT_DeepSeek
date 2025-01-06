@@ -37,46 +37,48 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
 async def register_user(
     user: schemas.UserCreate,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(database.get_db),
 ):
-    # Проверяем, не проходит ли пользователь уже регистрацию
-    if user.email in temp_user_data:
+    existing_temp_user = db.query(models.TempUser).filter(models.TempUser.email == user.email).first()
+    if existing_temp_user:
         raise HTTPException(status_code=400, detail="Пользователь уже проходит регистрацию")
 
     # Генерация кода верификации
     code = randint(100000, 999999)
 
-    # Сохраняем данные пользователя временно
-    temp_user_data[user.email] = {
-        "password": get_password_hash(user.password),
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "code": code,
-    }
-
-    # Генерация временного JWT токена
-    temp_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=15)  # Токен действует 15 минут
+    # Сохраняем данные пользователя в таблице TempUser
+    temp_user = models.TempUser(
+        email=user.email,
+        hashed_password=get_password_hash(user.password),
+        first_name=user.first_name,
+        last_name=user.last_name,
+        code=code,
     )
+    db.add(temp_user)
+    db.commit()  # Убедитесь, что commit вызывается
 
     # Отправляем код подтверждения на почту
     background_tasks.add_task(mail_utils.send_verification_email, user.email, code)
+
+    # Создание временного JWT токена
+    temp_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=15)
+    )
 
     return {
         "message": "Код подтверждения отправлен на вашу почту",
         "temp_token": temp_token
     }
 
-
 @router.post("/verify")
 async def verify_code(
-    request: schemas.VerifyRequest,  # Используем схему для тела запроса
+    request: schemas.VerifyRequest,  # Используйте схему для тела запроса
     token: str = Depends(config.oauth2_scheme),
     db: Session = Depends(database.get_db)
 ):
     """Верификация кода из почты."""
     try:
-        # Декодируем токен и получаем email
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if email is None:
@@ -116,6 +118,7 @@ async def verify_code(
         "access_token": access_token,
         "token_type": "bearer"
     }
+
 
 @router.post("/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
