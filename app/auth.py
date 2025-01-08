@@ -10,7 +10,15 @@ from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
 from app.mail_utils import send_verification_email
 from app.models import TempUser
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+from random import randint
+from app import models, database, mail_utils
+from app.schemas import PasswordResetRequest, PasswordResetConfirm
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 router = APIRouter()
 
 # Настройки JWT
@@ -19,7 +27,6 @@ ALGORITHM = config.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
 
 temp_user_data = {}  # Временное хранилище для данных пользователей
-
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
@@ -159,6 +166,58 @@ async def get_profile(
     
     return db_user
 
+@router.post("/forgot-password")
+async def forgot_password(
+    request: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(database.get_db)
+):
+    """Запрос на восстановление пароля."""
+    user = db.query(models.User).filter(models.User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь с таким email не найден")
+
+    # Генерация кода восстановления
+    reset_code = randint(100000, 999999)
+    password_reset = models.PasswordReset(email=request.email, code=reset_code)
+    db.add(password_reset)
+    db.commit()
+
+    # Отправка кода на email
+    background_tasks.add_task(mail_utils.send_verification_email, request.email, reset_code)
+
+    return {"message": "Код восстановления отправлен на вашу почту"}
+
+@router.post("/reset-password")
+async def reset_password(
+    request: PasswordResetConfirm,
+    db: Session = Depends(database.get_db)
+):
+    """Подтверждение кода и изменение пароля."""
+    reset_entry = db.query(models.PasswordReset).filter(
+        models.PasswordReset.email == request.email,
+        models.PasswordReset.code == request.code,
+        models.PasswordReset.is_used == False
+    ).first()
+
+    if not reset_entry:
+        raise HTTPException(status_code=400, detail="Неверный или истёкший код восстановления")
+
+    # Найти пользователя
+    user = db.query(models.User).filter(models.User.email == request.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь с таким email не найден")
+
+    # Изменить пароль пользователя
+    user.hashed_password = get_password_hash(request.new_password)
+    db.commit()
+
+    # Отметить код как использованный
+    reset_entry.is_used = True
+    db.commit()
+
+    return {"message": "Пароль успешно изменён"}
+
 @router.post("/logout")
 async def logout():
     """Выход из системы."""
@@ -166,3 +225,4 @@ async def logout():
     return {"message": "Выход успешно выполнен"}
 
 #1
+ 

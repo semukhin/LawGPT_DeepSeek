@@ -21,3 +21,15 @@ async def send_verification_email(email_to: str, code: int):
     )
     fm = FastMail(conf)
     await fm.send_message(message)
+
+async def send_verification_email(email_to: str, code: int):
+    subject = "Код восстановления пароля"
+    body = f"Ваш код для восстановления пароля: {code}"
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email_to],
+        body=body,
+        subtype="plain"
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)

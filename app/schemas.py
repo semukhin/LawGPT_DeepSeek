@@ -37,3 +37,11 @@ class CodeVerificationRequest(BaseModel):
 
 class VerifyRequest(BaseModel):
     code: int
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: int
+    new_password: str

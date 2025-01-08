@@ -36,3 +36,12 @@ class TempUser(Base):
     last_name = Column(String(50), nullable=False)  # Длина 50 для фамилии
     code = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=False, index=True)
+    code = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_used = Column(Boolean, default=False)
