@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import timedelta, datetime
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from random import randint
 from app import models, database, mail_utils
 from app.schemas import PasswordResetRequest, PasswordResetConfirm
-
+from fastapi.security import OAuth2PasswordBearer
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -25,6 +25,9 @@ router = APIRouter()
 SECRET_KEY = config.SECRET_KEY
 ALGORITHM = config.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
+
+# Схема OAuth2 для аутентификации
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 temp_user_data = {}  # Временное хранилище для данных пользователей
 
@@ -39,6 +42,29 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(database.get_db)
+) -> models.User:
+    """Получает текущего пользователя из JWT токена."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Не удалось подтвердить учетные данные",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("user_id")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if user is None:
+        raise credentials_exception
+    return user
 
 @router.post("/register")
 async def register_user(
@@ -126,7 +152,6 @@ async def verify_code(
         "token_type": "bearer"
     }
 
-
 @router.post("/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     """Авторизация пользователя."""
@@ -145,26 +170,12 @@ async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db))
     access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
     return {"access_token": access_token, "token_type": "bearer"}
 
-
 @router.get("/profile", response_model=schemas.UserOut)
 async def get_profile(
-    db: Session = Depends(database.get_db), 
-    token: str = Depends(config.oauth2_scheme)
+    current_user: models.User = Depends(get_current_user)
 ):
-    """Получение профиля текущего пользователя по ID."""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("user_id")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Неавторизован")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Невалидный токен")
-
-    db_user = db.query(models.User).filter(models.User.id == user_id).first()
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    
-    return db_user
+    """Получение профиля текущего пользователя."""
+    return current_user
 
 @router.post("/forgot-password")
 async def forgot_password(
@@ -223,6 +234,3 @@ async def logout():
     """Выход из системы."""
     # В FastAPI токены хранятся на клиенте, так что для "выхода" можно просто уведомить клиента.
     return {"message": "Выход успешно выполнен"}
-
-#1
- 

@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from app import models, database, auth
+from app import models, database, auth, chat
+from app.chat import router as chat_router
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 app = FastAPI()
+app.include_router(chat_router)
+
 
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
