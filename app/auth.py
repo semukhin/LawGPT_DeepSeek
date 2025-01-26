@@ -50,7 +50,7 @@ async def get_current_user(
     """Получает текущего пользователя из JWT токена."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Не удалось подтвердить учетные данные",
+        detail="401",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
