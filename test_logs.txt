@@ -1,0 +1,13 @@
+2025-01-26 18:23:12,351 - INFO - Тест регистрации и верификации начался.
+2025-01-26 18:23:13,881 - INFO - Тест регистрации и верификации завершился успешно.
+2025-01-26 18:23:13,886 - INFO - Тест авторизации начался.
+2025-01-26 18:23:14,273 - INFO - Будет использован заранее заданный токен: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwidXNlcl9pZCI6MSwiZXhwIjoxNzM3OTA5MDk1fQ.Oe4JeWNBP5KG_cujFw255z41RVdV1vSS1WCkHQ639yY
+2025-01-26 18:23:14,273 - INFO - Тест авторизации завершился успешно.
+2025-01-26 18:23:14,277 - INFO - Тест работы с тредами и сообщениями начался.
+2025-01-26 18:23:14,666 - INFO - Создан thread_id: thread_b3496f10d18540daa5dfbc46d5a29c11
+2025-01-26 18:23:14,666 - INFO - Попытка подключения к WebSocket: ws://127.0.0.1:8000/ws/chat/thread_b3496f10d18540daa5dfbc46d5a29c11?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0QGV4YW1wbGUuY29tIiwidXNlcl9pZCI6MSwiZXhwIjoxNzM3OTA5MDk1fQ.Oe4JeWNBP5KG_cujFw255z41RVdV1vSS1WCkHQ639yY
+2025-01-26 18:23:14,769 - ERROR - Ошибка подключения к WebSocket: server rejected WebSocket connection: HTTP 403
+2025-01-26 18:23:14,911 - INFO - Тест сброса пароля начался.
+2025-01-26 18:23:16,643 - INFO - Тест сброса пароля завершился успешно.
+2025-01-26 18:23:16,647 - INFO - Тест загрузки файлов начался.
+2025-01-26 18:23:17,037 - INFO - Тест загрузки файлов завершился успешно.
