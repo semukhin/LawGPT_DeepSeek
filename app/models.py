@@ -51,6 +51,7 @@ class Thread(Base):
     id = Column(String(50), primary_key=True, default=lambda: f"thread_{uuid.uuid4().hex}")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    first_message = Column(Text, nullable=True)  # Добавлено поле для первого сообщения
 
     user = relationship("User", back_populates="threads")
     messages = relationship("Message", back_populates="thread")
