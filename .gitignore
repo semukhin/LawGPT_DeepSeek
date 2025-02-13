@@ -18,3 +18,5 @@ logs/
 dist/
 build/
 *.egg-info/
+documents_docx/
+documents_html/
