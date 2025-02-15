@@ -4,7 +4,10 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from docx import Document
 import mysql.connector
+from mysql.connector import Error
 import os
+import logging
+
 
 # Константы
 TOKEN = "9d97b394982611ef8cf20050568d72f0"
@@ -74,7 +77,7 @@ def download_html(topic_id, logs, rag_module):
 
     try:
         headers = {"Authorization": f"Bearer {TOKEN}"}
-        response = requests.get(f"https://api.garant.ru/v1/topic/{topic_id}/html", headers=headers)
+        response = requests.get(f"https://api.garant.ru/v1/topic/{topic_id}/html", headers=headers, verify=False)
         response.raise_for_status()
         json_data = response.json()
 
@@ -126,21 +129,36 @@ def convert_html_to_docx(html_content, topic_id, logs, rag_module):
         return None
 
 
+
 def save_document_to_db(document_id, document_name, document_num, document_url, download_date, logs, rag_module):
     """Сохраняет информацию о документе в базу данных."""
+    conn = None
+    cursor = None  # Добавляем явную инициализацию, чтобы избежать проблем
+
     try:
         conn = mysql.connector.connect(**MYSQL_CONFIG)
-        cursor = conn.cursor()
-        query = """
-            INSERT INTO documents (document_id, document_name, document_num, document_url, download_date)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        cursor.execute(query, (document_id, document_name, document_num, document_url, download_date))
-        conn.commit()
-        logs.append(rag_module("info", f"Информация о документе сохранена в базе данных: {document_id}."))
-    except mysql.connector.Error as e:
-        logs.append(rag_module("error", f"Ошибка базы данных: {e}"))
-    finally:
+
         if conn.is_connected():
-            cursor.close()
+            cursor = conn.cursor()
+
+            query = """
+                INSERT INTO documents (document_id, document_name, document_num, document_url, download_date)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            cursor.execute(query, (document_id, document_name, document_num, document_url, download_date))
+            conn.commit()
+
+            logs.append(rag_module("info", f"✅ Информация о документе сохранена в БД: {document_id}."))
+
+    except Error as e:
+        error_msg = f"❌ Ошибка базы данных: {e}"
+        logs.append(rag_module("error", error_msg))
+        logging.error(error_msg)
+
+    finally:
+        if cursor:
+            cursor.close()  # Закрываем курсор перед закрытием соединения
+        if conn and conn.is_connected():
             conn.close()
+            logging.info("✅ Подключение к базе данных закрыто.")
+
