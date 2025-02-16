@@ -8,7 +8,7 @@ from app import mail_utils, models, schemas, database, config
 from app.schemas import CodeVerificationRequest
 from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
-from app.mail_utils import send_verification_email
+from app.mail_utils import send_verification_email, send_recovery_email
 from app.models import TempUser
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -195,7 +195,7 @@ async def forgot_password(
     db.commit()
 
     # Отправка кода на email
-    background_tasks.add_task(mail_utils.send_verification_email, request.email, reset_code)
+    background_tasks.add_task(mail_utils.send_recovery_email, request.email, reset_code)
 
     return {"message": "Код восстановления отправлен на вашу почту"}
 
