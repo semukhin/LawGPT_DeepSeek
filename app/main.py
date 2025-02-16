@@ -19,10 +19,10 @@ models.Base.metadata.create_all(bind=database.engine)
 # Настройка CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://176.223.10.159:3000", "188.138.252.71"],  
+    allow_origins=["*"],  # Разрешить все домены (если надо ограничить, укажи конкретные)
     allow_credentials=True,  
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],  # Разрешить все методы (GET, POST, OPTIONS и т. д.)
+    allow_headers=["*"],  # Разрешить все заголовки
 )
 
 # ✅ Главная страница с замером времени

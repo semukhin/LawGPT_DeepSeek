@@ -35,7 +35,7 @@ def get_url_content(url, headers=None, timeout=10):
 
 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 def measure_time(func):
     """Декоратор для измерения времени выполнения функции (async и sync)."""
