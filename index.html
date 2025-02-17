@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Page</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            display: flex;
+            gap: 20px;
+        }
+        .threads-list {
+            width: 250px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #f8f9fa;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .chat-box {
+            flex-grow: 1;
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #f8f9fa;
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="text-center">Chat</h2>
+        <button class="btn btn-success mb-3" onclick="createThread()">Create New Thread</button>
+        <div class="chat-container">
+            <div class="threads-list" id="threadsList">
+                <h5>Threads</h5>
+                <ul class="list-group" id="threadItems">
+                    <!-- Threads will be loaded here -->
+                </ul>
+            </div>
+            <div class="chat-box mb-3" id="chatBox">
+                <!-- Messages will appear here -->
+            </div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="messageInput" class="form-control" placeholder="Type a message...">
+            <input type="file" id="fileInput" class="form-control">
+            <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzOTAwMzI1OTk4OEBnbWFpbC5jb20iLCJ1c2VyX2lkIjoyLCJleHAiOjE3NDAzNjUyNzB9.hEWiaZqp-JYZnbIZIRi1SDYdGOJmHNNumoReYFsq-o0";
+        let threadId = "";
+
+        async function createThread() {
+            const response = await fetch("http://127.0.0.1:8000/create_thread", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                alert("Error creating thread");
+                return;
+            }
+            
+            const result = await response.json();
+            alert("Thread created successfully: " + result.thread_id);
+            loadThreads();
+        }
+
+        async function loadThreads() {
+            const threadsList = document.getElementById('threadItems');
+            threadsList.innerHTML = "";
+
+            const response = await fetch("http://127.0.0.1:8000/chat/threads", {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                alert("Error loading threads");
+                return;
+            }
+            
+            const result = await response.json();
+            result.threads.forEach(thread => {
+                const threadItem = document.createElement("li");
+                threadItem.classList.add("list-group-item", "thread-item");
+                threadItem.textContent = `Thread: ${thread.id}`;
+                threadItem.onclick = () => {
+                    threadId = thread.id;
+                    loadMessages();
+                };
+                threadsList.appendChild(threadItem);
+            });
+        }
+
+        async function loadMessages() {
+            if (!threadId) return;
+            const chatBox = document.getElementById('chatBox');
+            chatBox.innerHTML = "";
+
+            const response = await fetch(`http://127.0.0.1:8000/messages/${threadId}`, {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                alert("Error loading messages");
+                return;
+            }
+            
+            const result = await response.json();
+            result.messages.forEach(msg => {
+                const messageDiv = document.createElement("div");
+                messageDiv.classList.add("alert", msg.role === "assistant" ? "alert-primary" : "alert-secondary", "mt-2");
+                messageDiv.textContent = `${msg.role === "assistant" ? "Assistant" : "You"}: ${msg.content}`;
+                chatBox.appendChild(messageDiv);
+            });
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function sendMessage() {
+            if (!threadId) {
+                alert("Please select a thread first.");
+                return;
+            }
+        
+            const messageInput = document.getElementById('messageInput');
+            const fileInput = document.getElementById('fileInput');
+            const chatBox = document.getElementById('chatBox');
+        
+            const messageText = messageInput.value.trim();
+            const file = fileInput.files[0];
+        
+            // Проверяем, чтобы сообщение было введено, если прикреплен файл
+            if (file && !messageText) {
+                alert("Please enter a message along with the file.");
+                return;
+            }
+        
+            const formData = new FormData();
+            formData.append("query", messageText);
+            if (file) {
+                formData.append("file", file);
+            }
+        
+            const response = await fetch(`http://127.0.0.1:8000/chat/${threadId}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                },
+                body: formData
+            });
+        
+            if (!response.ok) {
+                alert("Error: Unauthorized or Bad Request");
+                return;
+            }
+        
+            const result = await response.json();
+        
+            // Добавляем отправленное пользователем сообщение
+            if (messageText) {
+                const messageDiv = document.createElement("div");
+                messageDiv.classList.add("alert", "alert-secondary", "mt-2");
+                messageDiv.textContent = `You: ${messageText}`;
+                chatBox.appendChild(messageDiv);
+            }
+        
+            // Если был загружен файл, добавляем его как сообщение
+            if (file) {
+                const fileDiv = document.createElement("div");
+                fileDiv.classList.add("alert", "alert-info", "mt-2");
+                fileDiv.textContent = `📎 Attached file: ${file.name}`;
+                chatBox.appendChild(fileDiv);
+            }
+        
+            // Если создан новый тред, обновляем ID и загружаем список тредов
+            if (result.new_thread_id) {
+                threadId = result.new_thread_id;
+                loadThreads();
+            }
+        
+            // Обрабатываем ответ ассистента
+            if (result.assistant_response) {
+                const responseDiv = document.createElement("div");
+                responseDiv.classList.add("alert", "alert-primary", "mt-2");
+                responseDiv.textContent = `Assistant: ${result.assistant_response}`;
+                chatBox.appendChild(responseDiv);
+            }
+        
+            // Если есть ссылка на скачивание документа, добавляем её
+            if (result.document_download_url) {
+                const linkDiv = document.createElement("div");
+                linkDiv.classList.add("alert", "alert-warning", "mt-2");
+                linkDiv.innerHTML = `📄 <a href="${result.document_download_url}" target="_blank">Download Document</a>`;
+                chatBox.appendChild(linkDiv);
+            }
+        
+            chatBox.scrollTop = chatBox.scrollHeight;
+            messageInput.value = "";
+            fileInput.value = ""; // Очищаем input file после отправки
+        }
+        
+        
+
+        window.onload = () => {
+            loadThreads();
+        };
+    </script>
+</body>
+</html>

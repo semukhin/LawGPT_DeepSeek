@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, func
 from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -27,6 +27,8 @@ class User(Base):
 
     verification_code = relationship("VerificationCode", back_populates="user", uselist=False)
     threads = relationship("Thread", back_populates="user")
+    documents = relationship("Document", back_populates="user")  # Добавляем связь
+
 
 class TempUser(Base):
     __tablename__ = "temp_users"
@@ -65,3 +67,16 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     thread = relationship("Thread", back_populates="messages")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    file_path = Column(String(255), nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    download_date = Column(DateTime, default=func.now())  # Поле есть?
+
+
+    user = relationship("User", back_populates="documents")

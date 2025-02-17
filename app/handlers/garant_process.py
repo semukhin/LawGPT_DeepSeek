@@ -14,12 +14,13 @@ TOKEN = "9d97b394982611ef8cf20050568d72f0"
 DOCUMENTS_FOLDER_HTML = "documents_html"
 DOCUMENTS_FOLDER_DOCX = "documents_docx"
 MYSQL_CONFIG = {
-    "host": "188.225.24.192",
+    "host": "194.87.243.188",
     "port": 3306,
     "user": "gen_user",
-    "password": "y%j*?5-FE9pvAK",
+    "password": "63)$0oJ\WRP\$J",
     "database": "default_db"
 }
+
 
 def process_garant_request(query, logs, rag_module):
     """Обрабатывает запрос к API Гаранта."""
