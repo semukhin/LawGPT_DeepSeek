@@ -170,12 +170,14 @@ async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db))
     access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 @router.get("/profile", response_model=schemas.UserOut)
 async def get_profile(
     current_user: models.User = Depends(get_current_user)
 ):
     """Получение профиля текущего пользователя."""
     return current_user
+
 
 @router.post("/forgot-password")
 async def forgot_password(
@@ -198,6 +200,7 @@ async def forgot_password(
     background_tasks.add_task(mail_utils.send_recovery_email, request.email, reset_code)
 
     return {"message": "Код восстановления отправлен на вашу почту"}
+
 
 @router.post("/reset-password")
 async def reset_password(
@@ -228,6 +231,7 @@ async def reset_password(
     db.commit()
 
     return {"message": "Пароль успешно изменён"}
+
 
 @router.post("/logout")
 async def logout():

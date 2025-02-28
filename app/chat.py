@@ -257,6 +257,7 @@ async def get_threads(
     threads = db.query(Thread).filter_by(user_id=current_user.id).order_by(Thread.created_at.desc()).all()
     return {"threads": [{"id": t.id, "created_at": t.created_at} for t in threads]}
 
+
 @measure_time
 @router.get("/messages/{thread_id}")
 async def get_messages(
@@ -267,6 +268,7 @@ async def get_messages(
     """Возвращает сообщения из выбранного треда."""
     messages = db.query(Message).filter_by(thread_id=thread_id).order_by(Message.created_at).all()
     return {"messages": [{"role": m.role, "content": m.content, "created_at": m.created_at} for m in messages]}
+
 
 # ===================== Эндпоинты для загрузки и скачивания файлов =====================
 
@@ -298,6 +300,7 @@ async def upload_file(
     logging.info("📥 Файл '%s' успешно загружен.", file.filename)
     return {"message": "Файл успешно загружен.", "file_path": file_path}
 
+
 @router.get("/download/{filename}")
 async def download_document(filename: str):
     """Позволяет скачать документ."""
@@ -311,6 +314,7 @@ async def download_document(filename: str):
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
 
 # ===================== Подключение роутера =====================
 

@@ -2,9 +2,15 @@ import requests
 from bs4 import BeautifulSoup
 from app.utils import get_url_content
 import sys
+import os
+from dotenv import load_dotenv
 import asyncio
 from app.config import MAIL_SETTINGS, DATABASE_URL, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, oauth2_scheme
 from third_party.shandu.scraper import WebScraper
+
+
+# Загрузка переменных окружения из .env файла
+load_dotenv()
 
 
 # Ключи Google Custom Search
