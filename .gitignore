@@ -30,3 +30,4 @@ documents_html/
 # Логи и большие файлы
 *.log
 *.tar.gz
+.env
