@@ -1,17 +1,48 @@
-aiohappyeyeballs==2.4.6
-aiohttp==3.11.12
-aiosignal==1.3.2
-annotated-types==0.7.0
-anyio==4.8.0
-attrs==25.1.0
-fastapi==0.115.8
-frozenlist==1.5.0
-idna==3.10
-multidict==6.1.0
-propcache==0.2.1
-pydantic==2.10.6
-pydantic_core==2.27.2
-sniffio==1.3.1
-starlette==0.45.3
-typing_extensions==4.12.2
-yarl==1.18.3
+# Основные библиотеки LangChain
+langchain
+langgraph
+openai
+fastapi
+mysql-connector-python
+transliterate
+elasticsearch
+tiktoken
+passlib
+python-jose[cryptography]
+langchain-openai
+python-multipart
+
+# Библиотеки для поиска
+googlesearch-python
+duckduckgo-search
+wikipedia
+arxiv
+
+# Веб-скрейпинг и работа с сетью
+beautifulsoup4
+requests
+urllib3
+fake-useragent
+playwright
+trafilatura
+lxml
+aiohttp
+
+# Асинхронность и типизация
+asyncio
+typing-extensions
+
+# AI и обработка данных
+pydantic
+sqlalchemy
+
+# Утилиты
+click
+rich
+
+# Дополнительные библиотеки
+python-docx
+mammoth
+python-magic
+pytesseract
+pdf2image

@@ -3,6 +3,8 @@ from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
+from app.context_manager import ContextManager, OpenAIProvider
+
 
 class VerificationCode(Base):
     __tablename__ = "verification_codes"
@@ -65,6 +67,8 @@ class Message(Base):
     role = Column(String(10), nullable=False)  # 'user' или 'assistant'
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    tokens = Column(Integer, nullable=True)  # Добавленный столбец
+    context_summary = Column(Text, nullable=True)  # Добавленный столбец
 
     thread = relationship("Thread", back_populates="messages")
 
