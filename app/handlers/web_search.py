@@ -7,10 +7,9 @@ from app.config import MAIL_SETTINGS, DATABASE_URL, SECRET_KEY, ALGORITHM, ACCES
 from third_party.shandu.scraper import WebScraper
 
 
-# Ваши ключи Google Custom Search
-API_KEY = "AIzaSyAIEt6AC2rHfLb8W90R0Gp_lcFN3RnKQak"
-CX = "31a742e3d78ce478c"  # Ваш Custom Search Engine ID
-
+# Ключи Google Custom Search
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 
 
 def google_search(query: str, logs: list) -> list:
@@ -26,8 +25,8 @@ def google_search(query: str, logs: list) -> list:
     """
     url = "https://www.googleapis.com/customsearch/v1"
     params = {
-        "key": API_KEY,
-        "cx": CX,
+        "key": GOOGLE_API_KEY,
+        "cx": GOOGLE_CX,
         "q": query,
     }
     try:
