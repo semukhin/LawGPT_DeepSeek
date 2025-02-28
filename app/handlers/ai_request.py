@@ -1,10 +1,10 @@
 """
-Модуль для работы с Vertex AI API.
+Модуль для работы с DeepSeek API.
 Поддерживает отправку запросов пользователей к ассистенту с возможностью функциональных вызовов.
 """
 import json
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 from sqlalchemy.orm import Session 
 from app.handlers.parallel_search import run_parallel_search
 from app.utils import measure_time
@@ -12,22 +12,17 @@ from app.handlers.es_law_search import search_law_chunks
 from app.handlers.garant_process import process_garant_request
 from app.handlers.web_search import google_search, search_and_scrape
 from app.services.deepresearch_service import DeepResearchService
-from app.services.vertexai_service import VertexAIService
+from app.services.deepseek_service import DeepSeekService
 from app.context_manager import ContextManager
 from app.models import Message 
-from app.config import VERTEX_AI_SETTINGS
+from app.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
 
-# Инициализация DeepResearchService
+# Инициализация сервисов
 deep_research_service = DeepResearchService()
-
-# Конфигурация Vertex AI
-vertex_service = VertexAIService(
-    project_id=VERTEX_AI_SETTINGS["project_id"],
-    location=VERTEX_AI_SETTINGS["location"],
-    model_name=VERTEX_AI_SETTINGS["model_name"],
-    temperature=VERTEX_AI_SETTINGS["temperature"],
-    max_output_tokens=VERTEX_AI_SETTINGS["max_output_tokens"],
-    credentials_path=VERTEX_AI_SETTINGS["credentials_path"]
+deepseek_service = DeepSeekService(
+    api_key=DEEPSEEK_API_KEY, 
+    model=DEEPSEEK_MODEL,
+    temperature=0.7
 )
 
 # Настройка логирования
@@ -127,10 +122,71 @@ async def handle_function_call(function_name: str, arguments: Dict) -> Dict:
     return {"error": f"Неизвестная функция: {function_name}"}
 
 
+# Определение схем функций для DeepSeek API
+AVAILABLE_FUNCTIONS = [
+    {
+        "name": "search_law_chunks",
+        "description": "Поиск в базе российского законодательства по указанному запросу",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Текст запроса для поиска в законодательстве"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "search_garant",
+        "description": "Поиск в базе Гарант по указанному запросу",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Текст запроса для поиска в базе Гарант"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "search_web",
+        "description": "Поиск в интернете по указанному запросу",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Текст запроса для поиска в интернете"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "deep_research",
+        "description": "Проведение глубокого исследования по указанному запросу",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Текст запроса для глубокого исследования"
+                }
+            },
+            "required": ["query"]
+        }
+    }
+]
+
+
 @measure_time
 async def send_custom_request(user_query: str, thread_id: Optional[str] = None, db: Optional[Session] = None) -> str:
     """
-    Отправляет пользовательский запрос к Vertex AI.
+    Отправляет пользовательский запрос к DeepSeek API.
     
     Args:
         user_query: Запрос пользователя
@@ -153,7 +209,7 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
     3. Если не уверен в ответе, так и скажи - не выдумывай информацию
     4. Предлагай ссылки на законы и нормативные акты, когда это уместно
     
-    Ты можешь использовать следующие функции для исследования:
+    Ты можешь использовать доступные функции для исследования:
     - search_law_chunks: Поиск в базе российского законодательства
     - search_garant: Поиск в базе Гарант
     - search_web: Поиск в интернете
@@ -180,6 +236,13 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
             for msg in previous_messages:
                 if msg.role in ["user", "assistant"]:
                     context_messages.append({"role": msg.role, "content": msg.content})
+                elif msg.role == "function":
+                    # Обработка сообщений от функций для правильного формата DeepSeek
+                    context_messages.append({
+                        "role": "function", 
+                        "name": msg.metadata.get("function_name", "unknown"), 
+                        "content": msg.content
+                    })
         except Exception as e:
             logging.error(f"❌ Ошибка при получении истории сообщений: {e}")
     
@@ -196,58 +259,110 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
     messages.append({"role": "user", "content": user_query})
     
     try:
-        # Отправляем запрос к Vertex AI
-        response = await vertex_service.chat_completion(messages)
+        # Используем DeepSeek с поддержкой function calling
+        response = await deepseek_service.chat_with_functions(
+            messages=messages,
+            functions=AVAILABLE_FUNCTIONS,
+            function_call="auto"
+        )
         
-        # Проверяем, нужно ли выполнить функцию
-        if "функция:" in response.lower() or "function:" in response.lower():
-            try:
-                # Извлекаем имя функции и аргументы из ответа
-                function_name = None
-                arguments = {}
+        # Проверяем, есть ли вызов функции в ответе
+        if isinstance(response, dict) and 'choices' in response:
+            choice = response['choices'][0]
+            message = choice.get('message', {})
+            
+            if 'function_call' in message:
+                function_call = message['function_call']
+                function_name = function_call.get('name')
+                function_args = json.loads(function_call.get('arguments', '{}'))
                 
-                # Простой парсер для извлечения функций
-                lines = response.split('\n')
-                for i, line in enumerate(lines):
-                    if "функция:" in line.lower() or "function:" in line.lower():
-                        parts = line.split(':', 1)
-                        if len(parts) > 1:
-                            function_name = parts[1].strip()
-                    
-                    # Проверяем наличие аргументов
-                    if function_name and ("аргументы:" in line.lower() or "arguments:" in line.lower()):
-                        # Пытаемся найти JSON объект после этой строки
-                        json_str = ""
-                        j = i + 1
-                        while j < len(lines) and not lines[j].strip().startswith(("функция:", "function:")):
-                            json_str += lines[j] + "\n"
-                            j += 1
+                logging.info(f"✅ DeepSeek вызвал функцию {function_name}")
+                
+                # Вызываем указанную функцию
+                function_result = await handle_function_call(function_name, function_args)
+                
+                # Добавляем результат функции в историю сообщений
+                messages.append({
+                    "role": "assistant",
+                    "content": message.get('content', ''),
+                    "function_call": {
+                        "name": function_name,
+                        "arguments": function_call.get('arguments', '{}')
+                    }
+                })
+                
+                messages.append({
+                    "role": "function",
+                    "name": function_name,
+                    "content": json.dumps(function_result, ensure_ascii=False)
+                })
+                
+                # Получаем финальный ответ
+                final_response = await deepseek_service.chat_completion(messages)
+                
+                # Сохраняем в базу данных, если указан thread_id
+                if thread_id and db:
+                    try:
+                        # Сохраняем исходный запрос пользователя
+                        db.add(Message(
+                            thread_id=thread_id, 
+                            role="user", 
+                            content=user_query
+                        ))
                         
-                        try:
-                            # Пытаемся распарсить JSON
-                            arguments = json.loads(json_str)
-                        except json.JSONDecodeError:
-                            # Если не удалось распарсить JSON, извлекаем query напрямую
-                            arguments = {"query": user_query}
+                        # Сохраняем сообщение с вызовом функции
+                        db.add(Message(
+                            thread_id=thread_id, 
+                            role="assistant", 
+                            content=message.get('content', ''),
+                            metadata={"function_call": {
+                                "name": function_name,
+                                "arguments": function_args
+                            }}
+                        ))
+                        
+                        # Сохраняем результат функции
+                        db.add(Message(
+                            thread_id=thread_id, 
+                            role="function", 
+                            content=json.dumps(function_result, ensure_ascii=False),
+                            metadata={"function_name": function_name}
+                        ))
+                        
+                        # Сохраняем финальный ответ
+                        db.add(Message(
+                            thread_id=thread_id, 
+                            role="assistant", 
+                            content=final_response
+                        ))
+                        
+                        db.commit()
+                    except Exception as e:
+                        logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
                 
-                # Если имя функции определено, вызываем её
-                if function_name:
-                    function_result = await handle_function_call(function_name, arguments)
-                    
-                    # Формируем новое сообщение с результатами функции
-                    function_response = f"Результаты выполнения функции {function_name}:\n{json.dumps(function_result, ensure_ascii=False, indent=2)}"
-                    
-                    # Отправляем запрос с результатами функции
-                    messages.append({"role": "assistant", "content": response})
-                    messages.append({"role": "user", "content": function_response})
-                    
-                    # Получаем финальный ответ
-                    final_response = await vertex_service.chat_completion(messages)
-                    return final_response
-            except Exception as func_error:
-                logging.error(f"❌ Ошибка при вызове функции: {func_error}")
+                return final_response
+            else:
+                # Если нет вызова функции, возвращаем обычный ответ
+                response_text = message.get('content', 'Ошибка: Не удалось получить ответ')
+                
+                # Сохраняем в базу данных, если указан thread_id
+                if thread_id and db:
+                    try:
+                        db.add(Message(thread_id=thread_id, role="user", content=user_query))
+                        db.add(Message(thread_id=thread_id, role="assistant", content=response_text))
+                        db.commit()
+                    except Exception as e:
+                        logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
+                
+                return response_text
         
-        return response
+        # Если ответ в неожиданном формате, возвращаем как есть
+        if isinstance(response, str):
+            return response
+        
+        logging.error(f"❌ Неожиданный формат ответа от DeepSeek: {response}")
+        return "Ошибка: Неожиданный формат ответа от API"
+        
     except Exception as e:
-        logging.error(f"❌ Ошибка при отправке запроса к Vertex AI: {e}")
+        logging.error(f"❌ Ошибка при отправке запроса к DeepSeek API: {e}")
         return f"Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позднее. Ошибка: {str(e)}"

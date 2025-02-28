@@ -11,6 +11,11 @@ passlib
 python-jose[cryptography]
 langchain-openai
 python-multipart
+python-dotenv
+
+# DeepSeek зависимости
+aiohttp
+asyncio
 
 # Библиотеки для поиска
 googlesearch-python

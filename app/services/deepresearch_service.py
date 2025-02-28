@@ -6,13 +6,12 @@ import logging
 from typing import Dict, Optional, Any
 from pathlib import Path
 from datetime import datetime
-from openai import OpenAI
 from app.handlers.user_doc_request import extract_text_from_any_document
 from app.handlers.deepresearch_audit import audit_deepresearch, deepresearch_audit
+from app.services.deepseek_service import DeepSeekService
 
-
-# Импортируем ключ из config.py
-from app.config import OPENAI_API_KEY
+# Импортируем настройки из config.py
+from app.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
 
 # 📂 Добавление пути к third_party для корректного импорта shandu
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,7 +51,7 @@ class ResearchResult:
 class DeepResearchService:
     """
     Сервис для глубокого исследования юридических вопросов.
-    Комбинирует возможности Shandu и OpenAI API для анализа.
+    Комбинирует возможности Shandu и DeepSeek API для анализа.
     """
     
     def __init__(self, output_dir: Optional[str] = None):
@@ -65,20 +64,24 @@ class DeepResearchService:
         self.output_dir = output_dir or "research_results"
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Используем ключ API из конфигурации
-        self.client = OpenAI(api_key=OPENAI_API_KEY)
-        
+        # Инициализируем DeepSeek сервис
+        self.deepseek_service = DeepSeekService(
+            api_key=DEEPSEEK_API_KEY,
+            model=DEEPSEEK_MODEL,
+            temperature=0.7,  # Снижаем температуру для более фактического ответа
+            max_tokens=8000
+        )
+            
         logging.info(f"DeepResearchService инициализирован. Директория для результатов: {self.output_dir}")
         
         # Счетчик использования для отладки
         self.usage_counter = 0
-        pass
 
 
     @audit_deepresearch
     async def research(self, query: str) -> ResearchResult:
         """
-        Выполняет глубокий анализ запроса с использованием LLM.
+        Выполняет глубокий анализ запроса с использованием DeepSeek API.
         
         Args:
             query: Текст запроса или путь к файлу для анализа.
@@ -123,20 +126,12 @@ class DeepResearchService:
                             "Структурируй ответ, выделяя ключевые моменты, актуальные правовые нормы, "
                             "судебную практику и практические рекомендации по теме.")
             
-            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка запроса в OpenAI API")
+            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка запроса в DeepSeek API")
             start_time = datetime.now()
             
-            # Выполняем запрос с использованием того же клиента OpenAI
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Проведи детальный юридический анализ:\n\n{query}"}
-                ],
-                temperature=0.3  # Снижаем температуру для более фактического ответа
-            )
-            
-            analysis = response.choices[0].message.content
+            # Используем DeepSeek API
+            user_prompt = f"Проведи детальный юридический анализ:\n\n{query}"
+            analysis = await self.deepseek_service.generate_with_system(system_prompt, user_prompt)
             
             # Вычисляем время выполнения для мониторинга производительности
             end_time = datetime.now()
@@ -195,7 +190,7 @@ class DeepResearchService:
             if extracted_text:
                 logging.info(f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)")
                 # Если текст слишком большой, обрезаем его
-                max_length = 50000  # Примерный лимит для модели GPT-4
+                max_length = 50000  # Примерный лимит для моделей
                 if len(extracted_text) > max_length:
                     extracted_text = extracted_text[:max_length] + "...[текст обрезан из-за ограничений размера]"
                     
@@ -204,17 +199,14 @@ class DeepResearchService:
             return None
         except Exception as e:
             logging.error(f"[DeepResearch #{self.usage_counter}] Ошибка при извлечении текста из документа {file_path}: {str(e)}")
-            return None
-        pass   
+            return None  
 
     @audit_deepresearch
     def _get_timestamp(self) -> str:
         """Возвращает текущую метку времени в формате для имен файлов."""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
     
-
     @audit_deepresearch
     def _get_current_time(self) -> str:
         """Возвращает текущее время в ISO формате."""
         return datetime.now().isoformat()
-
