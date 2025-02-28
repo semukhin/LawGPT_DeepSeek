@@ -1,7 +1,8 @@
 # Игнорируем виртуальное окружение
 venv/
+env/
 .env
-*.env
+EOF
 
 # Игнорируем кеши Python
 __pycache__/
@@ -20,3 +21,12 @@ build/
 *.egg-info/
 documents_docx/
 documents_html/
+
+# Конфиденциальные данные
+*.json
+*.key
+
+
+# Логи и большие файлы
+*.log
+*.tar.gz
