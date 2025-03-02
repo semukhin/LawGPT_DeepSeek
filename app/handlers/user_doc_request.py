@@ -1,8 +1,6 @@
 import os
 import subprocess
 from docx import Document
-import mammoth
-import magic
 import logging
 import fitz 
 import pytesseract
@@ -10,7 +8,7 @@ from pdf2image import convert_from_path
 
 
 # Настройка Tesseract
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+pytesseract.pytesseract.tesseract_cmd = "/bin/tesseract"
 
 
 def is_valid_docx(file_path):

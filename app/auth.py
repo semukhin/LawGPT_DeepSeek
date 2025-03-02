@@ -10,7 +10,6 @@ from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
 from app.mail_utils import send_verification_email, send_recovery_email
 from app.models import TempUser
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from random import randint
 from app import models, database, mail_utils
@@ -104,6 +103,8 @@ async def register_user(
         "temp_token": temp_token
     }
 
+
+
 @router.post("/verify")
 async def verify_code(
     request: schemas.VerifyRequest,  # Используйте схему для тела запроса
@@ -152,6 +153,8 @@ async def verify_code(
         "token_type": "bearer"
     }
 
+
+
 @router.post("/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     """Авторизация пользователя."""
@@ -170,12 +173,14 @@ async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db))
     access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
     return {"access_token": access_token, "token_type": "bearer"}
 
+
 @router.get("/profile", response_model=schemas.UserOut)
 async def get_profile(
     current_user: models.User = Depends(get_current_user)
 ):
     """Получение профиля текущего пользователя."""
     return current_user
+
 
 @router.post("/forgot-password")
 async def forgot_password(
@@ -198,6 +203,7 @@ async def forgot_password(
     background_tasks.add_task(mail_utils.send_recovery_email, request.email, reset_code)
 
     return {"message": "Код восстановления отправлен на вашу почту"}
+
 
 @router.post("/reset-password")
 async def reset_password(
@@ -228,6 +234,7 @@ async def reset_password(
     db.commit()
 
     return {"message": "Пароль успешно изменён"}
+
 
 @router.post("/logout")
 async def logout():

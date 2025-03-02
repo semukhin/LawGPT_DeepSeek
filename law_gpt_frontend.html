@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LawGPT Frontend Tester</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --light-gray: #f5f5f5;
+            --dark-gray: #333;
+            --medium-gray: #95a5a6;
+            --border-radius: 6px;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px 0;
+            margin-bottom: 30px;
+            box-shadow: var(--box-shadow);
+        }
+
+        header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 1.8rem;
+            margin: 0;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            opacity: 0.7;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .tab:hover {
+            opacity: 1;
+        }
+
+        .tab.active {
+            opacity: 1;
+            border-bottom: 3px solid var(--secondary-color);
+            font-weight: bold;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: var(--border-radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--box-shadow);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: var(--primary-color);
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            font-size: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: var(--dark-gray);
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: var(--border-radius);
+            font-size: 16px;
+            transition: var(--transition);
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="password"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--secondary-color);
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+
+        button, .button {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: 16px;
+            transition: var(--transition);
+            display: inline-block;
+            text-decoration: none;
+            text-align: center;
+        }
+
+        button:hover, .button:hover {
+            background-color: #2980b9;
+        }
+
+        button:active, .button:active {
+            transform: translateY(1px);
+        }
+
+        button.danger {
+            background-color: var(--accent-color);
+        }
+
+        button.danger:hover {
+            background-color: #c0392b;
+        }
+
+        button.success {
+            background-color: var(--success-color);
+        }
+
+        button.success:hover {
+            background-color: #27ae60;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .flex-between {
+            justify-content: space-between;
+        }
+
+        .flex-center {
+            justify-content: center;
+        }
+
+        .gap-10 {
+            gap: 10px;
+        }
+
+        .mt-10 {
+            margin-top: 10px;
+        }
+
+        .mb-10 {
+            margin-bottom: 10px;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: var(--border-radius);
+            margin-bottom: 15px;
+            border-left: 4px solid;
+        }
+
+        .alert-success {
+            background-color: rgba(46, 204, 113, 0.1);
+            border-left-color: var(--success-color);
+            color: #27ae60;
+        }
+
+        .alert-error {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left-color: var(--accent-color);
+            color: #c0392b;
+        }
+
+        .alert-warning {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left-color: var(--warning-color);
+            color: #d35400;
+        }
+
+        .alert-info {
+            background-color: rgba(52, 152, 219, 0.1);
+            border-left-color: var(--secondary-color);
+            color: #2980b9;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 50px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            background-color: var(--medium-gray);
+        }
+
+        .badge.success {
+            background-color: var(--success-color);
+        }
+
+        .badge.danger {
+            background-color: var(--accent-color);
+        }
+
+        .badge.warning {
+            background-color: var(--warning-color);
+        }
+
+        .badge.info {
+            background-color: var(--secondary-color);
+        }
+
+        /* Chat specific styles */
+        .chat-container {
+            display: flex;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+        }
+
+        .threads-list {
+            width: 300px;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+
+        .thread-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .thread-item:hover {
+            background-color: #f1f1f1;
+        }
+
+        .thread-item.active {
+            background-color: rgba(52, 152, 219, 0.1);
+            border-left: 4px solid var(--secondary-color);
+        }
+
+        .thread-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .thread-date {
+            font-size: 12px;
+            color: var(--medium-gray);
+        }
+
+        .chat-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: white;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message-user {
+            align-items: flex-end;
+        }
+
+        .message-assistant {
+            align-items: flex-start;
+        }
+
+        .message-content {
+            max-width: 80%;
+            padding: 12px 15px;
+            border-radius: 15px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            word-break: break-word;
+        }
+
+        .message-user .message-content {
+            background-color: var(--secondary-color);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-assistant .message-content {
+            background-color: #f1f1f1;
+            color: var(--dark-gray);
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: var(--medium-gray);
+            margin-top: 5px;
+        }
+
+        .input-container {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+            background-color: white;
+        }
+
+        .chat-input {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            padding: 10px 15px;
+            resize: none;
+            height: 44px;
+            font-family: inherit;
+        }
+
+        .send-button {
+            background-color: var(--secondary-color);
+            color: white;
+            border: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            margin-left: 10px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-button:hover {
+            background-color: #2980b9;
+        }
+
+        .file-button {
+            background-color: var(--primary-color);
+            margin-right: 10px;
+        }
+
+        .file-button:hover {
+            background-color: #1c2d3a;
+        }
+
+        .upload-preview {
+            padding: 10px;
+            border: 1px dashed #ddd;
+            border-radius: var(--border-radius);
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .upload-preview.active {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .upload-preview span {
+            text-overflow: ellipsis;
+            overflow: hidden;
+            white-space: nowrap;
+            flex: 1;
+            margin-right: 10px;
+        }
+
+        .remove-file {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Files List */
+        .files-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 15px;
+            background-color: #f9f9f9;
+            margin-bottom: 10px;
+            border-radius: var(--border-radius);
+            transition: var(--transition);
+        }
+
+        .file-item:hover {
+            background-color: #f1f1f1;
+        }
+
+        .file-name {
+            font-weight: 500;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Login/Register Form */
+        .auth-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .auth-links {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .auth-links a {
+            color: var(--secondary-color);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .auth-links a:hover {
+            text-decoration: underline;
+        }
+
+        /* Profile styles */
+        .profile-details {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .profile-field {
+            display: flex;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        .profile-field strong {
+            width: 150px;
+            color: var(--primary-color);
+        }
+
+        .profile-field span {
+            flex: 1;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .loading-container {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .loading-container.active {
+            display: flex;
+        }
+
+        .loading-box {
+            background-color: white;
+            padding: 20px 30px;
+            border-radius: var(--border-radius);
+            display: flex;
+            align-items: center;
+            box-shadow: var(--box-shadow);
+        }
+
+        .loading-box .spinner {
+            border: 3px solid rgba(52, 152, 219, 0.3);
+            border-top-color: var(--secondary-color);
+            margin-right: 15px;
+            width: 30px;
+            height: 30px;
+        }
+
+        /* Media queries */
+        @media (max-width: 768px) {
+            .chat-container {
+                flex-direction: column;
+                height: auto;
+            }
+
+            .threads-list {
+                width: 100%;
+                max-height: 200px;
+                border-right: none;
+                border-bottom: 1px solid #ddd;
+            }
+
+            .messages-container {
+                height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>LawGPT Frontend Tester</h1>
+            <div id="auth-status">
+                <button id="login-btn" class="button">Войти</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="auth-container" class="auth-container">
+            <div class="card" id="login-form">
+                <h2>Вход в систему</h2>
+                <form id="login-form-element">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Пароль</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <div class="flex flex-between">
+                        <button type="submit" class="button">Войти</button>
+                        <button type="button" id="show-register-btn" class="button">Регистрация</button>
+                    </div>
+                    <div class="auth-links">
+                        <a href="#" id="forgot-password-link">Забыли пароль?</a>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card" id="register-form" style="display: none;">
+                <h2>Регистрация</h2>
+                <form id="register-form-element">
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Пароль</label>
+                        <input type="password" id="register-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-first-name">Имя</label>
+                        <input type="text" id="register-first-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-last-name">Фамилия</label>
+                        <input type="text" id="register-last-name" required>
+                    </div>
+                    <div class="flex flex-between">
+                        <button type="submit" class="button">Зарегистрироваться</button>
+                        <button type="button" id="show-login-btn" class="button">Уже есть аккаунт</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card" id="verify-form" style="display: none;">
+                <h2>Подтверждение регистрации</h2>
+                <p>На указанный email было отправлено письмо с кодом подтверждения.</p>
+                <form id="verify-form-element">
+                    <div class="form-group">
+                        <label for="verification-code">Код подтверждения</label>
+                        <input type="text" id="verification-code" required>
+                    </div>
+                    <button type="submit" class="button">Подтвердить</button>
+                </form>
+            </div>
+
+            <div class="card" id="forgot-password-form" style="display: none;">
+                <h2>Восстановление пароля</h2>
+                <form id="forgot-password-form-element">
+                    <div class="form-group">
+                        <label for="forgot-email">Email</label>
+                        <input type="email" id="forgot-email" required>
+                    </div>
+                    <button type="submit" class="button">Отправить код</button>
+                </form>
+            </div>
+
+            <div class="card" id="reset-password-form" style="display: none;">
+                <h2>Сброс пароля</h2>
+                <p>На указанный email был отправлен код для сброса пароля.</p>
+                <form id="reset-password-form-element">
+                    <div class="form-group">
+                        <label for="reset-email">Email</label>
+                        <input type="email" id="reset-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-code">Код подтверждения</label>
+                        <input type="text" id="reset-code" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-new-password">Новый пароль</label>
+                        <input type="password" id="reset-new-password" required>
+                    </div>
+                    <button type="submit" class="button">Сбросить пароль</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="app-container" style="display: none;">
+            <div class="tabs">
+                <button class="tab active" data-tab="chat">Чат</button>
+                <button class="tab" data-tab="files">Файлы</button>
+                <button class="tab" data-tab="profile">Профиль</button>
+                <button class="tab" data-tab="api-test">API Тесты</button>
+            </div>
+
+            <div id="chat-tab" class="tab-content active">
+                <div class="flex flex-between mb-10">
+                    <h2>Чат с юридическим ассистентом</h2>
+                    <button id="create-thread-btn" class="button"><i class="fas fa-plus"></i> Новый тред</button>
+                </div>
+
+                <div class="chat-container">
+                    <div class="threads-list" id="threads-list">
+                        <div class="thread-placeholder" style="padding: 20px; text-align: center; color: #95a5a6;">
+                            Загрузка тредов...
+                        </div>
+                    </div>
+                    <div class="chat-content">
+                        <div class="messages-container" id="messages-container">
+                            <div class="message-placeholder" style="text-align: center; color: #95a5a6; margin-top: 20px;">
+                                Выберите тред или создайте новый
+                            </div>
+                        </div>
+                        <div class="upload-preview" id="upload-preview">
+                            <span id="file-name"></span>
+                            <button class="remove-file" id="remove-file"><i class="fas fa-times"></i></button>
+                        </div>
+                        <div class="input-container">
+                            <button class="send-button file-button" id="file-button">
+                                <i class="fas fa-paperclip"></i>
+                            </button>
+                            <input type="file" id="file-input" style="display: none;">
+                            <textarea class="chat-input" id="chat-input" placeholder="Введите ваш запрос..."></textarea>
+                            <button class="send-button" id="send-button">
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="files-tab" class="tab-content">
+                <div class="flex flex-between mb-10">
+                    <h2>Управление файлами</h2>
+                    <button id="upload-file-btn" class="button"><i class="fas fa-upload"></i> Загрузить файл</button>
+                    <input type="file" id="upload-file-input" style="display: none;">
+                </div>
+
+                <div class="card">
+                    <h3>Загруженные файлы</h3>
+                    <ul class="files-list" id="files-list">
+                        <li class="file-item">
+                            <div class="file-info">
+                                <div class="file-name">example.docx</div>
+                                <div class="file-date">Загружен: 01.01.2025 12:00</div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="button"><i class="fas fa-download"></i></button>
+                                <button class="button danger"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div id="profile-tab" class="tab-content">
+                <div class="card">
+                    <h2>Профиль пользователя</h2>
+                    <div id="profile-details" class="profile-details">
+                        <div class="profile-field">
+                            <strong>ID:</strong>
+                            <span id="profile-id"></span>
+                        </div>
+                        <div class="profile-field">
+                            <strong>Email:</strong>
+                            <span id="profile-email"></span>
+                        </div>
+                        <div class="profile-field">
+                            <strong>Имя:</strong>
+                            <span id="profile-first-name"></span>
+                        </div>
+                        <div class="profile-field">
+                            <strong>Фамилия:</strong>
+                            <span id="profile-last-name"></span>
+                        </div>
+                        <div class="profile-field">
+                            <strong>Статус:</strong>
+                            <span id="profile-status"></span>
+                        </div>
+                    </div>
+                    <div class="flex flex-center mt-10">
+                        <button id="logout-btn" class="button danger">Выйти из системы</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="api-test-tab" class="tab-content">
+                <div class="card">
+                    <h2>Тестирование API</h2>
+                    <p>Используйте этот раздел для тестирования отдельных API-эндпоинтов</p>
+
+                    <div class="form-group">
+                        <label for="api-endpoint">Эндпоинт</label>
+                        <select id="api-endpoint">
+                            <option value="/chat/{thread_id}">POST /chat/{thread_id}</option>
+                            <option value="/create_thread">POST /create_thread</option>
+                            <option value="/chat/threads">GET /chat/threads</option>
+                            <option value="/messages/{thread_id}">GET /messages/{thread_id}</option>
+                            <option value="/upload_file">POST /upload_file</option>
+                            <option value="/download/{filename}">GET /download/{filename}</option>
+                            <option value="/register">POST /register</option>
+                            <option value="/verify">POST /verify</option>
+                            <option value="/login">POST /login</option>
+                            <option value="/profile">GET /profile</option>
+                            <option value="/forgot-password">POST /forgot-password</option>
+                            <option value="/reset-password">POST /reset-password</option>
+                            <option value="/logout">POST /logout</option>
+                        </select>
+                    </div>
+
+                    <div id="endpoint-params" class="form-group">
+                        <!-- Параметры эндпоинта будут генерироваться здесь динамически -->
+                    </div>
+
+                    <button id="test-api-btn" class="button">Выполнить запрос</button>
+
+                    <div class="form-group mt-10">
+                        <label for="api-response">Ответ</label>
+                        <textarea id="api-response" rows="10" readonly style="background-color: #f5f5f5; font-family: monospace;"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-container" id="loading-container">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <span id="loading-message">Загрузка...</span>
+        </div>
+    </div>
+
+    <script>
+        // API URL (измените на нужный URL)
+        const API_URL = 'http://127.0.0.1:8000/';
+        let currentThreadId = null;
+        let accessToken = localStorage.getItem('access_token');
+        let selectedFile = null;
+
+        // DOM Elements
+        const authContainer = document.getElementById('auth-container');
+        const appContainer = document.getElementById('app-container');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const verifyForm = document.getElementById('verify-form');
+        const forgotPasswordForm = document.getElementById('forgot-password-form');
+        const resetPasswordForm = document.getElementById('reset-password-form');
+        const loginFormElement = document.getElementById('login-form-element');
+        const registerFormElement = document.getElementById('register-form-element');
+        const verifyFormElement = document.getElementById('verify-form-element');
+        const forgotPasswordFormElement = document.getElementById('forgot-password-form-element');
+        const resetPasswordFormElement = document.getElementById('reset-password-form-element');
+        const authStatus = document.getElementById('auth-status');
+        const loginBtn = document.getElementById('login-btn');
+        const showRegisterBtn = document.getElementById('show-register-btn');
+        const showLoginBtn = document.getElementById('show-login-btn');
+        const forgotPasswordLink = document.getElementById('forgot-password-link');
+        const createThreadBtn = document.getElementById('create-thread-btn');
+        const threadsList = document.getElementById('threads-list');
+        const messagesContainer = document.getElementById('messages-container');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+        const fileButton = document.getElementById('file-button');
+        const fileInput = document.getElementById('file-input');
+        const uploadPreview = document.getElementById('upload-preview');
+        const fileName = document.getElementById('file-name');
+        const removeFile = document.getElementById('remove-file');
+        const uploadFileBtn = document.getElementById('upload-file-btn');
+        const uploadFileInput = document.getElementById('upload-file-input');
+        const filesList = document.getElementById('files-list');
+        const profileDetails = document.getElementById('profile-details');
+        const profileId = document.getElementById('profile-id');
+        const profileEmail = document.getElementById('profile-email');
+        const profileFirstName = document.getElementById('profile-first-name');
+        const profileLastName = document.getElementById('profile-last-name');
+        const profileStatus = document.getElementById('profile-status');
+        const logoutBtn = document.getElementById('logout-btn');
+        const apiEndpoint = document.getElementById('api-endpoint');
+        const endpointParams = document.getElementById('endpoint-params');
+        const testApiBtn = document.getElementById('test-api-btn');
+        const apiResponse = document.getElementById('api-response');
+        const loadingContainer = document.getElementById('loading-container');
+        const loadingMessage = document.getElementById('loading-message');
+
+        // Tabs
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        // Функция для проверки авторизации
+        function checkAuth() {
+            if (accessToken) {
+                authContainer.style.display = 'none';
+                appContainer.style.display = 'block';
+                authStatus.innerHTML = `
+                    <button id="profile-btn" class="button">
+                        <i class="fas fa-user"></i> Профиль
+                    </button>
+                    <button id="logout-btn-header" class="button danger">
+                        <i class="fas fa-sign-out-alt"></i> Выйти
+                    </button>
+                `;
+                document.getElementById('profile-btn').addEventListener('click', () => {
+                    selectTab('profile');
+                });
+                document.getElementById('logout-btn-header').addEventListener('click', logout);
+                
+                // Загружаем профиль
+                getProfile();
+                
+                // Загружаем треды
+                getThreads();
+            } else {
+                authContainer.style.display = 'block';
+                appContainer.style.display = 'none';
+                authStatus.innerHTML = `
+                    <button id="login-btn" class="button">Войти</button>
+                `;
+                document.getElementById('login-btn').addEventListener('click', () => {
+                    showLoginForm();
+                });
+            }
+        }
+
+        // Функция для отображения загрузки
+        function showLoading(message = 'Загрузка...') {
+            loadingMessage.textContent = message;
+            loadingContainer.classList.add('active');
+        }
+
+        // Функция для скрытия загрузки
+        function hideLoading() {
+            loadingContainer.classList.remove('active');
+        }
+
+        // Функция для отображения сообщения об ошибке
+        function showError(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-error';
+            alert.textContent = message;
+            
+            // Находим текущий активный таб
+            const activeTab = document.querySelector('.tab-content.active');
+            if (activeTab) {
+                activeTab.insertBefore(alert, activeTab.firstChild);
+                
+                // Автоматически удаляем сообщение через 5 секунд
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+
+        // Функция для отображения сообщения об успехе
+        function showSuccess(message) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success';
+            alert.textContent = message;
+            
+            // Находим текущий активный таб
+            const activeTab = document.querySelector('.tab-content.active');
+            if (activeTab) {
+                activeTab.insertBefore(alert, activeTab.firstChild);
+                
+                // Автоматически удаляем сообщение через 5 секунд
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+
+        // Функция для обработки API запросов
+        async function apiRequest(url, method, data = null, isFormData = false) {
+            try {
+                const headers = {};
+                
+                if (accessToken && !isFormData) {
+                    headers['Authorization'] = `Bearer ${accessToken}`;
+                }
+                
+                if (!isFormData && method !== 'GET') {
+                    headers['Content-Type'] = 'application/json';
+                }
+
+                const options = {
+                    method,
+                    headers
+                };
+
+                if (data) {
+                    if (isFormData) {
+                        options.body = data;
+                        if (accessToken) {
+                            options.headers['Authorization'] = `Bearer ${accessToken}`;
+                        }
+                    } else if (method !== 'GET') {
+                        options.body = JSON.stringify(data);
+                    }
+                }
+
+                const response = await fetch(API_URL + url, options);
+                const responseData = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(responseData.detail || 'Произошла ошибка при запросе к API');
+                }
+
+                return responseData;
+            } catch (error) {
+                console.error('API Error:', error);
+                showError(error.message);
+                throw error;
+            }
+        }
+
+        // Функции для работы с аутентификацией
+        async function login(email, password) {
+            showLoading('Выполняется вход...');
+            try {
+                const data = await apiRequest('login', 'POST', { email, password });
+                accessToken = data.access_token;
+                localStorage.setItem('access_token', accessToken);
+                checkAuth();
+                showSuccess('Вы успешно вошли в систему');
+            } catch (error) {
+                console.error('Login error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function register(email, password, firstName, lastName) {
+            showLoading('Регистрация...');
+            try {
+                const data = await apiRequest('register', 'POST', {
+                    email,
+                    password,
+                    first_name: firstName,
+                    last_name: lastName
+                });
+                
+                // Показываем форму верификации после успешной регистрации
+                showVerifyForm();
+                localStorage.setItem('temp_token', data.temp_token);
+                showSuccess('Код подтверждения отправлен на вашу почту');
+            } catch (error) {
+                console.error('Register error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function verify(code) {
+            showLoading('Проверка кода...');
+            try {
+                const tempToken = localStorage.getItem('temp_token');
+                if (!tempToken) {
+                    throw new Error('Токен не найден, попробуйте зарегистрироваться заново');
+                }
+                
+                // Устанавливаем токен для запроса верификации
+                const originalToken = accessToken;
+                accessToken = tempToken;
+                
+                const data = await apiRequest('verify', 'POST', { code });
+                
+                // Устанавливаем новый токен после верификации
+                accessToken = data.access_token;
+                localStorage.setItem('access_token', accessToken);
+                localStorage.removeItem('temp_token');
+                
+                checkAuth();
+                showSuccess('Регистрация успешно завершена');
+            } catch (error) {
+                console.error('Verify error:', error);
+                accessToken = localStorage.getItem('access_token');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function forgotPassword(email) {
+            showLoading('Отправка запроса...');
+            try {
+                await apiRequest('forgot-password', 'POST', { email });
+                showResetPasswordForm();
+                // Сохраняем email для сброса пароля
+                document.getElementById('reset-email').value = email;
+                showSuccess('Код восстановления отправлен на вашу почту');
+            } catch (error) {
+                console.error('Forgot password error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function resetPassword(email, code, newPassword) {
+            showLoading('Сброс пароля...');
+            try {
+                await apiRequest('reset-password', 'POST', {
+                    email,
+                    code,
+                    new_password: newPassword
+                });
+                showLoginForm();
+                showSuccess('Пароль успешно сброшен. Теперь вы можете войти с новым паролем.');
+            } catch (error) {
+                console.error('Reset password error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function logout() {
+            showLoading('Выход из системы...');
+            try {
+                await apiRequest('logout', 'POST');
+            } catch (error) {
+                console.error('Logout error:', error);
+            } finally {
+                // Даже при ошибке разлогиниваем пользователя локально
+                accessToken = null;
+                localStorage.removeItem('access_token');
+                checkAuth();
+                hideLoading();
+                showSuccess('Вы вышли из системы');
+            }
+        }
+
+        async function getProfile() {
+            showLoading('Загрузка профиля...');
+            try {
+                const profile = await apiRequest('profile', 'GET');
+                
+                profileId.textContent = profile.id;
+                profileEmail.textContent = profile.email;
+                profileFirstName.textContent = profile.first_name;
+                profileLastName.textContent = profile.last_name;
+                profileStatus.textContent = profile.is_active ? 'Активен' : 'Неактивен';
+                profileStatus.className = profile.is_active ? 'badge success' : 'badge danger';
+            } catch (error) {
+                console.error('Get profile error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Функции для работы с тредами
+        async function getThreads() {
+            showLoading('Загрузка тредов...');
+            try {
+                const data = await apiRequest('chat/threads', 'GET');
+                renderThreads(data.threads);
+            } catch (error) {
+                console.error('Get threads error:', error);
+                threadsList.innerHTML = '<div class="thread-placeholder" style="padding: 20px; text-align: center; color: #95a5a6;">Ошибка загрузки тредов</div>';
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function createThread() {
+            showLoading('Создание нового треда...');
+            try {
+                const data = await apiRequest('create_thread', 'POST');
+                currentThreadId = data.thread_id;
+                await getThreads();
+                selectThread(currentThreadId);
+                showSuccess('Новый тред создан');
+            } catch (error) {
+                console.error('Create thread error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function getMessages(threadId) {
+            showLoading('Загрузка сообщений...');
+            try {
+                const data = await apiRequest(`messages/${threadId}`, 'GET');
+                renderMessages(data.messages);
+            } catch (error) {
+                console.error('Get messages error:', error);
+                messagesContainer.innerHTML = '<div class="message-placeholder" style="text-align: center; color: #95a5a6; margin-top: 20px;">Ошибка загрузки сообщений</div>';
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function sendMessage(threadId, query, file = null) {
+            if (!query.trim() && !file) {
+                showError('Введите сообщение или выберите файл');
+                return;
+            }
+
+            showLoading('Отправка сообщения...');
+            
+            try {
+                let formData = new FormData();
+                formData.append('query', query);
+                
+                if (file) {
+                    formData.append('file', file);
+                }
+                
+                const data = await apiRequest(`chat/${threadId}`, 'POST', formData, true);
+                
+                // Добавляем сообщение пользователя
+                const userMessage = {
+                    content: query,
+                    role: 'user',
+                    created_at: new Date().toISOString()
+                };
+                
+                // Добавляем сообщение ассистента
+                const assistantMessage = {
+                    content: data.assistant_response,
+                    role: 'assistant',
+                    created_at: new Date().toISOString()
+                };
+                
+                // Если был загружен файл, добавляем информацию о файле
+                if (file) {
+                    const fileMessage = {
+                        content: `Документ: ${file.name}`,
+                        role: 'user',
+                        created_at: new Date().toISOString()
+                    };
+                    renderMessage(fileMessage);
+                }
+                
+                renderMessage(userMessage);
+                renderMessage(assistantMessage);
+                
+                // Очищаем поле ввода и убираем файл
+                chatInput.value = '';
+                clearFileSelection();
+                
+                // Прокручиваем к последнему сообщению
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            } catch (error) {
+                console.error('Send message error:', error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Функции для работы с файлами
+        async function uploadFile(file) {
+            showLoading('Загрузка файла...');
+            try {
+                let formData = new FormData();
+                formData.append('file', file);
+                
+                const data = await apiRequest('upload_file', 'POST', formData, true);
+                getFiles();
+                showSuccess('Файл успешно загружен');
+                return data;
+            } catch (error) {
+                console.error('Upload file error:', error);
+                throw error;
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function downloadFile(filename) {
+            try {
+                // Создаем ссылку для скачивания
+                const link = document.createElement('a');
+                link.href = API_URL + `download/${filename}`;
+                
+                // Добавляем токен как query parameter
+                if (accessToken) {
+                    link.href += `?token=${accessToken}`;
+                }
+                
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (error) {
+                console.error('Download file error:', error);
+                showError('Ошибка при скачивании файла');
+            }
+        }
+
+        async function getFiles() {
+            showLoading('Загрузка файлов...');
+            try {
+                // Здесь должен быть API запрос для получения списка файлов
+                // В текущем API такого эндпоинта нет, поэтому это заглушка
+                filesList.innerHTML = '<div style="text-align: center; padding: 20px; color: #95a5a6;">API для получения списка файлов не предоставлен</div>';
+            } catch (error) {
+                console.error('Get files error:', error);
+                filesList.innerHTML = '<div style="text-align: center; padding: 20px; color: #95a5a6;">Ошибка загрузки файлов</div>';
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Функции рендеринга UI
+        function renderThreads(threads) {
+            if (!threads || threads.length === 0) {
+                threadsList.innerHTML = '<div class="thread-placeholder" style="padding: 20px; text-align: center; color: #95a5a6;">Нет тредов</div>';
+                return;
+            }
+            
+            threadsList.innerHTML = '';
+            
+            threads.forEach(thread => {
+                const date = new Date(thread.created_at);
+                const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+                
+                const threadElement = document.createElement('div');
+                threadElement.className = `thread-item ${thread.id === currentThreadId ? 'active' : ''}`;
+                threadElement.dataset.threadId = thread.id;
+                threadElement.innerHTML = `
+                    <div class="thread-title">Тред #${thread.id.slice(-6)}</div>
+                    <div class="thread-date">${formattedDate}</div>
+                `;
+                
+                threadElement.addEventListener('click', () => {
+                    selectThread(thread.id);
+                });
+                
+                threadsList.appendChild(threadElement);
+            });
+        }
+
+        function renderMessages(messages) {
+            if (!messages || messages.length === 0) {
+                messagesContainer.innerHTML = '<div class="message-placeholder" style="text-align: center; color: #95a5a6; margin-top: 20px;">Нет сообщений</div>';
+                return;
+            }
+            
+            messagesContainer.innerHTML = '';
+            
+            messages.forEach(message => {
+                renderMessage(message);
+            });
+            
+            // Прокручиваем к последнему сообщению
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function renderMessage(message) {
+            const date = new Date(message.created_at);
+            const formattedTime = date.toLocaleTimeString();
+            
+            const messageElement = document.createElement('div');
+            messageElement.className = `message message-${message.role}`;
+            
+            messageElement.innerHTML = `
+                <div class="message-content">${message.content}</div>
+                <div class="message-time">${formattedTime}</div>
+            `;
+            
+            messagesContainer.appendChild(messageElement);
+        }
+
+        // Вспомогательные функции
+        function selectTab(tabName) {
+            tabs.forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.tab === tabName) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+                if (content.id === `${tabName}-tab`) {
+                    content.classList.add('active');
+                }
+            });
+            
+            // Загружаем данные в зависимости от выбранного таба
+            if (tabName === 'files') {
+                getFiles();
+            } else if (tabName === 'profile') {
+                getProfile();
+            } else if (tabName === 'chat') {
+                getThreads();
+            } else if (tabName === 'api-test') {
+                updateEndpointParams();
+            }
+        }
+
+        function selectThread(threadId) {
+            currentThreadId = threadId;
+            
+            // Обновляем UI
+            document.querySelectorAll('.thread-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.threadId === threadId) {
+                    item.classList.add('active');
+                }
+            });
+            
+            // Загружаем сообщения
+            getMessages(threadId);
+        }
+
+        function showLoginForm() {
+            loginForm.style.display = 'block';
+            registerForm.style.display = 'none';
+            verifyForm.style.display = 'none';
+            forgotPasswordForm.style.display = 'none';
+            resetPasswordForm.style.display = 'none';
+        }
+
+        function showRegisterForm() {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'block';
+            verifyForm.style.display = 'none';
+            forgotPasswordForm.style.display = 'none';
+            resetPasswordForm.style.display = 'none';
+        }
+
+        function showVerifyForm() {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'none';
+            verifyForm.style.display = 'block';
+            forgotPasswordForm.style.display = 'none';
+            resetPasswordForm.style.display = 'none';
+        }
+
+        function showForgotPasswordForm() {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'none';
+            verifyForm.style.display = 'none';
+            forgotPasswordForm.style.display = 'block';
+            resetPasswordForm.style.display = 'none';
+        }
+
+        function showResetPasswordForm() {
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'none';
+            verifyForm.style.display = 'none';
+            forgotPasswordForm.style.display = 'none';
+            resetPasswordForm.style.display = 'block';
+        }
+
+        function handleFileSelection(file) {
+            if (file) {
+                selectedFile = file;
+                fileName.textContent = file.name;
+                uploadPreview.classList.add('active');
+            }
+        }
+
+        function clearFileSelection() {
+            selectedFile = null;
+            fileName.textContent = '';
+            uploadPreview.classList.remove('active');
+            fileInput.value = '';
+        }
+
+        // Функции для работы с API тестером
+        function updateEndpointParams() {
+            const endpoint = apiEndpoint.value;
+            let paramsHtml = '';
+            
+            switch (endpoint) {
+                case '/chat/{thread_id}':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="chat-thread-id">Thread ID</label>
+                            <input type="text" id="chat-thread-id" placeholder="thread_123456">
+                        </div>
+                        <div class="form-group">
+                            <label for="chat-query">Query</label>
+                            <textarea id="chat-query" placeholder="Ваш запрос"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="chat-file">File (опционально)</label>
+                            <input type="file" id="chat-file">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/create_thread':
+                    paramsHtml = '<p>Этот эндпоинт не требует параметров</p>';
+                    break;
+                    
+                case '/chat/threads':
+                    paramsHtml = '<p>Этот эндпоинт не требует параметров</p>';
+                    break;
+                    
+                case '/messages/{thread_id}':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="messages-thread-id">Thread ID</label>
+                            <input type="text" id="messages-thread-id" placeholder="thread_123456">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/upload_file':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="upload-file">File</label>
+                            <input type="file" id="upload-file">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/download/{filename}':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="download-filename">Filename</label>
+                            <input type="text" id="download-filename" placeholder="example.docx">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/register':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="register-api-email">Email</label>
+                            <input type="email" id="register-api-email">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-api-password">Password</label>
+                            <input type="password" id="register-api-password">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-api-first-name">First Name</label>
+                            <input type="text" id="register-api-first-name">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-api-last-name">Last Name</label>
+                            <input type="text" id="register-api-last-name">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/verify':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="verify-api-code">Verification Code</label>
+                            <input type="text" id="verify-api-code">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/login':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="login-api-email">Email</label>
+                            <input type="email" id="login-api-email">
+                        </div>
+                        <div class="form-group">
+                            <label for="login-api-password">Password</label>
+                            <input type="password" id="login-api-password">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/profile':
+                    paramsHtml = '<p>Этот эндпоинт не требует параметров</p>';
+                    break;
+                    
+                case '/forgot-password':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="forgot-api-email">Email</label>
+                            <input type="email" id="forgot-api-email">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/reset-password':
+                    paramsHtml = `
+                        <div class="form-group">
+                            <label for="reset-api-email">Email</label>
+                            <input type="email" id="reset-api-email">
+                        </div>
+                        <div class="form-group">
+                            <label for="reset-api-code">Code</label>
+                            <input type="text" id="reset-api-code">
+                        </div>
+                        <div class="form-group">
+                            <label for="reset-api-new-password">New Password</label>
+                            <input type="password" id="reset-api-new-password">
+                        </div>
+                    `;
+                    break;
+                    
+                case '/logout':
+                    paramsHtml = '<p>Этот эндпоинт не требует параметров</p>';
+                    break;
+            }
+            
+            endpointParams.innerHTML = paramsHtml;
+        }
+
+        async function testApi() {
+            const endpoint = apiEndpoint.value;
+            let url = endpoint;
+            let method = 'GET';
+            let data = null;
+            let isFormData = false;
+            
+            // Определяем метод запроса
+            if (endpoint.startsWith('/chat/') && !endpoint.includes('threads')) {
+                method = 'POST';
+            } else if (endpoint === '/create_thread' || endpoint === '/register' || 
+                       endpoint === '/verify' || endpoint === '/login' || 
+                       endpoint === '/forgot-password' || endpoint === '/reset-password' || 
+                       endpoint === '/logout' || endpoint === '/upload_file') {
+                method = 'POST';
+            }
+            
+            // Собираем данные в зависимости от эндпоинта
+            switch (endpoint) {
+                case '/chat/{thread_id}':
+                    const chatThreadId = document.getElementById('chat-thread-id').value;
+                    const chatQuery = document.getElementById('chat-query').value;
+                    const chatFile = document.getElementById('chat-file').files[0];
+                    
+                    url = url.replace('{thread_id}', chatThreadId);
+                    
+                    if (chatFile) {
+                        isFormData = true;
+                        data = new FormData();
+                        data.append('query', chatQuery);
+                        data.append('file', chatFile);
+                    } else {
+                        data = { query: chatQuery };
+                    }
+                    break;
+                    
+                case '/messages/{thread_id}':
+                    const messagesThreadId = document.getElementById('messages-thread-id').value;
+                    url = url.replace('{thread_id}', messagesThreadId);
+                    break;
+                    
+                case '/upload_file':
+                    const uploadApiFile = document.getElementById('upload-file').files[0];
+                    if (!uploadApiFile) {
+                        showError('Выберите файл для загрузки');
+                        return;
+                    }
+                    
+                    isFormData = true;
+                    data = new FormData();
+                    data.append('file', uploadApiFile);
+                    break;
+                    
+                case '/download/{filename}':
+                    const downloadFilename = document.getElementById('download-filename').value;
+                    url = url.replace('{filename}', downloadFilename);
+                    
+                    // Для скачивания файла используем прямую ссылку
+                    const link = document.createElement('a');
+                    link.href = API_URL + url;
+                    
+                    // Добавляем токен как query parameter
+                    if (accessToken) {
+                        link.href += `?token=${accessToken}`;
+                    }
+                    
+                    link.download = downloadFilename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    apiResponse.value = 'Скачивание файла запущено';
+                    return;
+                    
+                case '/register':
+                    data = {
+                        email: document.getElementById('register-api-email').value,
+                        password: document.getElementById('register-api-password').value,
+                        first_name: document.getElementById('register-api-first-name').value,
+                        last_name: document.getElementById('register-api-last-name').value
+                    };
+                    break;
+                    
+                case '/verify':
+                    data = {
+                        code: parseInt(document.getElementById('verify-api-code').value)
+                    };
+                    break;
+                    
+                case '/login':
+                    data = {
+                        email: document.getElementById('login-api-email').value,
+                        password: document.getElementById('login-api-password').value
+                    };
+                    break;
+                    
+                case '/forgot-password':
+                    data = {
+                        email: document.getElementById('forgot-api-email').value
+                    };
+                    break;
+                    
+                case '/reset-password':
+                    data = {
+                        email: document.getElementById('reset-api-email').value,
+                        code: parseInt(document.getElementById('reset-api-code').value),
+                        new_password: document.getElementById('reset-api-new-password').value
+                    };
+                    break;
+            }
+            
+            showLoading('Выполнение API запроса...');
+            
+            try {
+                const result = await apiRequest(url, method, data, isFormData);
+                apiResponse.value = JSON.stringify(result, null, 2);
+            } catch (error) {
+                console.error('API test error:', error);
+                apiResponse.value = JSON.stringify({ error: error.message }, null, 2);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // События
+        document.addEventListener('DOMContentLoaded', () => {
+            // Проверяем авторизацию
+            checkAuth();
+            
+            // Табы
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    selectTab(tab.dataset.tab);
+                });
+            });
+            
+            // Формы авторизации
+            loginFormElement.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('login-email').value;
+                const password = document.getElementById('login-password').value;
+                login(email, password);
+            });
+            
+            registerFormElement.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('register-email').value;
+                const password = document.getElementById('register-password').value;
+                const firstName = document.getElementById('register-first-name').value;
+                const lastName = document.getElementById('register-last-name').value;
+                register(email, password, firstName, lastName);
+            });
+            
+            verifyFormElement.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const code = parseInt(document.getElementById('verification-code').value);
+                verify(code);
+            });
+            
+            forgotPasswordFormElement.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('forgot-email').value;
+                forgotPassword(email);
+            });
+            
+            resetPasswordFormElement.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const email = document.getElementById('reset-email').value;
+                const code = parseInt(document.getElementById('reset-code').value);
+                const newPassword = document.getElementById('reset-new-password').value;
+                resetPassword(email, code, newPassword);
+            });
+            
+            // Навигация по формам
+            showRegisterBtn.addEventListener('click', showRegisterForm);
+            showLoginBtn.addEventListener('click', showLoginForm);
+            forgotPasswordLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                showForgotPasswordForm();
+            });
+            
+            // Чат
+            createThreadBtn.addEventListener('click', createThread);
+            
+            sendButton.addEventListener('click', () => {
+                if (!currentThreadId) {
+                    showError('Выберите тред или создайте новый');
+                    return;
+                }
+                
+                const query = chatInput.value;
+                sendMessage(currentThreadId, query, selectedFile);
+            });
+            
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendButton.click();
+                }
+            });
+            
+            // Файлы
+            fileButton.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleFileSelection(e.target.files[0]);
+                }
+            });
+            
+            removeFile.addEventListener('click', clearFileSelection);
+            
+            uploadFileBtn.addEventListener('click', () => {
+                uploadFileInput.click();
+            });
+            
+            uploadFileInput.addEventListener('change', async (e) => {
+                if (e.target.files.length > 0) {
+                    try {
+                        await uploadFile(e.target.files[0]);
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                    }
+                }
+            });
+            
+            // Профиль
+            logoutBtn.addEventListener('click', logout);
+            
+            // API тестер
+            apiEndpoint.addEventListener('change', updateEndpointParams);
+            updateEndpointParams(); // Инициализация параметров
+            
+            testApiBtn.addEventListener('click', testApi);
+        });
+    </script>
+</body>
+</html>

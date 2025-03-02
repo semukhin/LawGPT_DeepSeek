@@ -6,6 +6,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import asyncio
 import aiohttp
+import logging
 import time
 import ssl
 import os
@@ -36,6 +37,9 @@ class ScrapedContent:
     content_type: str = "text/html"
     status_code: Optional[int] = None
     error: Optional[str] = None
+    scrape_start_time: Optional[float] = None
+    scrape_end_time: Optional[float] = None 
+    content_size: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
@@ -51,21 +55,17 @@ class ScrapedContent:
             "error": self.error
         }
     
+    
     def is_successful(self) -> bool:
         """Check if scraping was successful."""
         return self.error is None and bool(self.text.strip())
     
-    @classmethod
-    def from_error(cls, url: str, error: str) -> 'ScrapedContent':
-        """Create an error result."""
-        return cls(
-            url=url,
-            title="Error",
-            text="",
-            html="",
-            metadata={},
-            error=error
-        )
+    def scrape_duration(self) -> Optional[float]:
+        """Return scraping duration in seconds if available."""
+        if self.scrape_start_time and self.scrape_end_time:
+            return self.scrape_end_time - self.scrape_start_time
+        return None
+    
 
 class ScraperCache:
     """Cache for scraped content to improve performance."""
@@ -616,8 +616,8 @@ class WebScraper:
         self,
         url: str,
         dynamic: bool = False,
+        force_refresh: bool = False,  # Добавленный параметр
         extract_images: bool = False,
-        force_refresh: bool = False,
         wait_for_selector: Optional[str] = None,
         extra_wait: int = 0
     ) -> ScrapedContent:
@@ -628,14 +628,60 @@ class WebScraper:
         Args:
             url: The URL to scrape
             dynamic: Whether to use Playwright for JavaScript rendering
-            extract_images: Whether to extract image data
             force_refresh: Whether to ignore cache and fetch fresh content
+            extract_images: Whether to extract image data
             wait_for_selector: CSS selector to wait for before considering page loaded
             extra_wait: Additional time in seconds to wait after page load
             
         Returns:
             ScrapedContent object (check is_successful() to verify success)
         """
+        scrape_start = time.time()
+        
+        # Check if the URL is likely a binary file
+        is_binary = url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'))
+        
+        if is_binary:
+            # Create a special handler for binary files
+            try:
+                # Get metadata without fetching full content
+                headers = {'User-Agent': self.user_agent}
+                async with aiohttp.ClientSession() as session:
+                    async with session.head(
+                        url, 
+                        headers=headers,
+                        ssl=False,  # Disable SSL verification for compatibility
+                        timeout=5
+                    ) as response:
+                        content_type = response.headers.get('Content-Type', '')
+                        content_length = response.headers.get('Content-Length', 'Unknown size')
+                        
+                        # Create a placeholder ScrapedContent
+                        file_ext = url.split('.')[-1].lower()
+                        title = f"{file_ext.upper()} Document: {url.split('/')[-1]}"
+                        
+                        return ScrapedContent(
+                            url=url,
+                            title=title,
+                            text=f"Binary {file_ext.upper()} file ({content_length} bytes) available at: {url}",
+                            html="",
+                            metadata={
+                                "binary_type": file_ext,
+                                "content_type": content_type,
+                                "content_length": content_length,
+                                "scraped": False
+                            },
+                            content_type=content_type or f"application/{file_ext}",
+                            scrape_start_time=scrape_start,
+                            scrape_end_time=time.time(),
+                            content_size=0
+                        )
+            except Exception as e:
+                logging.error(f"Error creating binary file placeholder for {url}: {e}")
+                # Return error content
+                return ScrapedContent.from_error(url, f"Error handling binary file: {str(e)}")
+        
+        # For non-binary files, use the existing scraping logic
         # Check cache first
         if not force_refresh:
             cached_content = self.cache.get(url)
@@ -653,7 +699,7 @@ class WebScraper:
             except Exception as e:
                 # On error, we'll log but continue anyway
                 print(f"Error checking robots.txt for {url}: {e}")
-        
+
         html = None
         content_type = None
         status_code = None
@@ -692,7 +738,10 @@ class WebScraper:
             html=html,
             metadata=content["metadata"],
             content_type=content_type or "text/html",
-            status_code=status_code
+            status_code=status_code,
+            scrape_start_time=scrape_start,
+            scrape_end_time=time.time(),
+            content_size=len(html) if html else 0
         )
         
         if result.is_successful():
@@ -703,12 +752,13 @@ class WebScraper:
             
         return result
 
+
     async def scrape_urls(
         self,
         urls: List[str],
         dynamic: bool = False,
         extract_images: bool = False,
-        force_refresh: bool = False,
+        force_refresh: bool = False,  # Добавить этот параметр со значением по умолчанию
         wait_for_selector: Optional[str] = None,
         extra_wait: int = 0
     ) -> List[ScrapedContent]:
