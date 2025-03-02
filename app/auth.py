@@ -10,7 +10,6 @@ from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
 from app.mail_utils import send_verification_email, send_recovery_email
 from app.models import TempUser
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from random import randint
 from app import models, database, mail_utils
@@ -104,6 +103,8 @@ async def register_user(
         "temp_token": temp_token
     }
 
+
+
 @router.post("/verify")
 async def verify_code(
     request: schemas.VerifyRequest,  # Используйте схему для тела запроса
@@ -151,6 +152,8 @@ async def verify_code(
         "access_token": access_token,
         "token_type": "bearer"
     }
+
+
 
 @router.post("/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):

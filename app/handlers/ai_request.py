@@ -3,6 +3,7 @@
 Поддерживает отправку запросов пользователей к ассистенту с возможностью функциональных вызовов.
 """
 import json
+import asyncio
 import logging
 from typing import Dict, Optional, List, Any
 from sqlalchemy.orm import Session 
@@ -10,7 +11,7 @@ from app.handlers.parallel_search import run_parallel_search
 from app.utils import measure_time
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.garant_process import process_garant_request
-from app.handlers.web_search import google_search, search_and_scrape
+from app.handlers.web_search import google_search, search_and_scrape, run_multiple_searches
 from app.services.deepresearch_service import DeepResearchService
 from app.services.deepseek_service import DeepSeekService
 from app.context_manager import ContextManager
@@ -22,7 +23,7 @@ deep_research_service = DeepResearchService()
 deepseek_service = DeepSeekService(
     api_key=DEEPSEEK_API_KEY, 
     model=DEEPSEEK_MODEL,
-    temperature=0.7
+    temperature=0.2  # Уменьшаем температуру для более детерминированного поведения
 )
 
 # Настройка логирования
@@ -32,6 +33,8 @@ def log_function_call(function_name: str, arguments: Dict) -> None:
     """Логирует вызов функции с аргументами для отладки."""
     logging.info(f"🔍 ФУНКЦИЯ ВЫЗВАНА: {function_name}")
     logging.info(f"🔍 АРГУМЕНТЫ: {json.dumps(arguments, ensure_ascii=False)}")
+
+
 
 async def handle_function_call(function_name: str, arguments: Dict) -> Dict:
     """Обработка вызова функций ассистентом."""
@@ -49,90 +52,142 @@ async def handle_function_call(function_name: str, arguments: Dict) -> Dict:
                 for i, chunk in enumerate(es_results[:2]):  # Выводим первые 2 чанка для проверки
                     logging.info(f"📄 Чанк {i+1}: {chunk[:100]}...")
                 
-                deep_results = await deep_research_service.research("\n".join(es_results))
-                return {"deep_research_results": deep_results.to_dict()}
+                # Соединяем все найденные чанки в один текст
+                combined_text = "\n\n".join(es_results)
+                
+                # Используем DeepResearch для анализа найденного законодательства
+                deep_results = await deep_research_service.research(combined_text)
+                
+                return {
+                    "found": True,
+                    "chunks_count": len(es_results),
+                    "deep_research_results": deep_results.to_dict()
+                }
+            
             logging.info("❌ Результаты поиска в законодательстве не найдены.")
-            return {"error": "Результаты поиска в законодательстве не найдены."}
+            return {"found": False, "error": "Результаты поиска в законодательстве не найдены."}
         except Exception as e:
             logging.error(f"Ошибка при поиске в законодательстве: {str(e)}")
-            return {"error": f"Ошибка при поиске в законодательстве: {str(e)}"}
-
-    elif function_name == "search_garant":
-        try:
-            logging.info("🔍 Выполнение поиска в Гаранте для запроса: '%s'", query)
-            # Создаем простую функцию логирования, которая требуется в process_garant_request
-            def rag_module(level, message):
-                logging_level = getattr(logging, level.upper(), logging.INFO)
-                logging.log(logging_level, message)
-                return f"[{level.upper()}] {message}"
-                
-            garant_results = process_garant_request(query, logs=[], rag_module=rag_module)
-            if garant_results:
-                logging.info(f"✅ Получены результаты из Гаранта: {garant_results.get('docx_file_path', '')}")
-                deep_results = await deep_research_service.research(garant_results.get("docx_file_path", ""))
-                return {"deep_research_results": deep_results.to_dict()}
-            logging.info("❌ Результаты Гаранта не найдены.")
-            return {"error": "Результаты Гаранта не найдены."}
-        except Exception as e:
-            logging.error(f"Ошибка при поиске в Гаранте: {str(e)}")
-            return {"error": f"Ошибка при поиске в Гаранте: {str(e)}"}
+            return {"found": False, "error": f"Ошибка при поиске в законодательстве: {str(e)}"}
 
     elif function_name == "search_web":
         try:
             logging.info("🔍 Выполнение веб-поиска для запроса: '%s'", query)
             logs = []
-            search_results = await search_and_scrape(query, logs)
             
-            if search_results:
+            # Используем множественный поиск вместо простого
+            search_results = await run_multiple_searches(query, logs)
+            
+            # Собираем все успешные результаты из разных типов поиска
+            all_results = []
+            for search_type, results in search_results.items():
+                all_results.extend(results)
+            
+            if all_results:
+                logging.info(f"✅ Найдено {len(all_results)} релевантных веб-страниц")
+                
+                # Подготавливаем контент для анализа
                 extracted_texts = []
-                for result in search_results:
+                for result in all_results:
                     if result.is_successful():
                         extracted_texts.append({
                             "url": result.url,
                             "title": result.title,
-                            "text": result.text[:2000]  # Ограничиваем размер
+                            "text": result.text[:3000]  # Берем до 3000 символов из каждого источника
                         })
                 
-                if extracted_texts:
-                    logging.info(f"✅ Найдено {len(extracted_texts)} релевантных веб-страниц")
-                    
-                    combined_text = "\n\n".join([
-                        f"Источник: {item['url']}\nЗаголовок: {item['title']}\n{item['text']}"
-                        for item in extracted_texts
-                    ])
-                    
-                    deep_results = await deep_research_service.research(combined_text)
-                    return {"deep_research_results": deep_results.to_dict()}
+                combined_text = "\n\n".join([
+                    f"Источник: {item['url']}\nЗаголовок: {item['title']}\n{item['text']}"
+                    for item in extracted_texts
+                ])
                 
+                # Используем DeepResearch для анализа
+                deep_results = await deep_research_service.research(combined_text)
+                
+                return {
+                    "found": True, 
+                    "sources_count": len(extracted_texts),
+                    "sources": [{"url": item["url"], "title": item["title"]} for item in extracted_texts[:5]],
+                    "deep_research_results": deep_results.to_dict()
+                }
+            
             logging.info("❌ Релевантные веб-результаты не найдены.")
-            return {"error": "Релевантные веб-результаты не найдены."}
+            return {"found": False, "error": "Релевантные веб-результаты не найдены."}
         except Exception as e:
             logging.error(f"Ошибка при веб-поиске: {str(e)}")
-            return {"error": f"Ошибка при веб-поиске: {str(e)}"}
+            return {"found": False, "error": f"Ошибка при веб-поиске: {str(e)}"}
     
     elif function_name == "deep_research":
         try:
             logging.info("🔍 Выполнение глубокого исследования для запроса: '%s'", query)
-            deep_results = await deep_research_service.research(query)
-            return {"deep_research_results": deep_results.to_dict()}
+            
+            # Собираем контекст из всех доступных источников
+            logs = []
+            additional_context = []
+            
+            # 1. Поиск в Elasticsearch
+            try:
+                es_results = search_law_chunks(query)
+                if es_results:
+                    additional_context.append({
+                        "type": "legislation",
+                        "found": True,
+                        "data": es_results[:5]  # Берем до 5 наиболее релевантных результатов
+                    })
+            except Exception as e:
+                logging.error(f"Ошибка при получении контекста из Elasticsearch: {str(e)}")
+            
+            # 2. Поиск в интернете
+            try:
+                web_results = await run_multiple_searches(query, logs)
+                all_web_results = []
+                for search_type, results in web_results.items():
+                    all_web_results.extend(results)
+                
+                if all_web_results:
+                    extracted_texts = []
+                    for result in all_web_results:
+                        if result.is_successful():
+                            extracted_texts.append({
+                                "url": result.url,
+                                "title": result.title,
+                                "text": result.text[:2000]  # Ограничиваем размер для каждого результата
+                            })
+                    
+                    if extracted_texts:
+                        additional_context.append({
+                            "type": "web",
+                            "found": True,
+                            "data": extracted_texts[:5]  # Берем до 5 наиболее релевантных результатов
+                        })
+            except Exception as e:
+                logging.error(f"Ошибка при получении контекста из интернета: {str(e)}")
+            
+            # Выполняем исследование с учетом всего найденного контекста
+            deep_results = await deep_research_service.research(query, additional_context)
+            
+            return {
+                "found": True,
+                "deep_research_results": deep_results.to_dict()
+            }
         except Exception as e:
             logging.error(f"Ошибка при глубоком исследовании: {str(e)}")
-            return {"error": f"Ошибка при глубоком исследовании: {str(e)}"}
+            return {"found": False, "error": f"Ошибка при глубоком исследовании: {str(e)}"}
             
-    return {"error": f"Неизвестная функция: {function_name}"}
+    return {"found": False, "error": f"Неизвестная функция: {function_name}"}
 
 
 # Определение схем функций для DeepSeek API
 AVAILABLE_FUNCTIONS = [
     {
         "name": "search_law_chunks",
-        "description": "Поиск в базе российского законодательства по указанному запросу",
+        "description": "Поиск в базе российского законодательства по указанному запросу. Используй эту функцию для запросов о законах, правовых нормах, гражданском кодексе, и других законодательных актах.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Текст запроса для поиска в законодательстве"
+                    "description": "Текст запроса для поиска в законодательстве. Должен содержать ключевые юридические термины и номера статей, если известны."
                 }
             },
             "required": ["query"]
@@ -140,13 +195,13 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "search_garant",
-        "description": "Поиск в базе Гарант по указанному запросу",
+        "description": "Поиск в базе Гарант по указанному запросу. Используй для поиска судебной практики, постановлений, и решений судов.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Текст запроса для поиска в базе Гарант"
+                    "description": "Текст запроса для поиска в базе Гарант. Для поиска судебной практики сформулируй запрос с указанием релевантных статей и конкретными юридическими терминами."
                 }
             },
             "required": ["query"]
@@ -154,13 +209,13 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "search_web",
-        "description": "Поиск в интернете по указанному запросу",
+        "description": "Поиск в интернете по указанному запросу. Используй для поиска актуальной информации, статей, и обзоров.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Текст запроса для поиска в интернете"
+                    "description": "Текст запроса для поиска в интернете. Запрос должен быть сформулирован так, чтобы получить актуальную информацию по теме."
                 }
             },
             "required": ["query"]
@@ -168,13 +223,13 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "deep_research",
-        "description": "Проведение глубокого исследования по указанному запросу",
+        "description": "Проведение глубокого исследования по указанному запросу. Используй для комплексного анализа правовых вопросов.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Текст запроса для глубокого исследования"
+                    "description": "Текст запроса для глубокого исследования. Должен быть детальным и содержать конкретную юридическую проблему для анализа."
                 }
             },
             "required": ["query"]
@@ -186,7 +241,7 @@ AVAILABLE_FUNCTIONS = [
 @measure_time
 async def send_custom_request(user_query: str, thread_id: Optional[str] = None, db: Optional[Session] = None) -> str:
     """
-    Отправляет пользовательский запрос к DeepSeek API.
+    Отправляет пользовательский запрос и выполняет прямой поиск без function calling.
     
     Args:
         user_query: Запрос пользователя
@@ -198,25 +253,45 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
     """
     logging.info(f"📝 Новый запрос пользователя: {user_query[:100]}...")
     
-    # Создаем промпт для ассистента
+    # Системный промпт для анализа информации
     system_prompt = """
-    Ты - юридический ассистент LawGPT, специализирующийся на российском законодательстве.
-    Твоя задача - предоставлять точную, полезную информацию по юридическим вопросам.
+    Ты - юридический ассистент LawGPT (профессиональный юрист), специализирующийся на российском законодательстве.
+    Твоя задача - предоставлять точную, полезную информацию по юридическим вопросам,
+    основываясь на фактических данных из законодательства, судебной практики и 
+    проверенных источников.
     
-    Придерживайся следующих принципов:
-    1. Используй актуальную информацию из российского законодательства
-    2. Отвечай структурированно и информативно
-    3. Если не уверен в ответе, так и скажи - не выдумывай информацию
-    4. Предлагай ссылки на законы и нормативные акты, когда это уместно
+    Структурируй ответы, выделяя:
+    - Применимые нормы законодательства с точными ссылками на статьи законов и другие нормы права,
+    - Судебную практику и правовые позиции судов,
+    - Практические рекомендации по ситуации.
+
+
+        1. Ты анализируешь вопросы пользователя, связанные с законодательством, судебной практикой и готовишь процессуальные документы (исковые заявления, отзывы о исковых заявлениях, ходатайства и другие) и договоры. 
+
+        2. Не сокращай твой итоговый ответ, он должен быть большим, максимально развёрнутым и структурированным, с ссылками на нормы права или разъяснения госорганов и цитатами из решений судов.
+
+        3. Используй законы Российской Федерации, комментарии, формы процессуальных документов, договоров, аналитические данные, что позволит тебе предоставлять пользователю персонализированные ответы и рекомендации, основанные на актуальных правовых нормах. 
+
+        4. Ты не должен рекомендовать пользователю обращаться к официальным источникам законов и кодексов, таким как "Гарант" или "КонсультантПлюс", "Кодекс" или kad.arbitr.ru, так как у тебя и так есть доступ к кодексам и законам.
+
+        5. Не упоминай в ответах источник данных. Тебе нельзя в сообщениях пользователю сообщать какими источниками данных ты пользуешься.
+
+        6. Диалог с пользователем следует вести исключительно по юридическим вопросам, строго избегая технические.
+
+            СТРОГО ЗАПРЕЩЕНО:
+        1. НИКОГДА не указывай номера судебных дел с повторяющимися или последовательными цифрами (например, А40-123456/2019, А40-123123/2020, А40-123321/2022 и т.п.).
+        2. НИКОГДА не указывай выдуманные номера судебных дел.
+        3. При ссылке на судебную практику либо:
+        а) ссылайся только на реальные номера дел из предоставленных источников,
+        б) либо указывай общие сведения о судебной позиции без привязки к конкретным делам (например: "Согласно позиции ВС РФ..." или "В судебной практике сложился подход...").
+        4. Никогда не указывай номера дел вида "А40-XXXXXX/YYYY", где XXXXXX - шестизначное число, а YYYY - год, если ты его придумал.
+
+        Если не уверен в точности номера дела - НЕ УКАЗЫВАЙ его вообще.
     
-    Ты можешь использовать доступные функции для исследования:
-    - search_law_chunks: Поиск в базе российского законодательства
-    - search_garant: Поиск в базе Гарант
-    - search_web: Поиск в интернете
-    - deep_research: Проведение глубокого исследования по запросу
+    При ответах на вопросы о судебной практике указывай, что ты приводишь "обобщенную информацию из судебной практики".
     
-    Функции позволяют тебе получить актуальную информацию для ответа.
-    """
+    Основывайся ТОЛЬКО на фактической информации из предоставленных источников.
+    НЕ ВЫДУМЫВАЙ информацию.    """
     
     # Подготовка истории сообщений
     context_messages = []
@@ -236,133 +311,129 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
             for msg in previous_messages:
                 if msg.role in ["user", "assistant"]:
                     context_messages.append({"role": msg.role, "content": msg.content})
-                elif msg.role == "function":
-                    # Обработка сообщений от функций для правильного формата DeepSeek
-                    context_messages.append({
-                        "role": "function", 
-                        "name": msg.metadata.get("function_name", "unknown"), 
-                        "content": msg.content
-                    })
         except Exception as e:
             logging.error(f"❌ Ошибка при получении истории сообщений: {e}")
     
-    # Добавляем системный промпт и текущий запрос пользователя
-    messages = [
-        {"role": "system", "content": system_prompt}
-    ]
+    # Собираем контекст из источников параллельно
+    logs = []
+    combined_context = ""
+    search_tasks = []
     
-    # Добавляем контекст, если он есть
-    if context_messages:
-        messages.extend(context_messages)
+    # 1. Функция поиска в ElasticSearch (всегда выполняем)
+    @measure_time
+    async def search_elasticsearch():
+        try:
+            es_results = search_law_chunks(user_query)
+            if es_results:
+                logging.info(f"✅ Найдено {len(es_results)} релевантных чанков в Elasticsearch")
+                result_text = "## Информация из законодательства:\n\n"
+                for i, chunk in enumerate(es_results[:5]):  # Берем до 5 наиболее релевантных результатов
+                    result_text += f"{chunk}\n\n"
+                return result_text
+            return ""
+        except Exception as e:
+            logging.error(f"❌ Ошибка при поиске в законодательстве: {str(e)}")
+            return ""
     
-    # Добавляем текущий запрос пользователя
-    messages.append({"role": "user", "content": user_query})
+    # 2. Функция поиска в интернете (всегда выполняем)
+    async def search_internet():
+        try:
+            logging.info("🔍 Выполнение поиска в интернете...")
+            
+            # Создаем собственный список для логирования
+            internet_logs = []
+            
+            search_results = await run_multiple_searches(
+                query=user_query, 
+                logs=internet_logs
+            )
+            
+            # Добавляем логи интернет-поиска в общие логи
+            if logs is not None and isinstance(logs, list):
+                logs.extend(internet_logs)
+            
+            # Статистика результатов скрапинга
+            successful_pages = 0
+            failed_pages = 0
+            all_web_results = []
+            
+            # Собираем все результаты из разных типов поиска
+            for search_type, results in search_results.items():
+                if results and isinstance(results, list):
+                    for result in results:
+                        if hasattr(result, 'is_successful') and result.is_successful():
+                            successful_pages += 1
+                            all_web_results.append(result)
+                        else:
+                            failed_pages += 1
+                            if hasattr(result, 'url') and hasattr(result, 'error'):
+                                logging.error(f"❌ Ошибка скрапинга {result.url}: {result.error}")
+            
+            logging.info(f"📊 Статистика скрапинга: успешно {successful_pages}, неудачно {failed_pages}")
+            
+            if all_web_results:
+                logging.info(f"✅ Найдено {len(all_web_results)} релевантных веб-страниц с текстом")
+                
+                # Добавляем найденные результаты в контекст
+                result_text = "## Информация из интернета:\n\n"
+                for i, result in enumerate(all_web_results[:5]):
+                    logging.info(f"📄 Успешно извлечен текст с {result.url} ({len(result.text)} символов)")
+                    result_text += f"Источник: {result.url}\nЗаголовок: {result.title}\n{result.text[:2000]}...\n\n"
+                return result_text
+            else:
+                logging.info("❌ Релевантные результаты из интернета не найдены")
+                return ""
+        except Exception as e:
+            logging.error(f"❌ Ошибка при веб-поиске: {str(e)}")
+            return ""
+    
+    # 3. Запускаем все поиски параллельно (без Гаранта)
+    search_tasks.append(search_elasticsearch())
+    search_tasks.append(search_internet())
+    
+    search_results = await asyncio.gather(*search_tasks)
+    
+    # 4. Объединяем результаты всех поисков
+    for result in search_results:
+        if result:
+            combined_context += result
+    
+    # 5. Если нет результатов поиска, добавляем сообщение
+    if not combined_context.strip():
+        logging.warning("⚠️ Не найдено релевантной информации ни в одном источнике")
+        combined_context = "## Информация из источников не найдена\n\nПо запросу не удалось найти релевантную информацию в источниках. Ответ будет основан на общих знаниях."
+    
+    # Формируем запрос с контекстом для глубокого исследования
+    user_query_with_context = f"Запрос пользователя: {user_query}\n\nНайденная информация:\n{combined_context}"
     
     try:
-        # Используем DeepSeek с поддержкой function calling
-        response = await deepseek_service.chat_with_functions(
-            messages=messages,
-            functions=AVAILABLE_FUNCTIONS,
-            function_call="auto"
-        )
+        # Используем DeepResearch для анализа собранной информации
+        logging.info("🔍 Выполнение глубокого исследования с учетом всех источников...")
+        deep_results = await deep_research_service.research(user_query_with_context)
+        final_response = deep_results.analysis
         
-        # Проверяем, есть ли вызов функции в ответе
-        if isinstance(response, dict) and 'choices' in response:
-            choice = response['choices'][0]
-            message = choice.get('message', {})
-            
-            if 'function_call' in message:
-                function_call = message['function_call']
-                function_name = function_call.get('name')
-                function_args = json.loads(function_call.get('arguments', '{}'))
-                
-                logging.info(f"✅ DeepSeek вызвал функцию {function_name}")
-                
-                # Вызываем указанную функцию
-                function_result = await handle_function_call(function_name, function_args)
-                
-                # Добавляем результат функции в историю сообщений
-                messages.append({
-                    "role": "assistant",
-                    "content": message.get('content', ''),
-                    "function_call": {
-                        "name": function_name,
-                        "arguments": function_call.get('arguments', '{}')
-                    }
-                })
-                
-                messages.append({
-                    "role": "function",
-                    "name": function_name,
-                    "content": json.dumps(function_result, ensure_ascii=False)
-                })
-                
-                # Получаем финальный ответ
-                final_response = await deepseek_service.chat_completion(messages)
-                
-                # Сохраняем в базу данных, если указан thread_id
-                if thread_id and db:
-                    try:
-                        # Сохраняем исходный запрос пользователя
-                        db.add(Message(
-                            thread_id=thread_id, 
-                            role="user", 
-                            content=user_query
-                        ))
-                        
-                        # Сохраняем сообщение с вызовом функции
-                        db.add(Message(
-                            thread_id=thread_id, 
-                            role="assistant", 
-                            content=message.get('content', ''),
-                            metadata={"function_call": {
-                                "name": function_name,
-                                "arguments": function_args
-                            }}
-                        ))
-                        
-                        # Сохраняем результат функции
-                        db.add(Message(
-                            thread_id=thread_id, 
-                            role="function", 
-                            content=json.dumps(function_result, ensure_ascii=False),
-                            metadata={"function_name": function_name}
-                        ))
-                        
-                        # Сохраняем финальный ответ
-                        db.add(Message(
-                            thread_id=thread_id, 
-                            role="assistant", 
-                            content=final_response
-                        ))
-                        
-                        db.commit()
-                    except Exception as e:
-                        logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
-                
-                return final_response
-            else:
-                # Если нет вызова функции, возвращаем обычный ответ
-                response_text = message.get('content', 'Ошибка: Не удалось получить ответ')
-                
-                # Сохраняем в базу данных, если указан thread_id
-                if thread_id and db:
-                    try:
-                        db.add(Message(thread_id=thread_id, role="user", content=user_query))
-                        db.add(Message(thread_id=thread_id, role="assistant", content=response_text))
-                        db.commit()
-                    except Exception as e:
-                        logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
-                
-                return response_text
+        # Сохраняем сообщения в БД, если указан thread_id
+        if thread_id and db:
+            try:
+                db.add(Message(thread_id=thread_id, role="user", content=user_query))
+                db.add(Message(thread_id=thread_id, role="assistant", content=final_response))
+                db.commit()
+                logging.info(f"✅ Сообщения сохранены в БД для треда {thread_id}")
+            except Exception as e:
+                logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
         
-        # Если ответ в неожиданном формате, возвращаем как есть
-        if isinstance(response, str):
-            return response
-        
-        logging.error(f"❌ Неожиданный формат ответа от DeepSeek: {response}")
-        return "Ошибка: Неожиданный формат ответа от API"
-        
+        return final_response
     except Exception as e:
-        logging.error(f"❌ Ошибка при отправке запроса к DeepSeek API: {e}")
-        return f"Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позднее. Ошибка: {str(e)}"
+        error_msg = f"Извините, произошла ошибка при выполнении исследования: {str(e)}"
+        logging.error(f"❌ Ошибка при глубоком исследовании: {str(e)}")
+        
+        # Сохраняем в БД сообщение об ошибке
+        if thread_id and db:
+            try:
+                db.add(Message(thread_id=thread_id, role="user", content=user_query))
+                db.add(Message(thread_id=thread_id, role="assistant", content=error_msg))
+                db.commit()
+            except Exception as db_err:
+                logging.error(f"❌ Ошибка при сохранении сообщений об ошибке в БД: {db_err}")
+        
+        return error_msg

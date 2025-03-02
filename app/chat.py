@@ -121,7 +121,7 @@ def fix_encoding(text):
 async def chat_in_thread(
     request: Request,
     thread_id: str,
-    query: str = Form(...),
+    query: str = Form(None),
     file: UploadFile = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -131,8 +131,17 @@ async def chat_in_thread(
     Если загружен файл — извлекает текст и передает в DeepResearch.
     Иначе анализирует запрос и при необходимости использует поиск в Elasticsearch, Гаранте или интернете.
     """
+    # Проверка и обработка случая, когда query равен None
+    if query is None and file is None:
+        raise HTTPException(
+            status_code=400, 
+            detail="Необходимо предоставить текстовый запрос или файл"
+        )
+    
+    # Если query None, но файл есть, устанавливаем пустой запрос
+    query = query or ""
+    
     # 1. Проверка и нормализация текста запроса
-# Проверка и нормализация текста запроса
     try:
         # Исправляем кодировку запроса
         query = fix_encoding(query)
@@ -151,6 +160,7 @@ async def chat_in_thread(
             logging.info(f"✅ Исправлена кодировка запроса")
         except Exception as e:
             logging.error(f"❌ Не удалось исправить кодировку: {str(e)}")
+            query = ""  # Устанавливаем пустой запрос
         
     # 2. Проверка кодировки перед дальнейшей обработкой
     if isinstance(query, str):

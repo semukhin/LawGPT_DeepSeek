@@ -3,7 +3,7 @@ import sys
 import json
 import asyncio
 import logging
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from pathlib import Path
 from datetime import datetime
 from app.handlers.user_doc_request import extract_text_from_any_document
@@ -69,7 +69,8 @@ class DeepResearchService:
             api_key=DEEPSEEK_API_KEY,
             model=DEEPSEEK_MODEL,
             temperature=0.7,  # Снижаем температуру для более фактического ответа
-            max_tokens=8000
+            max_tokens=8000,
+            timeout=120
         )
             
         logging.info(f"DeepResearchService инициализирован. Директория для результатов: {self.output_dir}")
@@ -77,78 +78,120 @@ class DeepResearchService:
         # Счетчик использования для отладки
         self.usage_counter = 0
 
+    def filter_suspicious_court_numbers(self, text: str) -> str:
+        """
+        Фильтрует подозрительные номера судебных дел в тексте.
+        
+        Args:
+            text: Исходный текст ответа
+            
+        Returns:
+            Отфильтрованный текст
+        """
+        import re
+        
+        # Шаблоны подозрительных номеров дел
+        suspicious_patterns = [
+            r'А\d+-\d{6}/\d{4}',  # Шаблон вида А40-123456/2019
+            r'А\d+-\d{5,6}/\d{4}',  # Шаблоны с 5-6 цифрами в номере
+        ]
+        
+        # Функция для проверки на подозрительные последовательности
+        def is_suspicious_sequence(num_str):
+            # Проверка на последовательные цифры (123456, 654321)
+            sequential_up = '0123456789'
+            sequential_down = '9876543210'
+            for i in range(len(num_str) - 2):
+                if num_str[i:i+3] in sequential_up or num_str[i:i+3] in sequential_down:
+                    return True
+            
+            # Проверка на повторяющиеся цифры (111, 222)
+            for i in range(len(num_str) - 2):
+                if num_str[i] == num_str[i+1] == num_str[i+2]:
+                    return True
+            
+            return False
+        
+        # Поиск и проверка всех подозрительных номеров дел
+        for pattern in suspicious_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                court_num = match.group(0)
+                num_part = re.search(r'\d+', court_num).group(0)
+                
+                # Если номер подозрительный, заменяем на общую формулировку
+                if is_suspicious_sequence(num_part) or len(num_part) >= 6:
+                    replacement = "согласно сложившейся судебной практике"
+                    text = text.replace(court_num, replacement)
+        
+        return text
 
     @audit_deepresearch
-    async def research(self, query: str) -> ResearchResult:
+    async def research(self, query: str, additional_context: Optional[List[Dict]] = None) -> ResearchResult:
         """
         Выполняет глубокий анализ запроса с использованием DeepSeek API.
         
         Args:
-            query: Текст запроса или путь к файлу для анализа.
-                
+            query: Текст запроса или путь к файлу для анализа
+            additional_context: Дополнительный контекст из других источников
+                    
         Returns:
-            ResearchResult: Результат исследования в структурированном виде.
+            ResearchResult: Результат исследования в структурированном виде
         """
         self.usage_counter += 1
         logging.info(f"[DeepResearch #{self.usage_counter}] Начинаем исследование. Длина запроса: {len(query)} символов")
         
-        # Проверяем, является ли запрос путем к файлу
-        if query.endswith('.docx') or query.endswith('.pdf'):
-            logging.info(f"[DeepResearch #{self.usage_counter}] Запрос определен как путь к файлу: {query}")
-            extracted_text = self.read_document(query)
-            if extracted_text:
-                logging.info(f"[DeepResearch #{self.usage_counter}] Текст из файла успешно извлечен ({len(extracted_text)} символов)")
-                query = extracted_text
-            else:
-                logging.error(f"[DeepResearch #{self.usage_counter}] Не удалось извлечь текст из файла: {query}")
-        
-        # Логируем небольшой фрагмент запроса для отладки
-        if len(query) > 500:
-            logging.info(f"[DeepResearch #{self.usage_counter}] Начало запроса: {query[:200]}...")
-            logging.info(f"[DeepResearch #{self.usage_counter}] Конец запроса: ...{query[-200:]}")
-        else:
-            logging.info(f"[DeepResearch #{self.usage_counter}] Запрос: {query}")
+        # Обработка файлов, если query - путь к файлу
+        if isinstance(query, str) and (query.endswith('.docx') or query.endswith('.pdf')):
+            query = self.read_document(query) or query
         
         try:
-            # Определяем тип контента для адаптации промпта
-            is_legal_document = any(marker in query.lower() for marker in 
-                ["статья", "кодекс", "федеральный закон", "постановление", "гк рф", "гпк рф", "упк рф", "коап"])
+            # Определяем системный промпт на основе типа запроса
+            system_prompt = ("Ты - эксперт по юридическому анализу. "
+                        "Проведи глубокое исследование предоставленного запроса. "
+                        "Анализируй с точки зрения российского законодательства, если применимо. "
+                        "Структурируй ответ, выделяя ключевые моменты, актуальные правовые нормы, "
+                        "судебную практику и практические рекомендации по теме. "
+                        "\n\nСТРОГО ЗАПРЕЩЕНО:"
+                        "\n1. НИКОГДА не указывай номера судебных дел с повторяющимися или последовательными цифрами (например, А40-123456/2019, А40-123123/2020, А40-123321/2022 и т.п.)."
+                        "\n2. НИКОГДА не указывай выдуманные номера судебных дел."
+                        "\n3. При ссылке на судебную практику либо:"
+                        "\n   а) ссылайся только на реальные номера дел из предоставленных источников,"
+                        "\n   б) либо указывай общие сведения о судебной позиции без привязки к конкретным делам (например: \"Согласно позиции ВС РФ...\" или \"В судебной практике сложился подход...\")."
+                        "\n4. Никогда не указывай номера дел вида \"А40-XXXXXX/YYYY\", где XXXXXX - шестизначное число, а YYYY - год, если ты его придумал."
+                        "\n\nЕсли не уверен в точности номера дела - НЕ УКАЗЫВАЙ его вообще.")
             
-            # Выбор специализированного промпта в зависимости от содержимого
-            if is_legal_document:
-                system_prompt = ("Ты - эксперт по юридическому анализу. "
-                            "Проанализируй предоставленный юридический текст, выдели ключевые моменты, права и обязанности, "
-                            "сроки, штрафы и другие важные элементы. Сосредоточься на правовой сути и дай объективный анализ.")
-            else:
-                system_prompt = ("Ты - эксперт по юридическому анализу. "
-                            "Проведи глубокое исследование предоставленного запроса. "
-                            "Анализируй с точки зрения российского законодательства, если применимо. "
-                            "Структурируй ответ, выделяя ключевые моменты, актуальные правовые нормы, "
-                            "судебную практику и практические рекомендации по теме.")
+            # Формируем пользовательский промпт
+            user_prompt = f"Проведи детальный юридический анализ запроса:\n\n{query}"
             
-            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка запроса в DeepSeek API")
-            start_time = datetime.now()
+            # Добавляем контекст из других источников, если он есть
+            if additional_context:
+                user_prompt += "\n\nДополнительная информация из других источников:\n"
+                for ctx in additional_context:
+                    source_type = ctx.get("type", "неизвестный источник")
+                    if ctx.get("found"):
+                        user_prompt += f"\n--- Из источника {source_type} ---\n"
+                        if "data" in ctx:
+                            if isinstance(ctx["data"], list):
+                                for item in ctx["data"][:3]:  # Берем до 3 элементов
+                                    user_prompt += f"{item[:1000]}...\n\n"
+                            elif isinstance(ctx["data"], dict):
+                                for key, value in ctx["data"].items():
+                                    if key not in ["path", "error", "type"]:
+                                        user_prompt += f"{value[:1000]}...\n\n"
+                            else:
+                                user_prompt += f"{str(ctx['data'])[:3000]}...\n\n"
             
             # Используем DeepSeek API
-            user_prompt = f"Проведи детальный юридический анализ:\n\n{query}"
             analysis = await self.deepseek_service.generate_with_system(system_prompt, user_prompt)
             
-            # Вычисляем время выполнения для мониторинга производительности
-            end_time = datetime.now()
-            execution_time = (end_time - start_time).total_seconds()
-            logging.info(f"[DeepResearch #{self.usage_counter}] Запрос обработан. Время: {execution_time:.2f} секунд")
-            
-            # Логируем небольшой фрагмент ответа для отладки
-            if len(analysis) > 300:
-                logging.info(f"[DeepResearch #{self.usage_counter}] Начало анализа: {analysis[:150]}...")
-                logging.info(f"[DeepResearch #{self.usage_counter}] Конец анализа: ...{analysis[-150:]}")
-            else:
-                logging.info(f"[DeepResearch #{self.usage_counter}] Анализ: {analysis}")
+            # Фильтруем подозрительные номера судебных дел
+            filtered_analysis = self.filter_suspicious_court_numbers(analysis)
             
             # Формируем структурированный результат
             result = ResearchResult(
-                query=query[:1000] + "..." if len(query) > 1000 else query,  # Обрезаем для компактности
-                analysis=analysis,
+                query=query[:1000] + "..." if len(query) > 3000 else query,
+                analysis=filtered_analysis,
                 timestamp=self._get_current_time()
             )
             
@@ -157,55 +200,55 @@ class DeepResearchService:
                 result_filename = f"research_{self.usage_counter}_{self._get_timestamp()}.json"
                 result_path = os.path.join(self.output_dir, result_filename)
                 result.save_to_file(result_path)
-                logging.info(f"[DeepResearch #{self.usage_counter}] Результат сохранен: {result_path}")
             
             return result
-            
+                
         except Exception as e:
             error_msg = f"Ошибка при исследовании: {str(e)}"
             logging.error(f"[DeepResearch #{self.usage_counter}] {error_msg}")
             return ResearchResult(
-                query=query[:500] + "..." if len(query) > 500 else query,
+                query=query[:5000] + "..." if len(query) > 5000 else query,
                 analysis=f"Произошла ошибка при выполнении исследования: {str(e)}",
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
 
-
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
         Извлекает текст из документа.
-        
+            
         Args:
             file_path: Путь к документу
-                
+                    
         Returns:
             Текстовое содержимое документа или None в случае ошибки
         """
         try:
             logging.info(f"[DeepResearch #{self.usage_counter}] Извлечение текста из документа: {file_path}")
             extracted_text = extract_text_from_any_document(file_path)
-            
+                
             if extracted_text:
                 logging.info(f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)")
                 # Если текст слишком большой, обрезаем его
                 max_length = 50000  # Примерный лимит для моделей
                 if len(extracted_text) > max_length:
                     extracted_text = extracted_text[:max_length] + "...[текст обрезан из-за ограничений размера]"
-                    
+                        
                 return extracted_text
-            
+                
             return None
         except Exception as e:
             logging.error(f"[DeepResearch #{self.usage_counter}] Ошибка при извлечении текста из документа {file_path}: {str(e)}")
             return None  
 
+
     @audit_deepresearch
     def _get_timestamp(self) -> str:
         """Возвращает текущую метку времени в формате для имен файлов."""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+        
+
     @audit_deepresearch
     def _get_current_time(self) -> str:
         """Возвращает текущее время в ISO формате."""

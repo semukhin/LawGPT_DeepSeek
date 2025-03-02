@@ -53,7 +53,7 @@ class DeepSeekService:
     
     async def chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         functions: Optional[List[Dict[str, Any]]] = None,
         function_call: Optional[Union[str, Dict[str, str]]] = None,
         temperature: Optional[float] = None,
@@ -78,7 +78,7 @@ class DeepSeekService:
             frequency_penalty: Штраф за повторение токенов
             
         Returns:
-            Текст ответа от API или полный ответ API (если return_full_response=True)
+            Текст ответа от API или полный ответ API
         """
         if not self.api_key:
             return "Ошибка: API ключ DeepSeek не настроен"
@@ -117,6 +117,7 @@ class DeepSeekService:
         
         try:
             logging.info(f"Отправка запроса к DeepSeek API: {url}")
+            logging.debug(f"Payload: {json.dumps(payload)}")
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -148,15 +149,10 @@ class DeepSeekService:
                     else:
                         # Обработка обычного ответа
                         response_json = await response.json()
+                        logging.debug(f"Ответ API: {json.dumps(response_json)}")
                         
-                        # Проверка наличия вызова функции в ответе
-                        choice = response_json['choices'][0]
-                        if 'function_call' in choice.get('message', {}):
-                            logging.info("Обнаружен вызов функции в ответе DeepSeek")
-                            return response_json
-                        
-                        # Возвращаем только содержимое сообщения, если нет вызова функции
-                        return choice['message']['content']
+                        # Возвращаем полный ответ для проверки наличия function_call
+                        return response_json
                         
         except asyncio.TimeoutError:
             logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {self.timeout} сек)")
@@ -177,9 +173,14 @@ class DeepSeekService:
         """
         messages = [{"role": "user", "content": prompt}]
         response = await self.chat_completion(messages)
-        if isinstance(response, dict):
-            return response.get('choices', [{}])[0].get('message', {}).get('content', 'Ошибка получения текста')
-        return response
+        
+        if isinstance(response, dict) and 'choices' in response:
+            return response['choices'][0]['message']['content']
+        elif isinstance(response, str):
+            return response
+        else:
+            logging.error(f"Неожиданный формат ответа: {response}")
+            return "Ошибка получения текста"
     
     async def generate_with_system(self, system_prompt: str, user_prompt: str) -> str:
         """
@@ -197,13 +198,20 @@ class DeepSeekService:
             {"role": "user", "content": user_prompt}
         ]
         response = await self.chat_completion(messages)
-        if isinstance(response, dict):
-            return response.get('choices', [{}])[0].get('message', {}).get('content', 'Ошибка получения текста')
-        return response
+        
+        if isinstance(response, dict) and 'choices' in response:
+            return response['choices'][0]['message']['content']
+        elif isinstance(response, str):
+            return response
+        else:
+            logging.error(f"Неожиданный формат ответа: {response}")
+            return "Ошибка получения текста"
+        
+        
         
     async def chat_with_functions(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         functions: List[Dict[str, Any]],
         function_call: Union[Literal["auto"], Literal["none"], Dict[str, str]] = "auto"
     ) -> Dict[str, Any]:
@@ -218,9 +226,97 @@ class DeepSeekService:
         Returns:
             Полный ответ API, включая возможный вызов функции
         """
-        return await self.chat_completion(
-            messages=messages,
-            functions=functions,
-            function_call=function_call,
-            # Возвращаем полный ответ для обработки возможного вызова функции
-        )
+        # Включаем более подробную отладку для функциональных вызовов
+        logging.info(f"Запрос chat_with_functions, function_call={function_call}")
+        
+        # Убедимся, что последнее сообщение содержит явное указание на использование функций
+        if messages and messages[-1]["role"] == "user":
+            # Проверяем, есть ли уже подсказка о функциях
+            if not "функц" in messages[-1]["content"].lower() and not "использу" in messages[-1]["content"].lower():
+                # Добавляем невидимую подсказку для модели в конец сообщения
+                enhanced_content = messages[-1]["content"]
+                enhanced_content += "\n\n[Для ответа на этот вопрос можешь использовать доступные функции поиска информации]"
+                messages[-1]["content"] = enhanced_content
+        
+        # Формируем payload
+        url = f"{self.api_base}/chat/completions"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        # Устанавливаем низкую температуру для более детерминированного поведения
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": self.max_tokens,
+            "functions": functions,
+            "function_call": function_call
+        }
+        
+        # Более детальный вывод payload для отладки
+        logging.debug(f"Отправляемый payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+        
+        try:
+            # Делаем до 3 попыток с увеличением таймаута
+            for attempt in range(3):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            url, 
+                            headers=headers, 
+                            json=payload,
+                            timeout=self.timeout * (attempt + 1)
+                        ) as response:
+                            response_text = await response.text()
+                            
+                            if response.status != 200:
+                                logging.error(f"Ошибка DeepSeek API ({response.status}): {response_text[:200]}...")
+                                if attempt < 2:  # Если это не последняя попытка
+                                    logging.info(f"Повторная попытка {attempt+2}/3...")
+                                    await asyncio.sleep(1 * (attempt + 1))  # Задержка перед повторной попыткой
+                                    continue
+                                return f"Ошибка API: {response.status} - {response_text[:200]}..."
+                            
+                            try:
+                                response_json = json.loads(response_text)
+                                
+                                # Проверяем наличие function_call в ответе
+                                if 'choices' in response_json and len(response_json['choices']) > 0:
+                                    choice = response_json['choices'][0]
+                                    message = choice.get('message', {})
+                                    
+                                    if 'function_call' in message:
+                                        logging.info(f"✅ Function call найден: {message['function_call'].get('name')}")
+                                    else:
+                                        logging.warning("⚠️ Function call не найден в ответе")
+                                
+                                return response_json
+                            except json.JSONDecodeError:
+                                logging.error(f"Ошибка декодирования JSON ответа (попытка {attempt+1}/3): {response_text[:200]}...")
+                                if attempt < 2:  # Если это не последняя попытка
+                                    await asyncio.sleep(1 * (attempt + 1))
+                                    continue
+                                return f"Ошибка декодирования ответа API: {response_text[:200]}..."
+                
+                except asyncio.TimeoutError:
+                    logging.error(f"Таймаут запроса к DeepSeek API (попытка {attempt+1}/3, таймаут {self.timeout * (attempt + 1)} сек)")
+                    if attempt < 2:  # Если это не последняя попытка
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    return "Ошибка: превышен таймаут запроса к API"
+                
+                except Exception as e:
+                    logging.error(f"Ошибка при запросе к DeepSeek API (попытка {attempt+1}/3): {str(e)}")
+                    if attempt < 2:  # Если это не последняя попытка
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    return f"Ошибка: {str(e)}"
+        
+            return "Не удалось получить ответ от DeepSeek API после нескольких попыток"
+        
+        except Exception as e:
+            logging.error(f"Непредвиденная ошибка при запросе к DeepSeek API: {str(e)}")
+            return f"Ошибка: {str(e)}"  

@@ -92,11 +92,10 @@ models.Base.metadata.create_all(bind=database.engine)
 # Настройка CORS с указанием кодировки
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["content-type", "content-length"]
 )
 
 # Главная страница
