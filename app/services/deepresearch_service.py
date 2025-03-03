@@ -132,16 +132,7 @@ def validate_court_numbers(response: str, original_query: str) -> str:
                     invalid_numbers.append(num)
             else:
                 invalid_numbers.append(num)
-    
-    # Если есть недопустимые номера, предупреждаем об этом
-    if invalid_numbers:
-        warning = (
-            "\n\n[СИСТЕМА: В ответе обнаружены номера судебных дел, "
-            "которых нет в исходном запросе: " + ", ".join(invalid_numbers) + 
-            ". Использование выдуманных номеров дел недопустимо - используйте только номера из запроса!]"
-        )
-        return response + warning
-    
+ 
     return response
 
 def ensure_valid_court_numbers(answer: str, original_query: str) -> str:
@@ -385,17 +376,39 @@ class DeepResearchService:
             try:
                 system_prompt = """Системный промпт для юридических исследований..."""  # Используйте существующий системный промпт
                 
-                prompt_log = models.PromptLog(
-                    thread_id=thread_id,
-                    message_id=message_id,
-                    user_id=user_id,
-                    system_prompt=system_prompt,
-                    user_prompt=query[:10000]  # Ограничиваем длину для БД
-                )
+                # Проверяем схему таблицы prompt_logs на наличие столбца message_id
+                from sqlalchemy import inspect
+                inspector = inspect(db.get_bind())
+                try:
+                    columns = [col['name'] for col in inspector.get_columns('prompt_logs')]
+                    has_message_id = 'message_id' in columns
+                except Exception:
+                    # Если не удалось получить схему таблицы, предполагаем, что столбца нет
+                    has_message_id = False
+                    
+                # Подготавливаем данные для записи в таблицу
+                prompt_data = {
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "system_prompt": system_prompt,
+                    "user_prompt": query[:10000]  # Ограничиваем длину для БД
+                }
+                
+                # Добавляем message_id только если столбец существует и значение не None
+                if has_message_id and message_id is not None:
+                    prompt_data["message_id"] = message_id
+                
+                # Создаем запись с нужными полями
+                prompt_log = models.PromptLog(**prompt_data)
                 db.add(prompt_log)
                 db.commit()
                 logging.info(f"✅ Промпт сохранен в БД для треда {thread_id}")
             except Exception as e:
+                # Откатываем транзакцию и логируем ошибку
+                try:
+                    db.rollback()
+                except Exception:
+                    pass  # Игнорируем ошибки при откате
                 logging.error(f"❌ Ошибка при сохранении промпта: {e}")
 
 
@@ -457,16 +470,17 @@ class DeepResearchService:
                    
                 2. НИКОГДА не придумывай и не создавай номера судебных дел самостоятельно. 
                    
-                3. Если в запросе или материалах указан номер дела (например, А40-123456/2022), 
+                3. Если в запросе (промте) или материалах указан номер дела (например, А40-767106/2022), 
                    ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
                    
                 4. Если нужно привести пример судебной практики, но конкретные номера дел не указаны 
                    в материалах, используй обобщенные формулировки без номеров: "согласно судебной практике...", 
                    "как отмечается в решениях Верховного Суда..." и т.д.
                    
-                5. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов.
+                5. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
+                Не выдумывай не существующие номера судебных дел(например А60-78901/2021 или А40-123456/2020), а используй только те номера которые тебе поступили с промтом.
                    
-                6. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника."""
+                6. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте)."""
         
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
         # на запрос пользователя и результаты поиска

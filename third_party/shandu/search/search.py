@@ -210,9 +210,22 @@ class UnifiedSearcher:
                                 if url and isinstance(url, str) and any(domain in url.lower() for domain in irrelevant_domains):
                                     continue
                                 
+                                # Исправленный блок для получения сниппета
                                 snippet = ""
-                                if hasattr(result, 'description'):
-                                    snippet = result.description
+                                if hasattr(result, 'is_successful') and callable(getattr(result, 'is_successful')):
+                                    try:
+                                        if result.is_successful():
+                                            snippet = result.text[:200] if hasattr(result, 'text') else ""
+                                        else:
+                                            snippet = getattr(result, 'snippet', '')
+                                    except Exception as e:
+                                        print(f"Error calling is_successful: {e}")
+                                        snippet = getattr(result, 'description', '')
+                                else:
+                                    # Если метода is_successful нет, получаем description
+                                    snippet = getattr(result, 'description', '')
+                                    if not snippet and hasattr(result, 'snippet'):
+                                        snippet = result.snippet
                                 
                                 filtered_results.append(
                                     SearchResult(
@@ -253,7 +266,7 @@ class UnifiedSearcher:
                         except Exception as e:
                             print(f"Error processing search result: {e}")
                             continue
-                    
+                                   
                     if filtered_results:
                         query_keywords = query.lower().split()
                         important_keywords = [word for word in query_keywords 

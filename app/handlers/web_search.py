@@ -39,6 +39,7 @@ GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 # Создаем единственный экземпляр WebScraper
 _scraper = None
 
+
 def get_scraper() -> WebScraper:
     """
     Получает или создает экземпляр WebScraper из Shandu.
@@ -48,12 +49,14 @@ def get_scraper() -> WebScraper:
     """
     global _scraper
     if _scraper is None:
-        scraper = WebScraper(
+        # Создаем экземпляр WebScraper и присваиваем его глобальной переменной
+        _scraper = WebScraper(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             respect_robots=False  # Этот параметр полностью отключает проверку robots.txt
         )
         logger.info("Инициализирован WebScraper из Shandu")
     return _scraper
+
 
 def google_search(query: str, logs: list, max_results: int = 10) -> list:
     """

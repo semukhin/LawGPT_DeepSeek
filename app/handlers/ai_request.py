@@ -223,7 +223,7 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
                         user_message = db.query(Message).filter(
                             Message.thread_id == thread_id,
                             Message.role == "user"
-                        ).order_by(Message.created_at.desc()).first()
+                        ).order_by(Message.created_at.desc()).limit(10).first()
                         
                         if user_message:
                             message_id = user_message.id
@@ -250,6 +250,7 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
         except Exception as e:
             logging.error(f"Ошибка при веб-поиске: {str(e)}")
             return {"found": False, "error": f"Ошибка при веб-поиске: {str(e)}"}
+    
     
     elif function_name == "deep_research":
         try:
@@ -456,7 +457,7 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
             user_message = db.query(Message).filter(
                 Message.thread_id == thread_id,
                 Message.role == "user"
-            ).order_by(Message.created_at.desc(10)).first()
+            ).order_by(Message.created_at.desc()).limit(10).first()
             
             if user_message:
                 message_id = user_message.id
@@ -510,20 +511,45 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
             successful_pages = 0
             failed_pages = 0
             all_web_results = []
-            
+
+
             # Собираем все результаты из разных типов поиска
             for search_type, results in search_results.items():
                 if results and isinstance(results, list):
                     for result in results:
-                        if hasattr(result, 'is_successful') and result.is_successful():
-                            successful_pages += 1
-                            all_web_results.append(result)
+                        # Проверяем наличие и возможность вызова метода is_successful
+                        if hasattr(result, 'is_successful') and callable(getattr(result, 'is_successful')):
+                            try:
+                                if result.is_successful():
+                                    successful_pages += 1
+                                    all_web_results.append(result)
+                                else:
+                                    failed_pages += 1
+                                    logging.error(f"❌ Ошибка скрапинга {result.url if hasattr(result, 'url') else 'неизвестный URL'}: "
+                                                f"{result.error if hasattr(result, 'error') else 'причина не указана'}")
+                            except Exception as e:
+                                failed_pages += 1
+                                logging.error(f"❌ Исключение при проверке успешности скрапинга: {str(e)}")
                         else:
+                            # Для объектов без метода is_successful используем альтернативную логику
                             failed_pages += 1
-                            if hasattr(result, 'url') and hasattr(result, 'error'):
-                                logging.error(f"❌ Ошибка скрапинга {result.url}: {result.error}")
-            
+                            # Пытаемся получить содержательную информацию об объекте
+                            url = getattr(result, 'url', 'неизвестный URL')
+                            error_msg = getattr(result, 'error', None)
+                            has_content = bool(getattr(result, 'text', '').strip()) if hasattr(result, 'text') else False
+                            
+                            if has_content:
+                                # Если есть текстовое содержимое, считаем скрапинг условно успешным
+                                successful_pages += 1
+                                failed_pages -= 1  # Корректируем счетчик
+                                all_web_results.append(result)
+                                logging.info(f"✅ Скрапинг без метода is_successful, но с контентом: {url}")
+                            else:
+                                logging.warning(f"⚠️ Объект {type(result).__name__} не имеет метода is_successful или контента: {url}"
+                                            f"{f' (ошибка: {error_msg})' if error_msg else ''}")
+
             logging.info(f"📊 Статистика скрапинга: успешно {successful_pages}, неудачно {failed_pages}")
+            
             
             if all_web_results:
                 logging.info(f"✅ Найдено {len(all_web_results)} релевантных веб-страниц с текстом")

@@ -25,6 +25,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import trafilatura
 from ..config import config
 
+
 @dataclass
 class ScrapedContent:
     """Container for scraped webpage content."""
@@ -40,6 +41,10 @@ class ScrapedContent:
     scrape_start_time: Optional[float] = None
     scrape_end_time: Optional[float] = None 
     content_size: Optional[int] = None
+
+    def is_successful(self) -> bool:
+        """Check if scraping was successful."""
+        return self.error is None and bool(self.text.strip())
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
