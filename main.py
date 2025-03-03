@@ -4,7 +4,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from app.handlers import deepresearch
-from app.services.deepresearch_service import DeepResearchService
+from app.services.research_factory import ResearchAdapter
+deep_research_service = ResearchAdapter()
 import logging
 import time
 
@@ -26,8 +27,6 @@ app = FastAPI(
     description="API для обработки чатов с использованием DeepResearch и других источников.",
     version="2.0.0"
 )
-
-deep_research_service = DeepResearchService()
 
 
 # Настраиваем логирование

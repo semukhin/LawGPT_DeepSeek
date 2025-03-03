@@ -25,6 +25,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import trafilatura
 from ..config import config
 
+
+# В файле third_party/shandu/scraper/scraper.py
+
 @dataclass
 class ScrapedContent:
     """Container for scraped webpage content."""
@@ -41,9 +44,10 @@ class ScrapedContent:
     scrape_end_time: Optional[float] = None 
     content_size: Optional[int] = None
 
+    # Добавляем метод to_dict
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return {
+        """Convert to dictionary format for serialization."""
+        result = {
             "url": self.url,
             "title": self.title,
             "text": self.text,
@@ -51,11 +55,51 @@ class ScrapedContent:
             "metadata": self.metadata,
             "content_type": self.content_type,
             "status_code": self.status_code,
-            "timestamp": self.timestamp.isoformat(),
-            "error": self.error
+            "error": self.error,
+            "scrape_start_time": self.scrape_start_time,
+            "scrape_end_time": self.scrape_end_time,
+            "content_size": self.content_size
         }
+        
+        # Преобразуем datetime в строку ISO для JSON-сериализации
+        if isinstance(self.timestamp, datetime):
+            result["timestamp"] = self.timestamp.isoformat()
+        else:
+            result["timestamp"] = self.timestamp
+            
+        return result
+
+
+    def is_successful(self) -> bool:
+        """Check if scraping was successful."""
+        return self.error is None and bool(self.text.strip())
     
     
+@staticmethod
+def from_error(url: str, error_msg: str) -> 'ScrapedContent':
+    """
+    Создает экземпляр ScrapedContent с информацией об ошибке.
+    
+    Args:
+        url: URL, который вызвал ошибку
+        error_msg: Текст сообщения об ошибке
+        
+    Returns:
+        ScrapedContent: Объект с заполненными полями ошибки
+    """
+    return ScrapedContent(
+        url=url,
+        title="Error",
+        text="",
+        html="",
+        metadata={"error_type": "robots_txt_denied" if "denied by robots.txt" in error_msg else "general_error"},
+        content_type="text/plain",
+        error=error_msg,
+        status_code=None,
+        scrape_start_time=time.time(),
+        scrape_end_time=time.time()
+    )
+
     def is_successful(self) -> bool:
         """Check if scraping was successful."""
         return self.error is None and bool(self.text.strip())
@@ -208,7 +252,7 @@ class WebScraper:
         max_concurrent: int = 8,  # Increased from 5 to 8 for more parallel processing
         cache_ttl: int = 86400,  # 24 hours
         user_agent: Optional[str] = None,
-        respect_robots: bool = True
+        respect_robots: bool = False
     ):
         self.proxy = proxy or config.get("scraper", "proxy")
         self.timeout = timeout or config.get("scraper", "timeout", 10)
@@ -219,9 +263,10 @@ class WebScraper:
         self.respect_robots = respect_robots
         
         # Create a single UserAgent instance to avoid repeated initialization
+        # Изменить на:
         if user_agent is None:
-            ua_generator = UserAgent()
-            self.user_agent = ua_generator.random
+            # Фиксированный User-Agent вместо случайного
+            self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         else:
             self.user_agent = user_agent
 
@@ -242,7 +287,7 @@ class WebScraper:
     
     async def _get_page_simple(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """
-        Get page content using aiohttp.
+        Get page content using aiohttp with improved encoding detection.
         
         Returns:
             Tuple of (html_content, content_type, status_code)
@@ -256,13 +301,10 @@ class WebScraper:
             'Cache-Control': 'max-age=0',
         }
         
-
-
         # Создаем SSL-контекст с отключенной проверкой
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -281,7 +323,22 @@ class WebScraper:
                     status_code = response.status
                     
                     if 200 <= status_code < 300:
-                        return await response.text(), content_type, status_code
+                        try:
+                            # Сначала пытаемся получить контент как обычный текст
+                            html_text = await response.text()
+                            return html_text, content_type, status_code
+                        except UnicodeDecodeError:
+                            # Если не удалось декодировать как UTF-8, пробуем другие кодировки
+                            content = await response.read()
+                            for encoding in ['windows-1251', 'cp1251', 'latin-1', 'iso-8859-1']:
+                                try:
+                                    html_text = content.decode(encoding)
+                                    return html_text, content_type, status_code
+                                except UnicodeDecodeError:
+                                    continue
+                            
+                            # Если ни одна кодировка не подошла, используем безопасный вариант
+                            return content.decode('utf-8', errors='replace'), content_type, status_code
                     else:
                         print(f"HTTP error {status_code} for {url}")
                         return None, content_type, status_code

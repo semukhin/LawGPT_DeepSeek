@@ -39,6 +39,7 @@ GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 # Создаем единственный экземпляр WebScraper
 _scraper = None
 
+
 def get_scraper() -> WebScraper:
     """
     Получает или создает экземпляр WebScraper из Shandu.
@@ -48,13 +49,14 @@ def get_scraper() -> WebScraper:
     """
     global _scraper
     if _scraper is None:
+        # Создаем экземпляр WebScraper и присваиваем его глобальной переменной
         _scraper = WebScraper(
-            timeout=20,
-            max_retries=2,
-            max_concurrent=8
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            respect_robots=False  # Этот параметр полностью отключает проверку robots.txt
         )
         logger.info("Инициализирован WebScraper из Shandu")
     return _scraper
+
 
 def google_search(query: str, logs: list, max_results: int = 10) -> list:
     """
@@ -73,7 +75,7 @@ def google_search(query: str, logs: list, max_results: int = 10) -> list:
         "key": GOOGLE_API_KEY,
         "cx": GOOGLE_CX,
         "q": query,
-        "num": min(max_results, 10),  # Google API ограничивает до 10 результатов
+        "num": min(max_results, 5),  # Google API ограничивает до 5 результатов
         "safe": "active"
     }
     
@@ -155,7 +157,7 @@ def prioritize_links(links: List[str], query: str) -> List[str]:
             score += 10
         
         # Повышаем приоритет для правовых доменов
-        if any(term in domain for term in ["law", "legal", "court", "pravo", "sud", "zakon"]):
+        if any(term in domain for term in ["garant", "consultant", "pravorub", "pravo", "sudact", "zakon"]):
             score += 5
         
         # Оцениваем по наличию ключевых слов запроса в URL
@@ -310,7 +312,7 @@ async def run_multiple_searches(query: str, logs: list, force_refresh: bool = Fa
         tasks = [legal_search_task, recent_search_task, general_search_task]
         
         try:
-            results_list = await asyncio.wait_for(asyncio.gather(*tasks), timeout=120)
+            results_list = await asyncio.wait_for(asyncio.gather(*tasks), timeout=60)
             legal_results, recent_results, general_results = results_list
         except asyncio.TimeoutError:
             logs.append("⚠️ Превышен общий таймаут объединенного поиска")

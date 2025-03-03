@@ -1,11 +1,26 @@
+# app/handlers/deepresearch.py
 from fastapi import APIRouter, HTTPException
-from app.services.deepresearch_service import DeepResearchService
+from app.services.research_factory import ResearchAdapter
+from app.config import USE_SHANDU_RESEARCH_AGENT
 
-# Инициализация роутера для регистрации маршрутов
 router = APIRouter()
 
-# Инициализируем сервис DeepResearchService с указанием директории для сохранения результатов
-deepresearch_service = DeepResearchService(output_dir="research_results")
+# Условная инициализация нужного провайдера
+if USE_SHANDU_RESEARCH_AGENT:
+    from third_party.shandu.agents.agent import ResearchAgent
+    # Для OpenAI нужны другие параметры
+    deepresearch_service = ResearchAgent(
+        max_depth=3,    # Глубина рекурсивного исследования
+        breadth=4       # Количество параллельных запросов
+    )
+else:
+    from app.services.deepresearch_service import DeepResearchService
+    deepresearch_service = DeepResearchService(output_dir="research_results")
+
+
+
+# Инициализируем сервис через адаптер
+deepresearch_service = ResearchAdapter(output_dir="research_results")
 
 @router.get("/deep_research")
 async def perform_deep_research(query: str):
@@ -19,7 +34,7 @@ async def perform_deep_research(query: str):
         dict: Содержит исходный запрос и результат исследования.
     """
     try:
-        result = await deepresearch_service.research(query)  # Выполнение асинхронного исследования
-        return {"query": query, "result": result.to_dict()}  # Возврат результата в словаре
+        result = await deepresearch_service.research(query)
+        return {"query": query, "result": result.to_dict()}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))  # Обработка и возврат ошибки с кодом 500
+        raise HTTPException(status_code=500, detail=str(e))
