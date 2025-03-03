@@ -26,6 +26,8 @@ import trafilatura
 from ..config import config
 
 
+# В файле third_party/shandu/scraper/scraper.py
+
 @dataclass
 class ScrapedContent:
     """Container for scraped webpage content."""
@@ -42,23 +44,35 @@ class ScrapedContent:
     scrape_end_time: Optional[float] = None 
     content_size: Optional[int] = None
 
+    # Добавляем этот статический метод
+    @staticmethod
+    def from_error(url: str, error_msg: str) -> 'ScrapedContent':
+        """
+        Создает экземпляр ScrapedContent с информацией об ошибке.
+        
+        Args:
+            url: URL, который вызвал ошибку
+            error_msg: Текст сообщения об ошибке
+            
+        Returns:
+            ScrapedContent: Объект с заполненными полями ошибки
+        """
+        return ScrapedContent(
+            url=url,
+            title="Error",
+            text="",
+            html="",
+            metadata={"error_type": "robots_txt_denied" if "denied by robots.txt" in error_msg else "general_error"},
+            content_type="text/plain",
+            error=error_msg,
+            scrape_start_time=time.time(),
+            scrape_end_time=time.time()
+        )
+
     def is_successful(self) -> bool:
         """Check if scraping was successful."""
         return self.error is None and bool(self.text.strip())
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return {
-            "url": self.url,
-            "title": self.title,
-            "text": self.text,
-            "html": self.html,
-            "metadata": self.metadata,
-            "content_type": self.content_type,
-            "status_code": self.status_code,
-            "timestamp": self.timestamp.isoformat(),
-            "error": self.error
-        }
+    
     
 @staticmethod
 def from_error(url: str, error_msg: str) -> 'ScrapedContent':

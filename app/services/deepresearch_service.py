@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import asyncio
+import aiohttp
 import logging
 import re  # Добавлен импорт для регулярных выражений
 from typing import Dict, Optional, Any, List
@@ -513,25 +514,56 @@ class DeepResearchService:
             # Проверка на наличие номеров судебных дел и их выделение
             enhanced_prompt = highlight_court_numbers(user_prompt)
 
-            # Сохраняем промпты в базу данных, если предоставлены все необходимые параметры
-            if db is not None and thread_id is not None and user_id is not None:
+            # Логика сохранения промптов в БД...
+            
+            # Используем DeepSeek API - ИСПРАВЛЯЕМ ЗДЕСЬ
+            # Убираем вызов через self.deepseek_service.generate_with_system и напрямую формируем запрос
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": enhanced_prompt}
+            ]
+            
+            # Прямой запрос к API без промежуточных вызовов
+            url = f"{self.deepseek_service.api_base}/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.deepseek_service.api_key}"
+            }
+            payload = {
+                "model": self.deepseek_service.model,
+                "messages": messages,
+                "temperature": self.deepseek_service.temperature,
+                "max_tokens": self.deepseek_service.max_tokens
+            }
+            
+            logging.info("Отправка запроса к DeepSeek API: %s", url)
+            
+            # Единственный запрос с фиксированным таймаутом 120 секунд
+            timeout = aiohttp.ClientTimeout(total=120)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 try:
-                    # Создаем экземпляр PromptLog
-                    prompt_log = PromptLog(
-                        thread_id=thread_id,
-                        message_id=message_id,
-                        user_id=user_id,
-                        system_prompt=system_prompt,
-                        user_prompt=enhanced_prompt
-                    )
+                    async with session.post(url, headers=headers, json=payload) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
+                            analysis = f"Ошибка API: {response.status} - {error_text}"
+                        else:
+                            response_json = await response.json()
+                            if 'choices' in response_json and len(response_json['choices']) > 0:
+                                analysis = response_json['choices'][0]['message']['content']
+                            else:
+                                analysis = "Не удалось получить ответ от API DeepSeek"
+                except asyncio.TimeoutError:
+                    logging.error("Таймаут запроса к DeepSeek API (превышен лимит 120 сек)")
+                    analysis = "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
+            
+            # Формируем структурированный результат
+            result = ResearchResult(
+                query=query[:1000] + "..." if len(query) > 3000 else query,
+                analysis=analysis,
+                timestamp=self._get_current_time()
+            )
                     
-                    # Добавляем в сессию и сохраняем
-                    db.add(prompt_log)
-                    db.commit()
-                    logging.info(f"Промпт сохранен в БД: thread_id={thread_id}, message_id={message_id}")
-                except Exception as e:
-                    logging.error(f"Ошибка при сохранении промпта в БД: {str(e)}")
-                   
             
             # Используем DeepSeek API
             analysis = await self.deepseek_service.generate_with_system(system_prompt, enhanced_prompt)
