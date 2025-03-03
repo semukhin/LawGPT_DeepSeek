@@ -191,68 +191,55 @@ class DeepSeekService:
         else:
             logging.error(f"Неожиданный формат ответа: {response}")
             return "Ошибка получения текста"
-    
-    async def generate_with_system(self, system_prompt: str, user_prompt: str) -> str:
-        """
-        Генерирует ответ с системным промптом.
         
-        Args:
-            system_prompt: Системный промпт для контекста
-            user_prompt: Запрос пользователя
-            
-        Returns:
-            Сгенерированный текст
-        """
+
+    async def generate_with_system(self, system_prompt: str, user_prompt: str) -> str:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         
         # Фиксированный таймаут в 120 секунд
-        fixed_timeout = 120
+        timeout = aiohttp.ClientTimeout(total=120)
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens
+        }
+        
+        logging.info(f"Отправка запроса к DeepSeek API")
         
         try:
-            logging.info(f"Отправка запроса к DeepSeek API: {self.api_base}/chat/completions")
-            
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.post(
-                        f"{self.api_base}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                        timeout=fixed_timeout
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
-                            return f"Ошибка API: {response.status} - {error_text}"
-                        
-                        response_json = await response.json()
-                        
-                        if 'choices' in response_json and len(response_json['choices']) > 0:
-                            return response_json['choices'][0]['message']['content']
-                        else:
-                            return "Не удалось получить ответ от API DeepSeek"
-                            
-                except asyncio.TimeoutError:
-                    logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {fixed_timeout} сек)")
-                    return "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
-            
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    f"{self.api_base}/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
+                        return f"Ошибка API: {response.status} - {error_text}"
+                    
+                    response_json = await response.json()
+                    
+                    if 'choices' in response_json and len(response_json['choices']) > 0:
+                        return response_json['choices'][0]['message']['content']
+                    else:
+                        return "Не удалось получить ответ от API DeepSeek"
+        except asyncio.TimeoutError:
+            logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит 120 сек)")
+            return "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
         except Exception as e:
             logging.error(f"Ошибка при генерации ответа: {e}")
-            return f"Извините, произошла ошибка: {e}"
+            return f"Извините, произошла ошибка: {e}"    
 
 
 async def _generate(

@@ -44,30 +44,31 @@ class ScrapedContent:
     scrape_end_time: Optional[float] = None 
     content_size: Optional[int] = None
 
-    # Добавляем этот статический метод
-    @staticmethod
-    def from_error(url: str, error_msg: str) -> 'ScrapedContent':
-        """
-        Создает экземпляр ScrapedContent с информацией об ошибке.
+    # Добавляем метод to_dict
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format for serialization."""
+        result = {
+            "url": self.url,
+            "title": self.title,
+            "text": self.text,
+            "html": self.html,
+            "metadata": self.metadata,
+            "content_type": self.content_type,
+            "status_code": self.status_code,
+            "error": self.error,
+            "scrape_start_time": self.scrape_start_time,
+            "scrape_end_time": self.scrape_end_time,
+            "content_size": self.content_size
+        }
         
-        Args:
-            url: URL, который вызвал ошибку
-            error_msg: Текст сообщения об ошибке
+        # Преобразуем datetime в строку ISO для JSON-сериализации
+        if isinstance(self.timestamp, datetime):
+            result["timestamp"] = self.timestamp.isoformat()
+        else:
+            result["timestamp"] = self.timestamp
             
-        Returns:
-            ScrapedContent: Объект с заполненными полями ошибки
-        """
-        return ScrapedContent(
-            url=url,
-            title="Error",
-            text="",
-            html="",
-            metadata={"error_type": "robots_txt_denied" if "denied by robots.txt" in error_msg else "general_error"},
-            content_type="text/plain",
-            error=error_msg,
-            scrape_start_time=time.time(),
-            scrape_end_time=time.time()
-        )
+        return result
+
 
     def is_successful(self) -> bool:
         """Check if scraping was successful."""
@@ -286,7 +287,7 @@ class WebScraper:
     
     async def _get_page_simple(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[int]]:
         """
-        Get page content using aiohttp.
+        Get page content using aiohttp with improved encoding detection.
         
         Returns:
             Tuple of (html_content, content_type, status_code)
@@ -300,13 +301,10 @@ class WebScraper:
             'Cache-Control': 'max-age=0',
         }
         
-
-
         # Создаем SSL-контекст с отключенной проверкой
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-
 
         async with aiohttp.ClientSession() as session:
             try:
@@ -325,7 +323,22 @@ class WebScraper:
                     status_code = response.status
                     
                     if 200 <= status_code < 300:
-                        return await response.text(), content_type, status_code
+                        try:
+                            # Сначала пытаемся получить контент как обычный текст
+                            html_text = await response.text()
+                            return html_text, content_type, status_code
+                        except UnicodeDecodeError:
+                            # Если не удалось декодировать как UTF-8, пробуем другие кодировки
+                            content = await response.read()
+                            for encoding in ['windows-1251', 'cp1251', 'latin-1', 'iso-8859-1']:
+                                try:
+                                    html_text = content.decode(encoding)
+                                    return html_text, content_type, status_code
+                                except UnicodeDecodeError:
+                                    continue
+                            
+                            # Если ни одна кодировка не подошла, используем безопасный вариант
+                            return content.decode('utf-8', errors='replace'), content_type, status_code
                     else:
                         print(f"HTTP error {status_code} for {url}")
                         return None, content_type, status_code

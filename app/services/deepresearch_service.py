@@ -346,15 +346,8 @@ class DeepResearchService:
         return False
 
     @audit_deepresearch
-    async def research(
-        self, 
-        query: str, 
-        additional_context: Optional[List[Dict]] = None,
-        thread_id: Optional[str] = None,
-        message_id: Optional[int] = None,
-        user_id: Optional[int] = None,
-        db: Optional[Session] = None
-    ) -> ResearchResult:
+    async def research(self, query: str, additional_context: Optional[List[Dict]] = None, thread_id: Optional[str] = None, message_id: Optional[int] = None, user_id: Optional[int] = None, db: Optional[Session] = None) -> ResearchResult:
+
         """
         Выполняет глубокий анализ запроса с использованием DeepSeek API.
         
@@ -513,17 +506,14 @@ class DeepResearchService:
         try:
             # Проверка на наличие номеров судебных дел и их выделение
             enhanced_prompt = highlight_court_numbers(user_prompt)
-
-            # Логика сохранения промптов в БД...
             
-            # Используем DeepSeek API - ИСПРАВЛЯЕМ ЗДЕСЬ
-            # Убираем вызов через self.deepseek_service.generate_with_system и напрямую формируем запрос
+            # Единственный запрос к DeepSeek API
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": enhanced_prompt}
             ]
             
-            # Прямой запрос к API без промежуточных вызовов
+            # Прямой и единственный запрос к API
             url = f"{self.deepseek_service.api_base}/chat/completions"
             headers = {
                 "Content-Type": "application/json",
@@ -536,49 +526,30 @@ class DeepResearchService:
                 "max_tokens": self.deepseek_service.max_tokens
             }
             
-            logging.info("Отправка запроса к DeepSeek API: %s", url)
+            logging.info("Отправка запроса к DeepSeek API")
             
             # Единственный запрос с фиксированным таймаутом 120 секунд
             timeout = aiohttp.ClientTimeout(total=120)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                try:
-                    async with session.post(url, headers=headers, json=payload) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
-                            analysis = f"Ошибка API: {response.status} - {error_text}"
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
+                        analysis = f"Ошибка API: {response.status} - {error_text}"
+                    else:
+                        response_json = await response.json()
+                        if 'choices' in response_json and len(response_json['choices']) > 0:
+                            analysis = response_json['choices'][0]['message']['content']
+                            
+                            # Валидация номеров судебных дел в ответе
+                            analysis = validate_court_numbers(analysis, query)
                         else:
-                            response_json = await response.json()
-                            if 'choices' in response_json and len(response_json['choices']) > 0:
-                                analysis = response_json['choices'][0]['message']['content']
-                            else:
-                                analysis = "Не удалось получить ответ от API DeepSeek"
-                except asyncio.TimeoutError:
-                    logging.error("Таймаут запроса к DeepSeek API (превышен лимит 120 сек)")
-                    analysis = "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
+                            analysis = "Не удалось получить ответ от API DeepSeek"
             
             # Формируем структурированный результат
             result = ResearchResult(
                 query=query[:1000] + "..." if len(query) > 3000 else query,
                 analysis=analysis,
-                timestamp=self._get_current_time()
-            )
-                    
-            
-            # Используем DeepSeek API
-            analysis = await self.deepseek_service.generate_with_system(system_prompt, enhanced_prompt)
-
-
-            # Используем DeepSeek API
-            analysis = await self.deepseek_service.generate_with_system(system_prompt, enhanced_prompt)
-            
-            # Валидация номеров судебных дел в ответе
-            validated_analysis = validate_court_numbers(analysis, query)
-            
-            # Формируем структурированный результат
-            result = ResearchResult(
-                query=query[:1000] + "..." if len(query) > 3000 else query,
-                analysis=validated_analysis,
                 timestamp=self._get_current_time()
             )
             
@@ -599,7 +570,7 @@ class DeepResearchService:
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
-
+        
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
