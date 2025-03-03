@@ -9,31 +9,40 @@ from fastapi.security import OAuth2PasswordBearer
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
-
 # JWT настройки
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
-# Схема аутентификации
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
-
 
 # Конфигурация базы данных
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./lawgpt.db")
-
 
 # Конфигурация безопасности
 SECRET_KEY = os.environ.get("SECRET_KEY", "default_secret_key_replace_in_production")
 ALGORITHM = os.environ.get("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
+# API ключи и настройки DeepSeek
+USE_SHANDU_RESEARCH_AGENT = os.environ.get("USE_SHANDU_RESEARCH_AGENT", "False") == "True"
 
-# API ключи
+
+# Для Shandu и OpenAI 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4")
+
+# Новые эндпоинты для DeepSeek:
+DEEPSEEK_CHAT_COMPLETION_URL = os.environ.get("DEEPSEEK_CHAT_COMPLETION_URL", "https://api.deepseek.com/api/create-chat-completion")
+DEEPSEEK_COMPLETION_URL = os.environ.get("DEEPSEEK_COMPLETION_URL", "https://api.deepseek.com/api/create-completion")
+DEEPSEEK_LIST_MODELS_URL = os.environ.get("DEEPSEEK_LIST_MODELS_URL", "https://api.deepseek.com/api/list-models")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-reasoner")
+
+
+# Базовый URL для DeepSeek API
 DEEPSEEK_API_BASE = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 
 
 
@@ -65,6 +74,7 @@ RESPONSE_QUALITY_MONITORING = {
     "log_directory": os.environ.get("RESPONSE_QUALITY_MONITORING_LOG_DIRECTORY", "quality_logs")
 }
 
-
 # Настройки AI сервиса (переключение между разными провайдерами)
-AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek")  # openai, vertex, deepseek
+AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek")  # Возможные значения: openai, vertex, deepseek
+
+

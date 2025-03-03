@@ -30,6 +30,8 @@ class User(Base):
     verification_code = relationship("VerificationCode", back_populates="user", uselist=False)
     threads = relationship("Thread", back_populates="user")
     documents = relationship("Document", back_populates="user")  # Добавляем связь
+    prompt_logs = relationship("PromptLog", back_populates="user")
+
 
 
 class TempUser(Base):
@@ -59,6 +61,8 @@ class Thread(Base):
 
     user = relationship("User", back_populates="threads")
     messages = relationship("Message", back_populates="thread")
+    prompt_logs = relationship("PromptLog", back_populates="thread")
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -71,6 +75,7 @@ class Message(Base):
     context_summary = Column(Text, nullable=True)  # Добавленный столбец
 
     thread = relationship("Thread", back_populates="messages")
+    prompt_log = relationship("PromptLog", back_populates="message", uselist=False)
 
 
 class Document(Base):
@@ -82,5 +87,21 @@ class Document(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     download_date = Column(DateTime, default=func.now())  # Поле есть?
 
-
     user = relationship("User", back_populates="documents")
+
+
+class PromptLog(Base):
+    __tablename__ = "prompt_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(String(50), ForeignKey("threads.id"), nullable=False)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    system_prompt = Column(Text, nullable=False)
+    user_prompt = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Связи
+    thread = relationship("Thread", back_populates="prompt_logs")
+    message = relationship("Message", back_populates="prompt_log", uselist=False)
+    user = relationship("User", back_populates="prompt_logs")

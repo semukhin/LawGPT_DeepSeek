@@ -10,7 +10,7 @@ import aiohttp
 import asyncio
 from typing import List, Dict, Any, Optional, Union, Literal
 
-from app.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE
+from app.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -25,10 +25,10 @@ class DeepSeekService:
         self,
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-reasoner",
         temperature: float = 0.7,
-        max_tokens: int = 4000,
-        timeout: int = 60
+        max_tokens: int = 8192,
+        timeout: int = 90
     ):
         """
         Инициализирует сервис с параметрами API DeepSeek.
@@ -61,7 +61,8 @@ class DeepSeekService:
         stream: bool = False,
         top_p: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None
+        frequency_penalty: Optional[float] = None,
+        model: Optional[str] = None
     ) -> Union[str, Dict[str, Any]]:
         """
         Отправляет запрос к DeepSeek Chat API и возвращает ответ.
@@ -76,6 +77,7 @@ class DeepSeekService:
             top_p: Параметр top-p сэмплинга
             presence_penalty: Штраф за повторение тем
             frequency_penalty: Штраф за повторение токенов
+            model: Явное указание модели (если отличается от умолчательной)
             
         Returns:
             Текст ответа от API или полный ответ API
@@ -92,7 +94,7 @@ class DeepSeekService:
         
         # Формируем payload с обязательными параметрами
         payload = {
-            "model": self.model,
+            "model": model or self.model,  # Используем переданную модель или дефолтную
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
@@ -184,11 +186,11 @@ class DeepSeekService:
     
     async def generate_with_system(self, system_prompt: str, user_prompt: str) -> str:
         """
-        Генерирует текст с использованием системного и пользовательского промпта.
+        Генерирует ответ с системным промптом.
         
         Args:
-            system_prompt: Системный промпт для задания контекста
-            user_prompt: Пользовательский промпт
+            system_prompt: Системный промпт для контекста
+            user_prompt: Запрос пользователя
             
         Returns:
             Сгенерированный текст
@@ -197,15 +199,67 @@ class DeepSeekService:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        response = await self.chat_completion(messages)
         
-        if isinstance(response, dict) and 'choices' in response:
-            return response['choices'][0]['message']['content']
-        elif isinstance(response, str):
-            return response
-        else:
-            logging.error(f"Неожиданный формат ответа: {response}")
-            return "Ошибка получения текста"
+        try:
+            response = await self.chat_completion(messages)
+            
+            if isinstance(response, dict) and 'choices' in response:
+                return response['choices'][0]['message']['content']
+            elif isinstance(response, str):
+                return response
+            else:
+                logging.error(f"Неожиданный формат ответа: {response}")
+                return "Ошибка получения текста"
+        
+        except Exception as e:
+            logging.error(f"Ошибка при генерации ответа: {e}")
+            return f"Извините, произошла ошибка: {e}"
+
+    async def _generate(
+        self, 
+        messages: List[Dict], 
+        functions: Optional[List[Dict]] = None,
+        max_tokens: int = 8192
+    ) -> str:
+        """
+        Внутренний метод генерации ответа с проверкой ограничений.
+        
+        Args:
+            messages: Список сообщений
+            functions: Список доступных функций
+            max_tokens: Максимальное количество токенов
+        """
+        # Строгая проверка max_tokens
+        max_tokens = max(1, min(max_tokens, 8192))
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens
+        }
+        
+        if functions:
+            payload["functions"] = functions
+            payload["function_call"] = "auto"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.api_base}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json=payload,
+                timeout=self.timeout
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logging.error(f"API Error: {error_text}")
+                    raise HTTPException(status_code=response.status, detail=error_text)
+                
+                result = await response.json()
+                return result['choices'][0]['message']['content']
         
         
         
@@ -250,7 +304,7 @@ class DeepSeekService:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": 0.8,
             "max_tokens": self.max_tokens,
             "functions": functions,
             "function_call": function_call

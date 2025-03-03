@@ -207,10 +207,3 @@ wrapt==1.17.2
 yarl==1.18.3
 zipp==3.21.0
 zstandard==0.23.0
-python-dotenv
-python-dotenv
-langchain-core
-langchain-openai
-langchain
-langchain-community
-openai

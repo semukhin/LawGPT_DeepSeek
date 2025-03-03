@@ -55,7 +55,31 @@ class ScrapedContent:
             "error": self.error
         }
     
+@staticmethod
+def from_error(url: str, error_msg: str) -> 'ScrapedContent':
+    """
+    Создает экземпляр ScrapedContent с информацией об ошибке.
     
+    Args:
+        url: URL, который вызвал ошибку
+        error_msg: Текст сообщения об ошибке
+        
+    Returns:
+        ScrapedContent: Объект с заполненными полями ошибки
+    """
+    return ScrapedContent(
+        url=url,
+        title="Error",
+        text="",
+        html="",
+        metadata={"error_type": "robots_txt_denied" if "denied by robots.txt" in error_msg else "general_error"},
+        content_type="text/plain",
+        error=error_msg,
+        status_code=None,
+        scrape_start_time=time.time(),
+        scrape_end_time=time.time()
+    )
+
     def is_successful(self) -> bool:
         """Check if scraping was successful."""
         return self.error is None and bool(self.text.strip())
@@ -208,7 +232,7 @@ class WebScraper:
         max_concurrent: int = 8,  # Increased from 5 to 8 for more parallel processing
         cache_ttl: int = 86400,  # 24 hours
         user_agent: Optional[str] = None,
-        respect_robots: bool = True
+        respect_robots: bool = False
     ):
         self.proxy = proxy or config.get("scraper", "proxy")
         self.timeout = timeout or config.get("scraper", "timeout", 10)
@@ -219,9 +243,10 @@ class WebScraper:
         self.respect_robots = respect_robots
         
         # Create a single UserAgent instance to avoid repeated initialization
+        # Изменить на:
         if user_agent is None:
-            ua_generator = UserAgent()
-            self.user_agent = ua_generator.random
+            # Фиксированный User-Agent вместо случайного
+            self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         else:
             self.user_agent = user_agent
 

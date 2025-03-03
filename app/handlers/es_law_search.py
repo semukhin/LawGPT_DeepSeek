@@ -11,7 +11,7 @@ ES_PASS = "GIkb8BKzkXK7i2blnG2O"
 ES_INDEX_NAME = "ruslawod_index"
 
 
-def search_law_chunks(query: str, top_n: int = 15) -> List[str]:
+def search_law_chunks(query: str, top_n: int = 7) -> List[str]:
     """
     Ищет релевантные чанки в Elasticsearch.
     """
