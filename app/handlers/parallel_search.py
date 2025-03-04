@@ -1,12 +1,10 @@
 import logging
 from typing import Dict, Any
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.garant_process import process_garant_request
 from app.handlers.web_search import search_and_scrape
 import asyncio
 import time
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.garant_process import process_garant_request
 from app.handlers.web_search import search_and_scrape
 
 
@@ -41,23 +39,6 @@ async def run_parallel_search(query: str) -> Dict[str, Any]:
             logging.error(f"❌ Ошибка при поиске в Elasticsearch: {str(e)}")
             return {"type": "elasticsearch", "results": [], "error": str(e)}
     
-    async def search_garant_task():
-        try:
-            logging.info("⏳ Поиск в Гаранте...")
-            garant_results = process_garant_request(query, logs=logs, rag_module=rag_module)
-            if garant_results and "docx_file_path" in garant_results:
-                # Извлекаем текст из docx
-                from app.handlers.user_doc_request import extract_text_from_any_document
-                docx_path = garant_results.get("docx_file_path")
-                docx_text = extract_text_from_any_document(docx_path)
-                return {
-                    "type": "garant", 
-                    "results": {"text": docx_text, "path": docx_path}
-                }
-            return {"type": "garant", "results": {}}
-        except Exception as e:
-            logging.error(f"❌ Ошибка при поиске в Гаранте: {str(e)}")
-            return {"type": "garant", "results": {}, "error": str(e)}
     
     async def search_web_task():
         try:
@@ -81,7 +62,6 @@ async def run_parallel_search(query: str) -> Dict[str, Any]:
     # Запускаем все задачи параллельно
     tasks = [
         search_elastic_task(),
-        search_garant_task(),
         search_web_task()
     ]
     

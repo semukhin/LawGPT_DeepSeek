@@ -347,7 +347,6 @@ class DeepResearchService:
 
     @audit_deepresearch
     async def research(self, query: str, additional_context: Optional[List[Dict]] = None, thread_id: Optional[str] = None, message_id: Optional[int] = None, user_id: Optional[int] = None, db: Optional[Session] = None) -> ResearchResult:
-
         """
         Выполняет глубокий анализ запроса с использованием DeepSeek API.
         
@@ -365,54 +364,11 @@ class DeepResearchService:
         self.usage_counter += 1
         logging.info(f"[DeepResearch #{self.usage_counter}] Начинаем исследование. Длина запроса: {len(query)} символов")
         
-        # Сохраняем промпт в базу данных
-        if db is not None and thread_id is not None and user_id is not None:
-            try:
-                system_prompt = """Системный промпт для юридических исследований..."""  # Используйте существующий системный промпт
-                
-                # Проверяем схему таблицы prompt_logs на наличие столбца message_id
-                from sqlalchemy import inspect
-                inspector = inspect(db.get_bind())
-                try:
-                    columns = [col['name'] for col in inspector.get_columns('prompt_logs')]
-                    has_message_id = 'message_id' in columns
-                except Exception:
-                    # Если не удалось получить схему таблицы, предполагаем, что столбца нет
-                    has_message_id = False
-                    
-                # Подготавливаем данные для записи в таблицу
-                prompt_data = {
-                    "thread_id": thread_id,
-                    "user_id": user_id,
-                    "system_prompt": system_prompt,
-                    "user_prompt": query[:10000]  # Ограничиваем длину для БД
-                }
-                
-                # Добавляем message_id только если столбец существует и значение не None
-                if has_message_id and message_id is not None:
-                    prompt_data["message_id"] = message_id
-                
-                # Создаем запись с нужными полями
-                prompt_log = models.PromptLog(**prompt_data)
-                db.add(prompt_log)
-                db.commit()
-                logging.info(f"✅ Промпт сохранен в БД для треда {thread_id}")
-            except Exception as e:
-                # Откатываем транзакцию и логируем ошибку
-                try:
-                    db.rollback()
-                except Exception:
-                    pass  # Игнорируем ошибки при откате
-                logging.error(f"❌ Ошибка при сохранении промпта: {e}")
-
-
         # Обработка файлов, если query - путь к файлу
         if isinstance(query, str) and (query.endswith('.docx') or query.endswith('.pdf')):
             query = self.read_document(query) or query
             
         # Проверяем, является ли запрос общим (не юридическим)
-        # Эта функция будет вызываться только если запрос сначала не был перехвачен 
-        # в send_custom_request, поэтому делаем здесь дополнительную проверку
         if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА" in query:
             # Это уже структурированный запрос из send_custom_request,
             # проверяем оригинальный запрос пользователя
@@ -439,16 +395,17 @@ class DeepResearchService:
             созданный для помощи пользователям в юридических вопросах.
             """
         else:
-            system_prompt = """Ты - эксперт по юридическому анализу.
+            system_prompt = """
                 Ты - юридический ассистент LawGPT (профессиональный юрист), специализирующийся на российском законодательстве.
                 Твоя задача - предоставлять точную, полезную информацию по юридическим вопросам,
                 основываясь на фактических данных из законодательства, судебной практики и 
                 проверенных источников.
                 
                 1. Структурируй ответы на ЮРИДИЧЕСКИЕ запросы, выделяя:
-                - Применимые нормы законодательства с точными ссылками на статьи законов и другие нормы права,
-                - Судебную практику и правовые позиции судов,
-                - Практические рекомендации по ситуации.
+                    - Суть вопроса пользователя,
+                    - Применимые нормы законодательства с точными ссылками на статьи законов и другие нормы права,
+                    - Судебную практику и правовые позиции судов,
+                    - Практические рекомендации по ситуации.
 
                 2. Используй законы Российской Федерации, комментарии, формы процессуальных документов, договоров, аналитические данные, что позволит тебе предоставлять пользователю персонализированные ответы и рекомендации, основанные на актуальных правовых нормах. 
 
@@ -458,22 +415,22 @@ class DeepResearchService:
 
                 5. Диалог с пользователем следует вести исключительно по юридическим вопросам, строго избегая технические.
                 
-                ВАЖНЫЕ ПРАВИЛА ПО РАБОТЕ С НОМЕРАМИ СУДЕБНЫХ ДЕЛ:
+                ***ВАЖНЫЕ ПРАВИЛА ПО РАБОТЕ С НОМЕРАМИ СУДЕБНЫХ ДЕЛ:***
 
                 1. ИСПОЛЬЗУЙ ТОЛЬКО номера судебных дел, которые ЯВНО указаны в исходных материалах или запросе пользователя.
-                   
+                
                 2. НИКОГДА не придумывай и не создавай номера судебных дел самостоятельно. 
-                   
+                
                 3. Если в запросе (промте) или материалах указан номер дела (например, А40-767106/2022), 
-                   ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
-                   
+                ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
+                
                 4. Если нужно привести пример судебной практики, но конкретные номера дел не указаны 
-                   в материалах, используй обобщенные формулировки без номеров: "согласно судебной практике...", 
-                   "как отмечается в решениях Верховного Суда..." и т.д.
-                   
+                в материалах, используй обобщенные формулировки без номеров: "согласно судебной практике...", 
+                "как отмечается в решениях Верховного Суда..." и т.д.
+                
                 5. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
                 Не выдумывай не существующие номера судебных дел(например А60-78901/2021 или А40-123456/2020), а используй только те номера которые тебе поступили с промтом.
-                   
+                
                 6. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте)."""
         
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
@@ -503,11 +460,48 @@ class DeepResearchService:
                             else:
                                 user_prompt += f"{str(ctx['data'])[:3000]}...\n\n"
         
+        # Проверка на наличие номеров судебных дел и их выделение
+        enhanced_prompt = highlight_court_numbers(user_prompt)
+        
+        # Сохраняем промпт в базу данных после того как определили системный промпт и пользовательский запрос
+        if db is not None and thread_id is not None and user_id is not None:
+            try:
+                # Проверяем схему таблицы prompt_logs на наличие столбца message_id
+                from sqlalchemy import inspect
+                inspector = inspect(db.get_bind())
+                try:
+                    columns = [col['name'] for col in inspector.get_columns('prompt_logs')]
+                    has_message_id = 'message_id' in columns
+                except Exception:
+                    has_message_id = False
+                    
+                # Подготавливаем данные для записи в таблицу
+                prompt_data = {
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "system_prompt": system_prompt,  # Теперь system_prompt уже определен
+                    "user_prompt": enhanced_prompt    # И enhanced_prompt тоже
+                }
+                
+                # Добавляем message_id только если столбец существует и значение не None
+                if has_message_id and message_id is not None:
+                    prompt_data["message_id"] = message_id
+                
+                # Создаем запись с нужными полями
+                prompt_log = models.PromptLog(**prompt_data)
+                db.add(prompt_log)
+                db.commit()
+                logging.info(f"✅ Промпт сохранен в БД для треда {thread_id}")
+            except Exception as e:
+                # Откатываем транзакцию и логируем ошибку
+                try:
+                    db.rollback()
+                except Exception:
+                    pass  # Игнорируем ошибки при откате
+                logging.error(f"❌ Ошибка при сохранении промпта: {e}")
+        
         try:
-            # Проверка на наличие номеров судебных дел и их выделение
-            enhanced_prompt = highlight_court_numbers(user_prompt)
-            
-            # Единственный запрос к DeepSeek API
+            # Запрос к DeepSeek API с правильным системным промптом
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": enhanced_prompt}
@@ -570,7 +564,6 @@ class DeepResearchService:
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
-        
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
