@@ -11,7 +11,6 @@ import asyncio
 from app.handlers.parallel_search import run_parallel_search
 from app.utils import measure_time
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.garant_process import process_garant_request
 from app.handlers.web_search import google_search, search_and_scrape, run_multiple_searches
 from app.services.deepresearch_service import DeepResearchService
 from app.services.deepseek_service import DeepSeekService
@@ -323,20 +322,6 @@ AVAILABLE_FUNCTIONS = [
                 "query": {
                     "type": "string",
                     "description": "Текст запроса для поиска в законодательстве. Должен содержать ключевые юридические термины и номера статей, если известны."
-                }
-            },
-            "required": ["query"]
-        }
-    },
-    {
-        "name": "search_garant",
-        "description": "Поиск в базе Гарант по указанному запросу. Используй для поиска судебной практики, постановлений, и решений судов.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Текст запроса для поиска в базе Гарант. Для поиска судебной практики сформулируй запрос с указанием релевантных статей и конкретными юридическими терминами."
                 }
             },
             "required": ["query"]

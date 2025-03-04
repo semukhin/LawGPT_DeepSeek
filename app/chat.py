@@ -21,7 +21,6 @@ from app.database import get_db
 from app.models import User, Message, Thread, Document
 from app.auth import get_current_user
 from app.handlers.web_search import google_search
-from app.handlers.garant_process import process_garant_request
 from app.handlers.ai_request import send_custom_request
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.user_doc_request import extract_text_from_any_document
