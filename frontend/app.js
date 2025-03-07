@@ -594,7 +594,7 @@ function removeUploadedFile() {
 /**
  * Загружает профиль пользователя
  */
-async async function loadUserProfile() {
+async function loadUserProfile() {
     try {
         const response = await apiRequest('/profile', 'GET');
         
@@ -987,10 +987,17 @@ async function handleResendCode(e) {
     showLoading();
     
     try {
-        // API метод для повторной отправки будет зависеть от бэкенда
-        const response = await apiRequest('/resend-code', 'POST', {
-            email: email
+        // Используем существующий метод register вместо несуществующего resend-code
+        const response = await apiRequest('/register', 'POST', {
+            email: email,
+            password: "temporary", // Это будет заменено при верификации
+            first_name: "Временное",
+            last_name: "Имя"
         });
+        
+        if (response.temp_token) {
+            localStorage.setItem(config.storageTempTokenKey, response.temp_token);
+        }
         
         hideLoading();
         showNotification('Код подтверждения отправлен повторно', 'success');
@@ -1074,7 +1081,7 @@ async function handleResetPassword(e) {
 /**
  * Обработчик выхода пользователя
  */
-async async function handleLogout() {
+async function handleLogout() {
     showLoading();
     
     try {
