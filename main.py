@@ -2,6 +2,7 @@ import sys, os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
 from app.services.research_factory import ResearchAdapter
@@ -27,6 +28,9 @@ app = FastAPI(
     description="API для обработки чатов с использованием DeepResearch и других источников.",
     version="2.0.0"
 )
+
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 
 # Настраиваем логирование
