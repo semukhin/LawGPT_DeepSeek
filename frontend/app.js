@@ -249,7 +249,8 @@ async function apiRequest(url, method, data = null, isFormData = false) {
 
         const options = {
             method,
-            headers
+            headers,
+            credentials: 'include' // Для корректной работы с куками
         };
 
         if (data) {
@@ -263,16 +264,32 @@ async function apiRequest(url, method, data = null, isFormData = false) {
             }
         }
 
+        console.log(`Отправка запроса: ${method} ${config.apiUrl}/${url}`, options);
         const response = await fetch(`${config.apiUrl}/${url}`, options);
+        
+        // Для отладки
+        console.log(`Получен ответ: ${response.status}`);
         
         // Проверка статуса ответа
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || `HTTP ошибка: ${response.status}`);
+            let errorMessage = `HTTP ошибка: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.detail || errorMessage;
+            } catch (e) {
+                // Если не удалось распарсить JSON, используем статус-сообщение
+                errorMessage = `${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
         }
         
-        // Только для успешных ответов
-        return await response.json();
+        // Проверка на пустой ответ
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            return await response.json();
+        } else {
+            return { success: true };
+        }
     } catch (error) {
         console.error('API Error:', error);
         showNotification(error.message, 'error');
@@ -290,12 +307,15 @@ async function apiRequest(url, method, data = null, isFormData = false) {
 async function register(email, password, firstName, lastName) {
     showLoading();
     try {
+        console.log("Отправка запроса на /register...");
         const data = await apiRequest('register', 'POST', {
             email,
             password,
             first_name: firstName,
             last_name: lastName
         });
+        
+        console.log("Ответ сервера:", data);
         
         // Сохраняем временный токен для верификации
         localStorage.setItem(config.tempTokenKey, data.temp_token);
@@ -304,7 +324,9 @@ async function register(email, password, firstName, lastName) {
         showVerifyForm();
         showNotification('Код подтверждения отправлен на вашу почту');
     } catch (error) {
-        console.error('Register error:', error);
+        console.error('Ошибка регистрации:', error);
+        showNotification(error.message || 'Ошибка при регистрации', 'error');
+        throw error;
     } finally {
         hideLoading();
     }
@@ -353,14 +375,19 @@ async function login(email, password) {
     showLoading();
     try {
         const data = await apiRequest('login', 'POST', { email, password });
-        state.accessToken = data.access_token;
-        localStorage.setItem(config.tokenStorageKey, data.access_token);
-        
-        // Инициализируем приложение
-        initApp();
-        showNotification('Вы успешно вошли в систему');
+        if (data && data.access_token) {
+            state.accessToken = data.access_token;
+            localStorage.setItem(config.tokenStorageKey, data.access_token);
+            
+            // Инициализируем приложение
+            initApp();
+            showNotification('Вы успешно вошли в систему');
+        } else {
+            throw new Error('Получен некорректный ответ от API');
+        }
     } catch (error) {
         console.error('Login error:', error);
+        showNotification(error.message || 'Ошибка авторизации', 'error');
     } finally {
         hideLoading();
     }
@@ -522,15 +549,6 @@ async function sendMessage(threadId, query, file = null) {
         created_at: new Date().toISOString()
     });
     
-    // Если есть файл, показываем его в чате
-    if (file) {
-        addMessage({
-            role: 'user',
-            content: `Документ: ${file.name}`,
-            created_at: new Date().toISOString()
-        });
-    }
-    
     // Показываем индикатор набора текста ассистентом
     showTypingIndicator();
     
@@ -540,24 +558,40 @@ async function sendMessage(threadId, query, file = null) {
         
         if (file) {
             formData.append('file', file);
+            // Дополнительно отображаем информацию о файле
+            addMessage({
+                role: 'user',
+                content: `Документ: ${file.name}`,
+                created_at: new Date().toISOString()
+            });
         }
         
+        console.log(`Отправка сообщения в тред ${threadId}`);
         const data = await apiRequest(`chat/${threadId}`, 'POST', formData, true);
         
         // Скрываем индикатор набора текста
         hideTypingIndicator();
         
-        // Если есть recognized_text, показываем его
-        if (data.recognized_text) {
-            showDocumentText(data.recognized_text);
+        // Проверяем успешность запроса
+        if (data) {
+            console.log("Получен ответ:", data);
+            
+            // Если есть recognized_text, показываем его
+            if (data.recognized_text) {
+                showDocumentText(data.recognized_text);
+            }
+            
+            // Добавляем ответ ассистента
+            if (data.assistant_response) {
+                addMessage({
+                    role: 'assistant',
+                    content: data.assistant_response,
+                    created_at: new Date().toISOString()
+                });
+            } else {
+                showNotification('Получен пустой ответ от сервера', 'error');
+            }
         }
-        
-        // Добавляем ответ ассистента
-        addMessage({
-            role: 'assistant',
-            content: data.assistant_response,
-            created_at: new Date().toISOString()
-        });
         
         // Очищаем выбранный файл
         clearFileSelection();
@@ -571,7 +605,7 @@ async function sendMessage(threadId, query, file = null) {
         // Добавляем сообщение об ошибке
         addMessage({
             role: 'assistant',
-            content: 'Произошла ошибка при отправке сообщения. Пожалуйста, попробуйте еще раз.',
+            content: `Произошла ошибка при отправке сообщения: ${error.message}. Пожалуйста, попробуйте еще раз.`,
             created_at: new Date().toISOString()
         });
     } finally {
@@ -872,21 +906,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // === Обработчики форм авторизации ===
     
     // Форма входа
-    loginFormElement.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
-        login(email, password);
-    });
+    if (loginFormElement) {
+        loginFormElement.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            login(email, password);
+        });
+    } else {
+        console.error("Форма входа не найдена в DOM");
+    }
     
     // Форма регистрации
     registerFormElement.addEventListener('submit', (e) => {
         e.preventDefault();
+        console.log("Обработка формы регистрации...");
         const email = document.getElementById('register-email').value;
         const password = document.getElementById('register-password').value;
         const firstName = document.getElementById('register-first-name').value;
         const lastName = document.getElementById('register-last-name').value;
-        register(email, password, firstName, lastName);
+        
+        console.log("Данные формы:", { email, firstName, lastName, password: "***" });
+        
+        // Попытка регистрации
+        register(email, password, firstName, lastName)
+            .catch(error => {
+                console.error("Ошибка при регистрации:", error);
+                showNotification("Ошибка при регистрации: " + error.message, 'error');
+            });
     });
     
     // Форма верификации
@@ -913,16 +960,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Навигация между формами авторизации
-    showRegisterBtn.addEventListener('click', showRegisterForm);
-    showLoginBtn.addEventListener('click', showLoginForm);
+    if (showRegisterBtn) {
+        showRegisterBtn.addEventListener('click', showRegisterForm);
+    }
+    
+    if (showLoginBtn) {
+        showLoginBtn.addEventListener('click', showLoginForm);
+    }
+    
     forgotPasswordLink.addEventListener('click', (e) => {
         e.preventDefault();
         showForgotPasswordForm();
     });
+    
     if (backToLoginBtn) {
         backToLoginBtn.addEventListener('click', showLoginForm);
     }
-    
+
     // === Обработчики событий чата ===
     
     // Создание нового треда
