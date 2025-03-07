@@ -30,9 +30,6 @@ app = FastAPI(
 )
 
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
-
-
 # Настраиваем логирование
 logging.basicConfig(
     level=logging.INFO,  # Уровень логирования

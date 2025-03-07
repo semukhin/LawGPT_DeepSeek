@@ -51,9 +51,9 @@ const loadingContainer = document.getElementById('loading-container');
 const logoutBtn = document.getElementById('logout-btn');
 const profileBtn = document.getElementById('profile-btn');
 
-// Инициализация marked.js для форматирования Markdown
-marked.setOptions({
-    renderer: new marked.Renderer(),
+// Инициализация markdown.js для форматирования Markdown
+markdown.setOptions({
+    renderer: new markdown.Renderer(),
     highlight: function(code, lang) {
         const language = hljs.getLanguage(lang) ? lang : 'plaintext';
         return hljs.highlight(code, { language }).value;
@@ -178,10 +178,10 @@ function createMessageElement(message) {
     const div = document.createElement('div');
     div.className = `message message-${message.role}`;
     
-    // Форматирование контента с помощью marked.js (Markdown)
+    // Форматирование контента с помощью markdown.js (Markdown)
     let formattedContent = message.content;
     if (message.role === 'assistant') {
-        formattedContent = marked.parse(message.content);
+        formattedContent = markdown.parse(message.content);
     }
     
     const formattedTime = formatDate(message.created_at);
@@ -846,13 +846,28 @@ function initApp() {
 
 // Когда страница загружена
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("Приложение инициализируется...");
+    console.log("Состояние токена:", state.accessToken ? "Токен найден" : "Токен не найден");
+    
     // Инициализируем UI в зависимости от состояния авторизации
     if (state.accessToken) {
-        initApp();
+        try {
+            initApp();
+            console.log("Приложение инициализировано с токеном");
+        } catch (e) {
+            console.error("Ошибка инициализации приложения:", e);
+            // При ошибке сбрасываем токен и показываем форму входа
+            state.accessToken = null;
+            localStorage.removeItem(config.tokenStorageKey);
+            authContainer.style.display = 'flex';
+            mainApp.style.display = 'none';
+        }
     } else {
+        console.log("Показываем форму авторизации");
         authContainer.style.display = 'flex';
         mainApp.style.display = 'none';
     }
+    
     
     // === Обработчики форм авторизации ===
     
@@ -916,4 +931,102 @@ document.addEventListener('DOMContentLoaded', () => {
         await createThread();
     });
     
-    // Обр
+
+    // Отладка форм
+    console.log("Формы инициализированы:");
+    console.log("loginForm:", loginForm);
+    console.log("registerForm:", registerForm);
+    console.log("verifyForm:", verifyForm);
+    console.log("forgotPasswordForm:", forgotPasswordForm);
+    console.log("loginFormElement:", loginFormElement);
+    console.log("showRegisterBtn:", showRegisterBtn);
+    console.log("showLoginBtn:", showLoginBtn);
+
+
+    // Дополнение обработчиков событий
+chatInput.addEventListener('input', () => {
+    updateSendButtonState();
+    autoResizeTextarea();
+});
+
+sendButton.addEventListener('click', () => {
+    if (!state.currentThreadId) {
+        showNotification('Сначала выберите или создайте чат', 'error');
+        return;
+    }
+    
+    const query = chatInput.value.trim();
+    sendMessage(state.currentThreadId, query, state.selectedFile);
+});
+
+fileButton.addEventListener('click', () => {
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFileSelection(e.target.files[0]);
+    }
+});
+
+removeFile.addEventListener('click', clearFileSelection);
+
+// Обработчик выхода из системы
+logoutBtn.addEventListener('click', logout);
+
+// Обработчик входа при нажатии Enter
+chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (!sendButton.disabled) {
+            sendButton.click();
+        }
+    }
+});
+
+// Обработчик нажатия на кнопку профиля
+profileBtn.addEventListener('click', () => {
+    showProfileForm();
+});
+
+// Обработчик нажатия на кнопку выхода
+logoutBtn.addEventListener('click', logout);
+
+
+
+
+/**
+ * Показывает распознанный текст документа в чате
+ * @param {string} text - Распознанный текст
+ */
+function showDocumentText(text) {
+    if (!text || text.trim() === '') return;
+    
+    const div = document.createElement('div');
+    div.className = 'document-text-preview';
+    div.innerHTML = `
+        <div class="document-preview-header">
+            <i class="fas fa-file-alt"></i> Распознанный текст документа
+        </div>
+        <div class="document-preview-content">${text.substring(0, 500)}${text.length > 500 ? '...' : ''}</div>
+    `;
+    
+    messagesContainer.appendChild(div);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+
+/**
+ * Показывает информацию о профиле пользователя
+ */
+function showProfileForm() {
+    if (!state.user) {
+        getProfile().then(() => {
+            showNotification('Профиль загружен');
+            // Здесь можно добавить код для отображения профиля
+            alert(`Профиль: ${state.user.email} (${state.user.first_name} ${state.user.last_name})`);
+        });
+    } else {
+        alert(`Профиль: ${state.user.email} (${state.user.first_name} ${state.user.last_name})`);
+    }
+}

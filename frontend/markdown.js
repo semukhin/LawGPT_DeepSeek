@@ -3,9 +3,9 @@
  * Включает расширенную обработку кодовых блоков, специальных символов и элементов Markdown
  */
 
-// Настройка Marked.js и highlight.js
-const configureMarked = () => {
-    marked.setOptions({
+// Настройка Markdown.js и highlight.js
+const configureMarkdown = () => {
+    markdown.setOptions({
         renderer: createCustomRenderer(),
         highlight: highlightCode,
         gfm: true,                 // GitHub Flavored Markdown
@@ -18,11 +18,11 @@ const configureMarked = () => {
 };
 
 /**
- * Создаёт кастомный рендерер для Marked.js с улучшенным форматированием
- * @returns {marked.Renderer} - Кастомный рендерер для Marked.js
+ * Создаёт кастомный рендерер для Markdown.js с улучшенным форматированием
+ * @returns {markdown.Renderer} - Кастомный рендерер для Markdown.js
  */
 const createCustomRenderer = () => {
-    const renderer = new marked.Renderer();
+    const renderer = new markdown.Renderer();
     
     // Улучшенная обработка кодовых блоков с поддержкой Mermaid
     renderer.code = (code, language) => {
@@ -115,15 +115,15 @@ const highlightCode = (code, lang) => {
  * @returns {string} - HTML с отформатированным текстом
  */
 const markdownToHtml = (text) => {
-    // Проверяем настроен ли marked.js
-    if (!window.marked) {
-        console.error('Marked.js не загружен');
+    // Проверяем настроен ли markdown.js
+    if (!window.markdown) {
+        console.error('Markdown.js не загружен');
         return escapeHtml(text);
     }
     
     try {
         // Выполняем преобразование Markdown в HTML
-        return marked.parse(text);
+        return markdown.parse(text);
     } catch (error) {
         console.error('Ошибка при обработке Markdown:', error);
         // В случае ошибки возвращаем безопасный HTML
@@ -248,10 +248,10 @@ const initSpecialComponents = (element) => {
     });
 }
 
-// Инициализируем Marked.js при загрузке страницы
+// Инициализируем Markdown.js при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.marked) {
-        configureMarked();
+    if (window.markdown) {
+        configureMarkdown();
     }
 });
 
