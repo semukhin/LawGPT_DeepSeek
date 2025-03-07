@@ -821,11 +821,12 @@ function showLoginForm() {
  * Показ формы регистрации
  */
 function showRegisterForm() {
-    loginForm.style.display = 'none';
-    registerForm.style.display = 'block';
-    verifyForm.style.display = 'none';
-    forgotPasswordForm.style.display = 'none';
-    resetPasswordForm.style.display = 'none';
+    console.log("Показываю форму регистрации");
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+    document.getElementById('verify-form').style.display = 'none';
+    document.getElementById('forgot-password-form').style.display = 'none';
+    document.getElementById('reset-password-form').style.display = 'none';
 }
 
 /**
@@ -878,10 +879,21 @@ function initApp() {
 
 // ================ ОБРАБОТЧИКИ СОБЫТИЙ ================
 
-// Когда страница загружена
 document.addEventListener('DOMContentLoaded', () => {
+    console.log("DOM загружен");
     console.log("Приложение инициализируется...");
     console.log("Состояние токена:", state.accessToken ? "Токен найден" : "Токен не найден");
+    
+    // Проверка доступности DOM элементов
+    console.log("Проверка элементов DOM:");
+    console.log("showRegisterBtn:", showRegisterBtn);
+    console.log("loginForm:", loginForm);
+    console.log("registerForm:", registerForm);
+    
+    // Проверка доступности элементов по ID
+    console.log("ID элементов:");
+    console.log("show-register-btn:", document.getElementById('show-register-btn'));
+    console.log("show-login-btn:", document.getElementById('show-login-btn'));
     
     // Инициализируем UI в зависимости от состояния авторизации
     if (state.accessToken) {
@@ -902,13 +914,15 @@ document.addEventListener('DOMContentLoaded', () => {
         mainApp.style.display = 'none';
     }
     
-    
     // === Обработчики форм авторизации ===
     
-    // Форма входа
-    if (loginFormElement) {
-        loginFormElement.addEventListener('submit', (e) => {
+    // Форма входа - подробная проверка и инициализация
+    const loginFormEl = document.getElementById('login-form-element');
+    if (loginFormEl) {
+        console.log("Добавляю обработчик submit для формы входа");
+        loginFormEl.addEventListener('submit', (e) => {
             e.preventDefault();
+            console.log("Форма входа отправлена");
             const email = document.getElementById('login-email').value;
             const password = document.getElementById('login-password').value;
             login(email, password);
@@ -917,74 +931,219 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error("Форма входа не найдена в DOM");
     }
     
-    // Форма регистрации
-    registerFormElement.addEventListener('submit', (e) => {
-        e.preventDefault();
-        console.log("Обработка формы регистрации...");
-        const email = document.getElementById('register-email').value;
-        const password = document.getElementById('register-password').value;
-        const firstName = document.getElementById('register-first-name').value;
-        const lastName = document.getElementById('register-last-name').value;
-        
-        console.log("Данные формы:", { email, firstName, lastName, password: "***" });
-        
-        // Попытка регистрации
-        register(email, password, firstName, lastName)
-            .catch(error => {
-                console.error("Ошибка при регистрации:", error);
-                showNotification("Ошибка при регистрации: " + error.message, 'error');
-            });
-    });
+    // Форма регистрации - прямая инициализация по ID
+    const registerFormEl = document.getElementById('register-form-element');
+    if (registerFormEl) {
+        console.log("Добавляю обработчик submit для формы регистрации");
+        registerFormEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            console.log("Обработка формы регистрации...");
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            const firstName = document.getElementById('register-first-name').value;
+            const lastName = document.getElementById('register-last-name').value;
+            
+            console.log("Данные формы:", { email, firstName, lastName, password: "***" });
+            
+            // Попытка регистрации
+            register(email, password, firstName, lastName)
+                .catch(error => {
+                    console.error("Ошибка при регистрации:", error);
+                    showNotification("Ошибка при регистрации: " + error.message, 'error');
+                });
+        });
+    } else {
+        console.error("Форма регистрации не найдена в DOM");
+    }
     
     // Форма верификации
-    verifyFormElement.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const code = parseInt(document.getElementById('verification-code').value);
-        verify(code);
-    });
+    const verifyFormEl = document.getElementById('verify-form-element');
+    if (verifyFormEl) {
+        console.log("Добавляю обработчик submit для формы верификации");
+        verifyFormEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            console.log("Форма верификации отправлена");
+            const code = parseInt(document.getElementById('verification-code').value);
+            verify(code);
+        });
+    } else {
+        console.error("Форма верификации не найдена в DOM");
+    }
     
     // Форма запроса на восстановление пароля
-    forgotPasswordFormElement.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const email = document.getElementById('forgot-email').value;
-        forgotPassword(email);
-    });
+    const forgotPasswordFormEl = document.getElementById('forgot-password-form-element');
+    if (forgotPasswordFormEl) {
+        console.log("Добавляю обработчик submit для формы восстановления пароля");
+        forgotPasswordFormEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            console.log("Форма запроса восстановления пароля отправлена");
+            const email = document.getElementById('forgot-email').value;
+            forgotPassword(email);
+        });
+    } else {
+        console.error("Форма запроса восстановления пароля не найдена в DOM");
+    }
     
     // Форма сброса пароля
-    resetPasswordFormElement.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const email = document.getElementById('reset-email').value;
-        const code = parseInt(document.getElementById('reset-code').value);
-        const newPassword = document.getElementById('reset-new-password').value;
-        resetPassword(email, code, newPassword);
-    });
+    const resetPasswordFormEl = document.getElementById('reset-password-form-element');
+    if (resetPasswordFormEl) {
+        console.log("Добавляю обработчик submit для формы сброса пароля");
+        resetPasswordFormEl.addEventListener('submit', (e) => {
+            e.preventDefault();
+            console.log("Форма сброса пароля отправлена");
+            const email = document.getElementById('reset-email').value;
+            const code = parseInt(document.getElementById('reset-code').value);
+            const newPassword = document.getElementById('reset-new-password').value;
+            resetPassword(email, code, newPassword);
+        });
+    } else {
+        console.error("Форма сброса пароля не найдена в DOM");
+    }
     
     // Навигация между формами авторизации
-    if (showRegisterBtn) {
-        showRegisterBtn.addEventListener('click', showRegisterForm);
+    const showRegisterBtnEl = document.getElementById('show-register-btn');
+    if (showRegisterBtnEl) {
+        console.log("Добавляю обработчик для кнопки регистрации");
+        showRegisterBtnEl.addEventListener('click', () => {
+            console.log("Кнопка регистрации нажата");
+            showRegisterForm();
+        });
+    } else {
+        console.error("Кнопка регистрации не найдена в DOM");
     }
     
-    if (showLoginBtn) {
-        showLoginBtn.addEventListener('click', showLoginForm);
+    const showLoginBtnEl = document.getElementById('show-login-btn');
+    if (showLoginBtnEl) {
+        console.log("Добавляю обработчик для кнопки входа");
+        showLoginBtnEl.addEventListener('click', () => {
+            console.log("Кнопка входа нажата");
+            showLoginForm();
+        });
+    } else {
+        console.error("Кнопка входа не найдена в DOM");
     }
     
-    forgotPasswordLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        showForgotPasswordForm();
-    });
+    const forgotPasswordLinkEl = document.getElementById('forgot-password-link');
+    if (forgotPasswordLinkEl) {
+        console.log("Добавляю обработчик для ссылки восстановления пароля");
+        forgotPasswordLinkEl.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log("Ссылка восстановления пароля нажата");
+            showForgotPasswordForm();
+        });
+    } else {
+        console.error("Ссылка восстановления пароля не найдена в DOM");
+    }
     
-    if (backToLoginBtn) {
-        backToLoginBtn.addEventListener('click', showLoginForm);
+    const backToLoginBtnEl = document.getElementById('back-to-login-btn');
+    if (backToLoginBtnEl) {
+        console.log("Добавляю обработчик для кнопки возврата к форме входа");
+        backToLoginBtnEl.addEventListener('click', () => {
+            console.log("Кнопка возврата к форме входа нажата");
+            showLoginForm();
+        });
+    } else {
+        console.error("Кнопка возврата к форме входа не найдена в DOM");
     }
 
     // === Обработчики событий чата ===
     
     // Создание нового треда
-    createThreadBtn.addEventListener('click', async () => {
-        // Создаем новый тред
-        await createThread();
-    });
+    const createThreadBtnEl = document.getElementById('create-thread-btn');
+    if (createThreadBtnEl) {
+        console.log("Добавляю обработчик для кнопки создания нового треда");
+        createThreadBtnEl.addEventListener('click', async () => {
+            console.log("Кнопка создания нового треда нажата");
+            await createThread();
+        });
+    } else {
+        console.error("Кнопка создания нового треда не найдена в DOM");
+    }
     
+    // Дополнительные обработчики ввода сообщений
+    const chatInputEl = document.getElementById('chat-input');
+    if (chatInputEl) {
+        console.log("Добавляю обработчик для поля ввода сообщений");
+        chatInputEl.addEventListener('input', () => {
+            updateSendButtonState();
+            autoResizeTextarea();
+        });
+    } else {
+        console.error("Поле ввода сообщений не найдено в DOM");
+    }
+    
+    const sendButtonEl = document.getElementById('send-button');
+    if (sendButtonEl) {
+        console.log("Добавляю обработчик для кнопки отправки сообщений");
+        sendButtonEl.addEventListener('click', () => {
+            if (!state.currentThreadId) {
+                showNotification('Сначала выберите или создайте чат', 'error');
+                return;
+            }
+            
+            const query = chatInputEl.value.trim();
+            sendMessage(state.currentThreadId, query, state.selectedFile);
+        });
+    } else {
+        console.error("Кнопка отправки сообщений не найдена в DOM");
+    }
+    
+    const fileButtonEl = document.getElementById('file-button');
+    const fileInputEl = document.getElementById('file-input');
+    if (fileButtonEl && fileInputEl) {
+        console.log("Добавляю обработчик для кнопки выбора файла");
+        fileButtonEl.addEventListener('click', () => {
+            fileInputEl.click();
+        });
+        
+        fileInputEl.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelection(e.target.files[0]);
+            }
+        });
+    } else {
+        console.error("Кнопка выбора файла или поле загрузки файла не найдены в DOM");
+    }
+    
+    const removeFileEl = document.getElementById('remove-file');
+    if (removeFileEl) {
+        console.log("Добавляю обработчик для кнопки удаления файла");
+        removeFileEl.addEventListener('click', clearFileSelection);
+    } else {
+        console.error("Кнопка удаления файла не найдена в DOM");
+    }
+    
+    // Обработчик логаута
+    const logoutBtnEl = document.getElementById('logout-btn');
+    if (logoutBtnEl) {
+        console.log("Добавляю обработчик для кнопки выхода");
+        logoutBtnEl.addEventListener('click', logout);
+    } else {
+        console.error("Кнопка выхода не найдена в DOM");
+    }
+    
+    // Обработчик отправки сообщений по нажатию Enter
+    if (chatInputEl) {
+        chatInputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!sendButtonEl.disabled) {
+                    sendButtonEl.click();
+                }
+            }
+        });
+    }
+    
+    // Обработчик просмотра профиля
+    const profileBtnEl = document.getElementById('profile-btn');
+    if (profileBtnEl) {
+        console.log("Добавляю обработчик для кнопки профиля");
+        profileBtnEl.addEventListener('click', () => {
+            showProfileForm();
+        });
+    } else {
+        console.error("Кнопка профиля не найдена в DOM");
+    }
 
     // Отладка форм
     console.log("Формы инициализированы:");
@@ -995,6 +1154,7 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log("loginFormElement:", loginFormElement);
     console.log("showRegisterBtn:", showRegisterBtn);
     console.log("showLoginBtn:", showLoginBtn);
+});
 
 
     // Дополнение обработчиков событий
