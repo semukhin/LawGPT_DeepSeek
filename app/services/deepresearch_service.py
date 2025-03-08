@@ -35,182 +35,17 @@ def highlight_court_numbers(query: str) -> str:
     """
     Выделяет номера судебных дел в запросе с учетом различных форматов российских судов.
     """
-    # Список примеров, которые нужно исключить
-    excluded_examples = [
-        "А40-123456/2020", "А41-78901/2021", "А40-12345/01-12-123", 
-        "А60-78901/2021", "А40-123456/2019"
-    ]
-    
-    # Отладочное логирование
-    logging.info(f"Обрабатываем текст для поиска номеров судебных дел: '{query[:100]}...'")
-    
-    # Регулярные выражения для разных типов дел
-    patterns = [
-        # Арбитражные дела
-        r'\b([АА][\d]+-[\d]+/[\d]{4})\b',
-        # Определения и постановления ВС
-        r'\b([\d]{1,3}-[ЭСАКГКПУКЭ]{2}[\d]{2}-[\d]+(?:\s*\(\d+\))?)\b',
-        # Суды общей юрисдикции
-        r'\b([\d]{2}-[\d]+/[\d]{4})\b',
-        # Постановления с номерами
-        r'ПОСТАНОВЛЕНИЕ\s+(?:от\s+[\d\s\w\.]+\s+)?№\s*([\d/]+)'
-    ]
-    
-    # Список для хранения всех найденных номеров
-    all_case_numbers = []
-    
-    # Ищем все номера дел по всем паттернам
-    for pattern in patterns:
-        found_numbers = re.findall(pattern, query, re.IGNORECASE)
-        all_case_numbers.extend([num.strip() for num in found_numbers if num.strip()])
-    
-    # Обрабатываем определения ВС в текстовом формате
-    determine_pattern = r'ОПРЕДЕЛЕНИЕ\s+от\s+([\d\s\w\.]+)\s+[NН№]\s*([\d\-А-ЯA-Z]+)'
-    determine_matches = re.findall(determine_pattern, query, re.IGNORECASE)
-    for date, num in determine_matches:
-        all_case_numbers.append(f"{num.strip()} от {date.strip()}")
-    
-    # Логирование найденных номеров
-    logging.info(f"Найдены номера судебных дел (до фильтрации): {all_case_numbers}")
-    
-    # Отфильтровываем примеры из системного промпта
-    filtered_numbers = [num for num in all_case_numbers if num not in excluded_examples]
-    logging.info(f"Отфильтрованные номера судебных дел: {filtered_numbers}")
-    
-    # Если найдены номера дел (после фильтрации), добавляем специальный блок в конец запроса
-    if filtered_numbers:
-        highlighted_query = query + "\n\n===== ВАЖНО! НОМЕРА СУДЕБНЫХ ДЕЛ ДЛЯ ИСПОЛЬЗОВАНИЯ: =====\n"
-        for i, number in enumerate(filtered_numbers, 1):
-            highlighted_query += f"{i}. {number}\n"
-        highlighted_query += "\n======================================================="
-        highlighted_query += "\nИспользуй ТОЛЬКО указанные выше номера дел в своем ответе. НЕ ПРИДУМЫВАЙ новые номера дел."
-        return highlighted_query
-    
-    logging.info(f"Результат обработки номеров дел: {'Номера найдены и добавлены' if filtered_numbers else 'Номера не найдены'}")
-
+    """Заглушка для функции выделения номеров судебных дел"""
     return query
 
+
 def validate_court_numbers(response: str, original_query: str) -> str:
-    """
-    Проверяет, что номера дел в ответе присутствуют в исходном запросе.
-    Учитывает различные форматы номеров дел российских судов.
-    """
-    # Список примеров, которые нужно исключить
-    excluded_examples = [
-        "А40-123456/2020", "А41-78901/2021", "А40-12345/01-12-123", 
-        "А60-78901/2021", "А40-123456/2019"
-    ]
-    
-    # Регулярные выражения для разных типов дел
-    patterns = [
-        # Арбитражные дела
-        r'\b([АА][\d]+-[\d]+/[\d]{4})\b',
-        # Определения и постановления ВС
-        r'\b([\d]{1,3}-[ЭСАКГКПУКЭ]{2}[\d]{2}-[\d]+(?:\s*\(\d+\))?)\b',
-        # Суды общей юрисдикции
-        r'\b([\d]{2}-[\d]+/[\d]{4})\b',
-        # Постановления с номерами
-        r'№\s*([\d/]+)'
-    ]
-    
-    # Извлекаем номера дел из запроса
-    query_numbers = set()
-    for pattern in patterns:
-        found = re.findall(pattern, original_query, re.IGNORECASE)
-        query_numbers.update([n.strip() for n in found if n.strip() and n.strip() not in excluded_examples])
-    
-    # Добавляем определения в текстовом формате
-    determine_pattern = r'ОПРЕДЕЛЕНИЕ\s+от\s+([\d\s\w\.]+)\s+[NН№]\s*([\d\-А-ЯA-Z]+)'
-    determine_matches = re.findall(determine_pattern, original_query, re.IGNORECASE)
-    for date, num in determine_matches:
-        case_number = f"{num.strip()} от {date.strip()}"
-        if case_number not in excluded_examples:
-            query_numbers.add(case_number)
-            # Также добавляем сам номер для проверки
-            if num.strip() not in excluded_examples:
-                query_numbers.add(num.strip())
-    
-    # Извлекаем номера дел из ответа
-    response_numbers = set()
-    for pattern in patterns:
-        found = re.findall(pattern, response, re.IGNORECASE)
-        response_numbers.update([n.strip() for n in found if n.strip()])
-    
-    # Проверяем определения в ответе
-    determine_matches_resp = re.findall(determine_pattern, response, re.IGNORECASE)
-    for date, num in determine_matches_resp:
-        response_numbers.add(f"{num.strip()} от {date.strip()}")
-        response_numbers.add(num.strip())
-    
-    # Создаем список номеров, которых нет в запросе
-    invalid_numbers = []
-    for num in response_numbers:
-        # Пропускаем исключенные примеры
-        if num in excluded_examples:
-            continue
-            
-        # Проверяем каждый номер на наличие в запросе
-        if num not in query_numbers:
-            # Дополнительная проверка для номеров, которые могут быть записаны без префикса А
-            if num.startswith("А") and num[1:] not in query_numbers:
-                # Проверка для номеров с разными разделителями
-                normalized_num = re.sub(r'[/\-]', '', num)
-                normalized_query_nums = [re.sub(r'[/\-]', '', qn) for qn in query_numbers]
-                if normalized_num not in normalized_query_nums:
-                    invalid_numbers.append(num)
-            else:
-                invalid_numbers.append(num)
-    
-    # Если есть недействительные номера, добавляем предупреждение
-    if invalid_numbers:
-        logging.warning(f"Обнаружены потенциально выдуманные номера судебных дел: {invalid_numbers}")
-        warning_message = f"[СИСТЕМА: Обнаружены потенциально выдуманные номера судебных дел: {', '.join(invalid_numbers)}. Использование фиктивных номеров дел не рекомендуется.]"
-        return response + "\n\n" + warning_message
-
-    logging.info(f"Результат валидации номеров судебных дел: {'Найдены недопустимые номера' if invalid_numbers else 'Все номера корректны'}")
-
+    """Заглушка для функции валидации номеров судебных дел"""
     return response
 
 def ensure_valid_court_numbers(answer: str, original_query: str) -> str:
-    """
-    Финальная проверка перед отправкой ответа пользователю.
-    Добавляет предупреждение, если есть подозрительные номера.
-    
-    Args:
-        answer: Ответ, подготовленный для пользователя
-        original_query: Исходный запрос пользователя
-        
-    Returns:
-        Проверенный и, возможно, исправленный ответ
-    """
-    # Выполняем валидацию номеров дел
-    validated_answer = validate_court_numbers(answer, original_query)
-    
-    # Логируем результат проверки
-    if validated_answer != answer:
-        logging.warning("Валидация номеров судебных дел обнаружила проблемы, ответ был модифицирован")
-    
-    # Если валидатор добавил предупреждение
-    if "[СИСТЕМА:" in validated_answer:
-        # Извлекаем некорректные номера
-        warning_match = re.search(r'\[СИСТЕМА:.*?номера судебных дел.*?:(.*?)\.\s*Использование', validated_answer)
-        if warning_match:
-            invalid_numbers = [num.strip() for num in warning_match.group(1).split(',')]
-            
-            # Создаем версию без некорректных номеров
-            clean_answer = answer
-            for invalid_num in invalid_numbers:
-                # Заменяем выдуманные номера на обобщенную формулировку
-                clean_answer = re.sub(
-                    r'\b' + re.escape(invalid_num) + r'\b', 
-                    "согласно судебной практике", 
-                    clean_answer
-                )
-            
-            # Возвращаем исправленную версию
-            return clean_answer + "\n\n[Некоторые ссылки на судебную практику были обобщены для обеспечения точности информации]"
-    
-    return validated_answer
+    """Заглушка для функции финальной проверки номеров дел"""
+    return answer
 
 class ResearchResult:
     """Контейнер для результатов исследования."""
@@ -266,15 +101,8 @@ class DeepResearchService:
         self.usage_counter = 0
 
     def filter_suspicious_court_numbers(self, text: str) -> str:
-        """
-        Фильтрует подозрительные номера судебных дел в тексте.
-        
-        Args:
-            text: Исходный текст ответа
-            
-        Returns:
-            Отфильтрованный текст
-        """
+        """Заглушка для функции фильтрации подозрительных номеров судебных дел"""
+        return text
         
 
         # Функция для проверки на последовательные цифры
@@ -414,25 +242,25 @@ class DeepResearchService:
             user_query_part = query.split("ЗАПРОС ПОЛЬЗОВАТЕЛЯ:")[1].split("РЕЗУЛЬТАТЫ ПОИСКА")[0].strip()
             is_general = self.is_general_query(user_query_part)
 
-            # Применяем highlight_court_numbers только к запросу пользователя, а не ко всему тексту
-            highlighted_user_query = highlight_court_numbers(user_query_part)
+            # # Применяем highlight_court_numbers только к запросу пользователя, а не ко всему тексту
+            # highlighted_user_query = highlight_court_numbers(user_query_part)
             
-            # Заменяем оригинальный запрос пользователя на подсвеченный, если он изменился
-            if highlighted_user_query != user_query_part:
-                query = query.replace(
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{user_query_part}",
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{highlighted_user_query}"
-                )
-                # На случай другого форматирования
-                query = query.replace(
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{user_query_part}",
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{highlighted_user_query}"
-                )
-                # И третий вариант без переносов
-                query = query.replace(
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {user_query_part}",
-                    f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {highlighted_user_query}"
-                )
+            # # Заменяем оригинальный запрос пользователя на подсвеченный, если он изменился
+            # if highlighted_user_query != user_query_part:
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{highlighted_user_query}"
+            #     )
+            #     # На случай другого форматирования
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{highlighted_user_query}"
+            #     )
+            #     # И третий вариант без переносов
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {highlighted_user_query}"
+            #     )
         else:
             is_general = self.is_general_query(query)
 # Не применяем highlight_court_numbers ко всему тексту,
@@ -511,17 +339,13 @@ class DeepResearchService:
                 2. НИКОГДА не придумывай и не создавай номера судебных дел самостоятельно. 
                 
                 3. Если в запросе (промте) или в результатах поиска указан номер судебногодела, ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
-                
-                4. Если нужно привести пример судебной практики, но конкретные номера дел не указаны в материалах, 
-                используй обобщенные формулировки без номеров: "согласно судебной практике...", 
-                "как отмечается в решениях Верховного Суда..." и т.д.
-                
-                5. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
+                 
+                4. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
                 Не выдумывай не существующие номера судебных дел, а используй только те номера которые тебе поступили с промтом.
              
-                7. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте).
+                5. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте).
                 
-                8. Учитывай контекст предыдущих сообщений в диалоге при формировании ответа.
+                6. Учитывай контекст предыдущих сообщений в диалоге при формировании ответа.
                 """
             
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
@@ -577,9 +401,9 @@ class DeepResearchService:
                             else:
                                 user_prompt += f"{str(ctx['data'])[:3000]}...\n\n"
         
-        # Проверка на наличие номеров судебных дел и их выделение
-        enhanced_prompt = highlight_court_numbers(user_prompt)
-        
+        # Используем запрос без обработки номеров судебных дел
+        enhanced_prompt = user_prompt
+                
         # Сохраняем промпт в базу данных после того как определили системный промпт и пользовательский запрос
         if db is not None and thread_id is not None and user_id is not None:
             try:
@@ -706,8 +530,8 @@ class DeepResearchService:
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             analysis = response_json['choices'][0]['message']['content']
                             
-                            # Валидация номеров судебных дел в ответе
-                            analysis = validate_court_numbers(analysis, query)
+                            # # Валидация номеров судебных дел в ответе
+                            # analysis = validate_court_numbers(analysis, query)
                         else:
                             analysis = "Не удалось получить ответ от API DeepSeek"
             
