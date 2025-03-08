@@ -5,8 +5,8 @@ import tiktoken
 class ContextManager:
     def __init__(
         self, 
-        max_tokens: int = 4000,  # Настраиваемый лимит
-        model: str = 'gpt-4'
+        max_tokens: int = 8192,  
+        model: str = 'deepseek-reasoner'
     ):
         self.max_tokens = max_tokens
         self.tokenizer = tiktoken.encoding_for_model(model)
@@ -78,7 +78,7 @@ class OpenAIProvider:
     
     def generate_text(self, prompt: str) -> str:
         response = self.client.chat.completions.create(
-            model="gpt-4",
+            model="deepseek-reasoner",
             messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content

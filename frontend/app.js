@@ -196,6 +196,16 @@ function initChatInterface() {
     document.getElementById('remove-file-btn').addEventListener('click', removeUploadedFile);
 }
 
+
+/**
+ * Возвращает текущее время в формате ЧЧ:ММ
+ * @returns {string} - Строка с форматированным временем
+ */
+function getCurrentTime() {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+}
+
 // ============================================================
 // Функции интерфейса чата
 // ============================================================
@@ -341,9 +351,8 @@ async function selectChatThread(threadId) {
  * @param {string} threadId - ID треда чата
  */
 async function loadChatMessages(threadId) {
-    showLoading();
-    
     try {
+        console.log(`Загрузка сообщений для треда ${threadId}`); // Для отладки
         const response = await apiRequest(`/messages/${threadId}`, 'GET');
         
         if (response.messages && Array.isArray(response.messages)) {
@@ -352,8 +361,6 @@ async function loadChatMessages(threadId) {
     } catch (error) {
         console.error('Ошибка при загрузке сообщений:', error);
         showNotification('Не удалось загрузить сообщения чата', 'error');
-    } finally {
-        hideLoading();
     }
 }
 
@@ -384,7 +391,7 @@ function renderChatMessages(messages) {
     scrollToBottom();
 }
 
-/**
+ /**
  * Отправляет сообщение пользователя
  */
 async function sendMessage() {
@@ -427,6 +434,7 @@ async function sendMessage() {
     }
     
     try {
+        console.log(`Отправка сообщения в тред ${threadId}`); // Для отладки
         const response = await apiRequestFormData(`/chat/${threadId}`, formData);
         
         // Скрываем индикатор набора текста
@@ -1111,3 +1119,127 @@ async function validateToken(token) {
         return false;
     }
 }
+
+
+// Модальное окно профиля
+function showProfileModal() {
+    // Создаем модальное окно, если его еще нет
+    let modal = document.getElementById('profile-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'profile-modal';
+        modal.className = 'modal';
+        
+        document.body.appendChild(modal);
+    }
+    
+    // Загружаем данные профиля
+    apiRequest('/profile', 'GET')
+        .then(data => {
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <span class="close-modal">&times;</span>
+                    <h2>Профиль пользователя</h2>
+                    <div class="profile-info">
+                        <div class="profile-row">
+                            <span class="profile-label">Имя:</span>
+                            <span class="profile-value">${data.first_name} ${data.last_name}</span>
+                        </div>
+                        <div class="profile-row">
+                            <span class="profile-label">Email:</span>
+                            <span class="profile-value">${data.email}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Обработчик для закрытия
+            modal.querySelector('.close-modal').addEventListener('click', () => {
+                modal.style.display = 'none';
+            });
+            
+            // Показываем модальное окно
+            modal.style.display = 'block';
+        })
+        .catch(error => {
+            showNotification(`Ошибка загрузки профиля: ${error.message}`, 'error');
+        });
+}
+
+// Модальное окно "О нас"
+function showAboutModal() {
+    // Создаем модальное окно, если его еще нет
+    let modal = document.getElementById('about-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'about-modal';
+        modal.className = 'modal';
+        
+        document.body.appendChild(modal);
+    }
+    
+    // Заполняем содержимое
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>О сервисе LawGPT</h2>
+            <p>Приветствуем вас на странице сервиса юридического ассистента LawGPT!</p>
+            <p>LawGPT — это интеллектуальный помощник, специализирующийся на российском законодательстве и юридических вопросах.</p>
+            <p>Наш сервис помогает быстро получать ответы на сложные юридические вопросы, обращаясь к актуальной базе российского законодательства.</p>
+            
+            <div class="social-links">
+                <h3>VK | Telegram</h3>
+                <a href="#" target="_blank" class="social-link"><i class="fab fa-vk"></i> ВКонтакте</a>
+                <a href="#" target="_blank" class="social-link"><i class="fab fa-telegram"></i> Telegram</a>
+            </div>
+        </div>
+    `;
+    
+    // Обработчик для закрытия
+    modal.querySelector('.close-modal').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    // Показываем модальное окно
+    modal.style.display = 'block';
+}
+
+// Добавление обработчиков для навигации
+function initChatInterface() {
+    // Кнопка нового чата
+    document.getElementById('new-chat-btn').addEventListener('click', createNewChat);
+    
+    // Поле ввода сообщения
+    const messageInput = document.getElementById('message-input');
+    messageInput.addEventListener('input', () => {
+        // Автоматическое изменение высоты поля ввода
+        messageInput.style.height = 'auto';
+        messageInput.style.height = (messageInput.scrollHeight) + 'px';
+        
+        // Активация/деактивация кнопки отправки
+        const sendBtn = document.getElementById('send-btn');
+        sendBtn.disabled = messageInput.value.trim() === '';
+    });
+    
+    // Отправка сообщения
+    document.getElementById('send-btn').addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (e) => {
+        // Отправка по Ctrl+Enter или Cmd+Enter
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Загрузка файла
+    const fileUpload = document.getElementById('file-upload');
+    fileUpload.addEventListener('change', handleFileUpload);
+    
+    // Удаление файла
+    document.getElementById('remove-file-btn').addEventListener('click', removeUploadedFile);
+    
+    // Обработчики для модальных окон
+    document.getElementById('nav-profile').addEventListener('click', showProfileModal);
+    document.getElementById('nav-about').addEventListener('click', showAboutModal);
+}
+

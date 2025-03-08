@@ -52,8 +52,7 @@ def get_scraper() -> WebScraper:
         # Создаем экземпляр WebScraper и присваиваем его глобальной переменной
         _scraper = WebScraper(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            respect_robots=False  # Этот параметр полностью отключает проверку robots.txt
-        )
+            respect_robots=False)
         logger.info("Инициализирован WebScraper из Shandu")
     return _scraper
 

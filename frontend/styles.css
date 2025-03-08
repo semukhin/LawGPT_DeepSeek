@@ -426,8 +426,9 @@ h1, h2, h3, h4, h5, h6 {
 .message-input {
     flex: 1;
     min-height: 44px;
-    max-height: 200px;
-    padding: 0.75rem 3.5rem 0.75rem 1rem;
+    max-height: 150px;
+    padding: 0.75rem 1rem;
+    padding-right: 3.5rem;
     background-color: var(--gray-medium);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: var(--border-radius-lg);
@@ -437,6 +438,8 @@ h1, h2, h3, h4, h5, h6 {
     transition: var(--transition);
     font-family: var(--font-family);
     overflow-y: auto;
+    line-height: 1.5;
+    font-size: 0.95rem;
 }
 
 .message-input:focus {
@@ -446,8 +449,9 @@ h1, h2, h3, h4, h5, h6 {
 .action-buttons {
     position: absolute;
     right: 0.75rem;
-    bottom: 0.75rem;
+    bottom: 7px;
     display: flex;
+    align-items: center;
     gap: 0.5rem;
 }
 
@@ -700,4 +704,116 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes typingDot {
     0%, 60%, 100% { transform: translateY(0); }
     30% { transform: translateY(-6px); }
+}
+
+/* Адаптивный дизайн */
+@media (max-width: 768px) {
+    /* Уменьшаем размер текста для улучшения читаемости на мобильных */
+    body {
+        font-size: 14px;
+    }
+    
+    /* Изменяем структуру для мобильных устройств */
+    .main-content {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+    
+    .chat-container {
+        width: 100%;
+        height: 60vh;
+    }
+    
+    /* Изменяем размер модальных окон */
+    .modal-content {
+        width: 90%;
+        margin: 20% auto;
+        padding: 1.5rem;
+    }
+    
+    /* Уменьшаем размеры элементов интерфейса */
+    .header {
+        padding: 0.75rem;
+    }
+    
+    .chat-header {
+        padding: 0.75rem;
+    }
+    
+    .messages-container {
+        padding: 0.75rem;
+    }
+    
+    .message {
+        max-width: 90%;
+    }
+    
+    .input-container {
+        padding: 0.75rem;
+    }
+    
+    .new-chat-btn {
+        padding: 0.5rem 0.75rem;
+    }
+    
+    /* Уменьшаем размер шрифтов */
+    .sidebar-title, .chat-title-container h2 {
+        font-size: 1rem;
+    }
+    
+    .chat-item .chat-title {
+        font-size: 0.85rem;
+    }
+    
+    .chat-date, .message-time {
+        font-size: 0.7rem;
+    }
+    
+    /* Исправление для чат-списка */
+    .chat-list {
+        padding: 0;
+    }
+    
+    /* Исправление для бокового меню */
+    .nav-links {
+        padding: 0.5rem 0;
+    }
+    
+    .nav-link {
+        padding: 0.5rem 1rem;
+    }
+    
+    /* Улучшение отображения сообщений */
+    .message-content {
+        padding: 0.75rem;
+    }
+}
+
+/* Стили высокого разрешения */
+@media (min-width: 1200px) {
+    body {
+        font-size: 1rem;
+    }
+    
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    .sidebar {
+        width: 300px;
+    }
+    
+    .message-content {
+        padding: 1.25rem;
+    }
+    
+    .chat-header {
+        padding: 1.25rem 1.5rem;
+    }
 }

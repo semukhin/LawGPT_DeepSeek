@@ -3,7 +3,6 @@ from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
-from app.context_manager import ContextManager, OpenAIProvider
 
 
 class VerificationCode(Base):
