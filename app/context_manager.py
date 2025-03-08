@@ -9,9 +9,17 @@ class ContextManager:
         model: str = 'deepseek-reasoner'
     ):
         self.max_tokens = max_tokens
-        self.tokenizer = tiktoken.encoding_for_model(model)
+        # Используем encoding_for_model, если модель поддерживается, 
+        # иначе используем cl100k_base, который подходит для многих моделей
+        try:
+            self.tokenizer = tiktoken.encoding_for_model(model)
+        except KeyError:
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
     
     def _count_tokens(self, text: str) -> int:
+        """Подсчет токенов в тексте."""
+        if not text:
+            return 0
         return len(self.tokenizer.encode(text))
     
     def prepare_context(
@@ -20,7 +28,15 @@ class ContextManager:
         system_prompt: str = ""
     ) -> List[Dict[str, str]]:
         """
-        Подготовка контекста с учетом ограничений по токенам
+        Подготовка контекста с учетом ограничений по токенам.
+        Сохраняет системный промпт и последние сообщения в пределах лимита токенов.
+        
+        Args:
+            messages: Список сообщений
+            system_prompt: Системный промпт
+            
+        Returns:
+            Список сообщений, которые можно передать в модель
         """
         prepared_messages = []
         current_tokens = 0
@@ -28,44 +44,67 @@ class ContextManager:
         # Добавляем системный промпт первым
         if system_prompt:
             system_msg = {"role": "system", "content": system_prompt}
-            current_tokens += self._count_tokens(system_prompt)
+            system_tokens = self._count_tokens(system_prompt)
+            current_tokens += system_tokens
             prepared_messages.append(system_msg)
         
         # Обратный проход по сообщениям для сохранения последних
-        for message in reversed(messages):
-            msg_tokens = self._count_tokens(message['content'])
+        # Сначала сортируем сообщения по дате создания (более старые вначале)
+        sorted_messages = sorted(messages, key=lambda x: x.get('created_at', 0))
+        
+        # Проходим сообщения в обратном порядке (начиная с самых новых)
+        for message in reversed(sorted_messages):
+            content = message.get('content', '')
+            role = message.get('role', 'user')
+            
+            msg_tokens = self._count_tokens(content)
             
             # Проверка лимита токенов
             if current_tokens + msg_tokens > self.max_tokens:
                 break
             
             current_tokens += msg_tokens
-            prepared_messages.insert(1, message)  # Вставляем после системного промпта
+            # Вставляем новые сообщения после системного промпта
+            if prepared_messages and prepared_messages[0].get('role') == 'system':
+                prepared_messages.insert(1, {"role": role, "content": content})
+            else:
+                prepared_messages.insert(0, {"role": role, "content": content})
         
         return prepared_messages
     
-    def summarize_context(
-        self, 
-        messages: List[Dict[str, str]], 
-        ai_provider: Any  # Абстракция для разных провайдеров
-    ) -> str:
+    def get_last_n_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        n: int = 5
+    ) -> List[Dict[str, str]]:
         """
-        Суммаризация длинного контекста
+        Получает последние n сообщений из списка.
+        
+        Args:
+            messages: Список сообщений
+            n: Количество последних сообщений
+            
+        Returns:
+            Список последних n сообщений
         """
-        context_text = "\n".join([m['content'] for m in messages])
+        # Сортируем сообщения по дате создания
+        sorted_messages = sorted(messages, key=lambda x: x.get('created_at', 0))
         
-        summary_prompt = f"""
-        Создай краткое связное резюме следующего диалога, 
-        сохраняя ключевые смыслы и контекст:
+        # Берем последние n сообщений
+        last_n = sorted_messages[-n:] if len(sorted_messages) >= n else sorted_messages
         
-        {context_text}
+        # Конвертируем в формат, который ожидает модель
+        formatted_messages = []
+        for msg in last_n:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+            
+            formatted_messages.append({
+                "role": role,
+                "content": content
+            })
         
-        Резюме:
-        """
-        
-        # Универсальный вызов с абстракцией провайдера
-        summary = ai_provider.generate_text(summary_prompt)
-        return summary
+        return formatted_messages
 
 class AIProvider(Protocol):
     def generate_text(self, prompt: str) -> str:

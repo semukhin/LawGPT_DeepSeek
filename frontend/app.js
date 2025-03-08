@@ -13,7 +13,7 @@ const config = {
     storageTempTokenKey: 'lawgpt_temp_token', // Ключ для временного токена верификации
     markdownEnabled: true,            // Включить обработку Markdown
     autoscrollEnabled: true,          // Автопрокрутка к последнему сообщению
-    maxFileSize: 10 * 1024 * 1024,    // Максимальный размер файла (10 MB)
+    maxFileSize: 50 * 1024 * 1024,    // Максимальный размер файла (50 MB)
 };
 
 // ============================================================

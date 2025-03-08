@@ -37,7 +37,7 @@ def highlight_court_numbers(query: str) -> str:
     Поддерживает:
     - Арбитражные дела: А40-103922/2018, А76-90322/2022
     - Определения/Постановления ВС: 307-ЭС23-6153, 306-ЭС20-14681(13)
-    - Суды общей юрисдикции: 02-5543/2025, 02-5508/2022
+    - Суды общей юрисдикции: 02-5543/2025, 07-55087/2009
     """
     # Регулярные выражения для разных типов дел
     patterns = [
@@ -378,6 +378,32 @@ class DeepResearchService:
             # Проверяем весь запрос
             is_general = self.is_general_query(query)
             
+        # Получаем историю сообщений, если есть thread_id и db
+        chat_history = []
+        if thread_id and db:
+            try:
+                from app.models import Message
+                # Получаем последние 5 сообщений из треда, сортируя по дате создания
+                messages = db.query(Message).filter(
+                    Message.thread_id == thread_id
+                ).order_by(Message.created_at.desc()).limit(5).all()
+                
+                # Переворачиваем список для хронологического порядка
+                messages.reverse()
+                
+                # Логируем найденные сообщения
+                logging.info(f"[DeepResearch #{self.usage_counter}] Найдено {len(messages)} предыдущих сообщений в треде {thread_id}")
+                
+                # Формируем историю сообщений в нужном формате
+                for msg in messages:
+                    chat_history.append({
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                    })
+            except Exception as e:
+                logging.error(f"[DeepResearch #{self.usage_counter}] Ошибка при получении истории диалога: {str(e)}")
+            
         # Определяем системный промпт на основе типа запроса
         if is_general:
             logging.info(f"[DeepResearch #{self.usage_counter}] Обнаружен общий (не юридический) запрос")
@@ -393,6 +419,8 @@ class DeepResearchService:
             
             На вопросы о себе можешь отвечать, что ты юридический ассистент LawGPT, 
             созданный для помощи пользователям в юридических вопросах.
+            
+            Учитывай контекст предыдущих сообщений из диалога.
             """
         else:
             system_prompt = """
@@ -401,11 +429,7 @@ class DeepResearchService:
                 основываясь на фактических данных из законодательства, судебной практики и 
                 проверенных источников.
                 
-                1. Структурируй ответы на ЮРИДИЧЕСКИЕ запросы, выделяя:
-                    - Суть вопроса пользователя,
-                    - Применимые нормы законодательства с точными ссылками на статьи законов и другие нормы права,
-                    - Судебную практику и правовые позиции судов,
-                    - Практические рекомендации по ситуации.
+                1. Структурируй ответы на ЮРИДИЧЕСКИЕ запросы.
 
                 2. Используй законы Российской Федерации, комментарии, формы процессуальных документов, договоров, аналитические данные, что позволит тебе предоставлять пользователю персонализированные ответы и рекомендации, основанные на актуальных правовых нормах. 
 
@@ -414,6 +438,8 @@ class DeepResearchService:
                 4. Не упоминай в ответах источник данных. Тебе нельзя в сообщениях пользователю сообщать какими источниками данных ты пользуешься.
 
                 5. Диалог с пользователем следует вести исключительно по юридическим вопросам, строго избегая технические.
+                
+                6. Важно! Учитывай контекст предыдущих сообщений из диалога при составлении ответа.
                 
                 ***ВАЖНЫЕ ПРАВИЛА ПО РАБОТЕ С НОМЕРАМИ СУДЕБНЫХ ДЕЛ:***
 
@@ -441,11 +467,37 @@ class DeepResearchService:
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
         # на запрос пользователя и результаты поиска
         if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА:" in query:
-            # Запрос уже структурирован, используем его как есть
+            # Запрос уже структурирован, проверяем наличие контекста диалога
+            if "КОНТЕКСТ ПРЕДЫДУЩИХ СООБЩЕНИЙ:" not in query and chat_history:
+                # Добавляем контекст диалога, если он есть, но не был добавлен ранее
+                formatted_history = []
+                for msg in chat_history:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    formatted_history.append(f"{role.upper()}: {content}")
+                
+                if formatted_history:
+                    context_section = "\n\nКОНТЕКСТ ПРЕДЫДУЩИХ СООБЩЕНИЙ:\n" + "\n\n".join(formatted_history)
+                    # Вставляем контекст после инструкции, если она есть
+                    if "ИНСТРУКЦИЯ:" in query:
+                        parts = query.split("ИНСТРУКЦИЯ:")
+                        query = parts[0] + "ИНСТРУКЦИЯ:" + parts[1] + context_section
+                    else:
+                        query += context_section
+            
+            # Используем запрос как есть с добавленным контекстом
             user_prompt = query
         else:
             # Формируем пользовательский промпт
             user_prompt = f"Проведи детальный анализ запроса:\n\n{query}"
+            
+            # Добавляем контекст из предыдущих сообщений
+            if chat_history:
+                user_prompt += "\n\nКонтекст предыдущих сообщений:\n"
+                for msg in chat_history:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    user_prompt += f"{role.upper()}: {content}\n\n"
             
             # Добавляем контекст из других источников, если он есть
             if additional_context:
@@ -508,9 +560,63 @@ class DeepResearchService:
         try:
             # Запрос к DeepSeek API с правильным системным промптом
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": enhanced_prompt}
+                {"role": "system", "content": system_prompt}
             ]
+            
+            # Заменить блок с добавлением истории сообщений (строки 500-508) на следующий код:
+
+            # Добавляем историю сообщений, чтобы обеспечить строгое чередование user/assistant
+            if chat_history:
+                # Обеспечиваем правильное чередование сообщений
+                interleaved_messages = []
+                previous_role = None
+                
+                for msg in chat_history:
+                    current_role = msg.get("role")
+                    
+                    # Пропускаем сообщения, нарушающие чередование
+                    if current_role == previous_role:
+                        logging.info(f"[DeepResearch #{self.usage_counter}] Пропускаем последовательное сообщение с ролью {current_role}")
+                        continue
+                        
+                    # Добавляем сообщение, если роль валидна для API
+                    if current_role in ["user", "assistant"]:
+                        interleaved_messages.append(msg)
+                        previous_role = current_role
+                
+                # Если история начинается с сообщения assistant, удаляем его
+                if interleaved_messages and interleaved_messages[0].get("role") == "assistant":
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем первое сообщение с ролью assistant")
+                    interleaved_messages = interleaved_messages[1:]
+                
+                # Если последнее сообщение от assistant, а мы собираемся добавить user message,
+                # удаляем его, чтобы предотвратить последовательные user сообщения
+                if interleaved_messages and interleaved_messages[-1].get("role") == "assistant":
+                    # Если текущий запрос от пользователя, то нужно удалить последнее сообщение assistant
+                    pass  # Оставляем последнее сообщение assistant, это правильное чередование
+                elif interleaved_messages and interleaved_messages[-1].get("role") == "user":
+                    # Если последнее сообщение от user, а следующее тоже будет от user, удаляем последнее
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем последнее сообщение user для обеспечения чередования")
+                    interleaved_messages = interleaved_messages[:-1]
+                
+                # Добавляем отфильтрованные сообщения истории в messages
+                for msg in interleaved_messages:
+                    messages.append({
+                        "role": msg.get("role"),
+                        "content": msg.get("content", "")
+                    })
+                
+                # Проверяем, что последнее сообщение не от user перед добавлением текущего запроса
+                if messages and messages[-1].get("role") == "user":
+                    # Удаляем последнее сообщение, чтобы избежать последовательных user сообщений
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем последнее сообщение перед добавлением текущего запроса")
+                    messages.pop()
+            
+            # Добавляем текущий запрос пользователя
+            messages.append({"role": "user", "content": enhanced_prompt})
+            
+            # Логируем количество сообщений для диагностики
+            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка {len(messages)} сообщений в API, включая системное")
             
             # Прямой и единственный запрос к API
             url = f"{self.deepseek_service.api_base}/chat/completions"
@@ -569,6 +675,7 @@ class DeepResearchService:
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
+        
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
