@@ -3,89 +3,149 @@
 import logging
 from typing import List
 from elasticsearch import Elasticsearch
+import psycopg2
+from psycopg2.extras import DictCursor
 
-# Задайте свои параметры подключения
+import psycopg2
+from psycopg2.extras import DictCursor
+from elasticsearch import Elasticsearch
+import logging
+
 ES_HOST = "http://localhost:9200"
 ES_USER = "elastic"
 ES_PASS = "GIkb8BKzkXK7i2blnG2O"
-ES_INDEX_NAME = "ruslawod_index"
+ES_INDEX = "court_decisions_index"
+
+DB_HOST = "localhost"
+DB_PORT = 5432
+DB_NAME = "ruslaw0d"
+DB_USER = "postgres"
+DB_PASS = "postgres"
+
+def index_court_decisions():
+    """
+    Индексация данных из таблицы court_decisions в Elasticsearch.
+    """
+    es = Elasticsearch(
+        [ES_HOST],
+        basic_auth=(ES_USER, ES_PASS),
+        retry_on_timeout=True,
+        max_retries=3,
+        request_timeout=30
+    )
+
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS
+        )
+        cursor = conn.cursor(cursor_factory=DictCursor)
+
+        cursor.execute("SELECT * FROM court_decisions")
+        rows = cursor.fetchall()
+
+        for row in rows:
+            doc = dict(row)
+            es.index(index=ES_INDEX, id=doc['id'], document=doc)
+
+        cursor.close()
+        conn.close()
+        logging.info("✅ Данные успешно проиндексированы в Elasticsearch")
+
+    except Exception as e:
+        logging.error(f"❌ Ошибка индексации данных: {e}")
+
 
 
 def search_law_chunks(query: str, top_n: int = 7) -> List[str]:
     """
-    Ищет релевантные чанки в Elasticsearch.
+    Поиск в Elasticsearch по индексу court_decisions_index.
     """
-    try:
-        # Создаём клиент с аутентификацией и настройками сессии
-        es = Elasticsearch(
-            [ES_HOST],
-            basic_auth=(ES_USER, ES_PASS),
-            retry_on_timeout=True,
-            max_retries=3,
-            request_timeout=30
-        )
+    es = Elasticsearch(
+        [ES_HOST],
+        basic_auth=(ES_USER, ES_PASS),
+        retry_on_timeout=True,
+        max_retries=3,
+        request_timeout=30
+    )
 
-        # Улучшенный запрос для поиска разных типов документов
-        body = {
-            "size": top_n,
-            "query": {
-                "bool": {
-                    "should": [
-                        # Точное совпадение с высоким весом
-                        {
-                            "match_phrase": {
-                                "text_chunk": {
-                                    "query": query,
-                                    "boost": 5
-                                }
-                            }
-                        },
-                        # Многополевой поиск
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["text_chunk^3", "title^2", "document_number", "document_type"],
-                                "type": "best_fields",
-                                "fuzziness": "AUTO"
-                            }
+    body = {
+        "size": top_n,
+        "query": {
+            "bool": {
+                "should": [
+                    {
+                        "match": {
+                            "case_number": query
                         }
-                    ],
-                    "minimum_should_match": 1
-                }
-            },
-            "highlight": {
-                "fields": {
-                    "text_chunk": {
-                        "pre_tags": ["<b>"],
-                        "post_tags": ["</b>"],
-                        "fragment_size": 300,
-                        "number_of_fragments": 3
+                    },
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": [
+                                "case_number^5",
+                                "judges^3",
+                                "claimant^3",
+                                "defendant^3",
+                                "subject^2",
+                                "arguments",
+                                "conclusion",
+                                "full_text"
+                            ],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO"
+                        }
                     }
-                }
+                ],
+                "minimum_should_match": 1
             }
+        },
+        "highlight": {
+            "fields": {
+                "full_text": {"pre_tags": ["<b>"], "post_tags": ["</b>"]}
+            },
+            "fragment_size": 300,
+            "number_of_fragments": 3
         }
+    }
 
-        response = es.search(index=ES_INDEX_NAME, body=body)
+    try:
+        response = es.search(index=ES_INDEX, body=body)
         hits = response["hits"]["hits"]
 
         results = []
         for hit in hits:
             source = hit["_source"]
-            chunk_text = source["text_chunk"]
-            document_title = source.get("title", "")
-            document_number = source.get("document_number", "")
-            
-            # Добавляем подсветку, если есть
-            highlights = hit.get("highlight", {}).get("text_chunk", [])
-            if highlights:
-                highlight_text = "...\n".join(highlights)
-                results.append(f"Документ: {document_title} ({document_number})\nРелевантные фрагменты:\n{highlight_text}\n\nПолный контекст:\n{chunk_text[:1000]}...")
-            else:
-                results.append(f"Документ: {document_title} ({document_number})\n{chunk_text[:1500]}...")
+            case_number = source.get("case_number", "")
+            subject = source.get("subject", "")
+            judges = source.get("judges", "")
+            claimant = source.get("claimant", "")
+            defendant = source.get("defendant", "")
+            full_text = source.get("full_text", "")
 
-        logging.info(f"🔍 [ES] Найдено {len(results)} релевантных чанков.")
+            highlights = hit.get("highlight", {}).get("full_text", [])
+            highlight_text = "...\n".join(highlights)
+
+            result = f"Судебное дело № {case_number}\n"
+            result += f"Судьи: {judges}\nИстец: {claimant}\nОтветчик: {defendant}\nПредмет: {subject}\n"
+
+            if highlights:
+                result += f"Релевантные фрагменты:\n{highlight_text}\n\n"
+
+            result += f"Полный текст:\n{full_text[:2000]}..."
+
+            results.append(result)
+
+        logging.info(f"🔍 [ES] Найдено {len(results)} релевантных результатов.")
         return results
 
     except Exception as e:
-        logging.error(f"❌ Ошибка при поиске в Elasticsearch: {e}")
+        logging.error(f"❌ Ошибка поиска в Elasticsearch: {e}")
         return []
+
+if __name__ == "__main__":
+    index_court_decisions()  # Индексация данных в Elasticsearch
+    print(search_law_chunks("А65-28469/2012"))

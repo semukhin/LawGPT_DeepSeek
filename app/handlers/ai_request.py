@@ -270,7 +270,7 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
                     additional_context.append({
                         "type": "legislation",
                         "found": True,
-                        "data": es_results[:5]  # Берем до 5 наиболее релевантных результатов
+                        "data": es_results[:10]  # Берем до 10 наиболее релевантных результатов
                     })
             except Exception as e:
                 logging.error(f"Ошибка при получении контекста из Elasticsearch: {str(e)}")
@@ -289,7 +289,7 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
                             extracted_texts.append({
                                 "url": result.url,
                                 "title": result.title,
-                                "text": result.text[:2500]  # Ограничиваем размер для каждого результата
+                                "text": result.text[:5000]  # Ограничиваем размер для каждого результата
                             })
                     
                     if extracted_texts:
@@ -333,7 +333,7 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "search_web",
-        "description": "Поиск в интернете по указанному запросу. Используй для поиска актуальной информации, статей, и обзоров.",
+        "description": "Поиск в интернете по указанному запросу. Используй для поиска судебной практкии, актуальной информации, статей, и обзоров.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -347,7 +347,7 @@ AVAILABLE_FUNCTIONS = [
     },
     {
         "name": "deep_research",
-        "description": "Проведение глубокого исследования по указанному запросу. Используй для комплексного анализа правовых вопросов.",
+        "description": "Проведение глубокого исследования по указанному запросу. Используй для комплексного анализа правовых вопросов на основе найденной информации.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -569,7 +569,7 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
                     if result.is_successful():
                         formatted_results += f"### Источник {i}: {result.title}\n"
                         formatted_results += f"URL: {result.url}\n\n"
-                        formatted_results += f"{result.text[:2000]}\n\n---\n\n"
+                        formatted_results += f"{result.text[:5000]}\n\n---\n\n"
                 
                 return formatted_results
             return ""
@@ -593,14 +593,10 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
         logging.warning("⚠️ Не найдено релевантной информации ни в одном источнике")
         combined_context = "## Информация из источников не найдена\n\nПо запросу не удалось найти релевантную информацию в источниках. Ответ будет основан на общих знаниях."
     
-    # Формируем запрос с контекстом для глубокого исследования - УЛУЧШЕННАЯ СТРУКТУРА
-    # Сначала обрабатываем запрос пользователя для выделения номеров судебных дел
-    from app.services.deepresearch_service import highlight_court_numbers
-    highlighted_user_query = highlight_court_numbers(user_query)
 
     user_query_with_context = f"""
             ЗАПРОС ПОЛЬЗОВАТЕЛЯ: 
-            {highlighted_user_query}
+            {user_query}
 
             РЕЗУЛЬТАТЫ ПОИСКА (Полезны только для юридических запросов):
             {combined_context}
@@ -750,10 +746,6 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
             except Exception as e:
                 logging.error(f"❌ Ошибка при сохранении сообщений в БД: {e}")
         
-
-        from app.services.deepresearch_service import ensure_valid_court_numbers
-        final_response = ensure_valid_court_numbers(final_response, user_query)
-
         return final_response
 
     except Exception as e:

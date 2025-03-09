@@ -537,7 +537,7 @@ class DeepResearchService:
             
             # Формируем структурированный результат
             result = ResearchResult(
-                query=query[:1000] + "..." if len(query) > 3000 else query,
+                query=query[:3000] + "..." if len(query) > 5000 else query,
                 analysis=analysis,
                 timestamp=self._get_current_time()
             )
@@ -578,7 +578,7 @@ class DeepResearchService:
             if extracted_text:
                 logging.info(f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)")
                 # Если текст слишком большой, обрезаем его
-                max_length = 50000  # Примерный лимит для моделей
+                max_length = 20000
                 if len(extracted_text) > max_length:
                     extracted_text = extracted_text[:max_length] + "...[текст обрезан из-за ограничений размера]"
                         

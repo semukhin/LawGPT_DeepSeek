@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 
+
+# В начале файла
+logging.info(f"Google API Key настроен: {'Да' if len(GOOGLE_API_KEY) > 0 else 'Нет'}")
+logging.info(f"Google CX настроен: {'Да' if len(GOOGLE_CX) > 0 else 'Нет'}")
+
 # Создаем единственный экземпляр WebScraper
 _scraper = None
 
@@ -79,28 +84,45 @@ def google_search(query: str, logs: list, max_results: int = 10) -> list:
     }
     
     logs.append(f"🔍 Выполнение поиска Google Custom Search API для запроса: '{query}'")
+    logging.info(f"🔍 google_search: Начинаем поиск для '{query}'")
     start_time = time.time()
+
+    # Проверка наличия ключей
+    if not GOOGLE_API_KEY or not GOOGLE_CX:
+        logging.warning("❌ google_search: API ключи Google не настроены!")
+        logs.append("❌ API ключи Google не настроены!")
+        return []
+
     
     try:
+        logging.info(f"🔍 google_search: Отправка запроса к API")
         response = requests.get(url, params=params, timeout=15)
+        status_code = response.status_code
+        logging.info(f"🔍 google_search: Статус ответа: {status_code}")
+        
         response.raise_for_status()
         data = response.json()
         
+        # Проверка наличия результатов
         if "items" not in data:
+            logging.warning(f"⚠️ google_search: API не вернул результаты")
             logs.append(f"⚠️ Google не вернул результаты для запроса '{query}'")
             return []
         
         items = data.get("items", [])
+        logging.info(f"🔍 google_search: Найдено {len(items)} элементов")
         links = [item.get("link") for item in items if item.get("link")]
         
         # Фильтруем недопустимые URL
         valid_links = [link for link in links if is_valid_url(link)]
         
         elapsed_time = time.time() - start_time
+        logging.info(f"✅ google_search: Найдено {len(valid_links)} валидных ссылок за {elapsed_time:.2f} сек")
         logs.append(f"✅ Найдено {len(valid_links)} ссылок по запросу '{query}' за {elapsed_time:.2f} секунд")
         
         # Выводим первые результаты для отладки
         for i, link in enumerate(valid_links[:3]):
+            logging.info(f"URL {i+1}: {link}")
             logs.append(f"URL {i+1}: {link}")
         
         return valid_links
@@ -213,6 +235,10 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 5, force_
         # Берем только необходимое количество ссылок
         links_to_scrape = prioritized_links[:max_results]
         logs.append(f"📥 Извлечение содержимого из {len(links_to_scrape)} ссылок...")
+
+        if not links:
+            logging.warning(f"⚠️ search_and_scrape: Ссылки не найдены для '{query}'")
+            return []
         
         successful_results = []
         for url in links_to_scrape:
