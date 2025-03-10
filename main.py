@@ -1,4 +1,6 @@
-import sys, os
+import sys
+from dotenv import load_dotenv
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +12,11 @@ deep_research_service = ResearchAdapter()
 import logging
 import time
 
+# Загрузка переменных окружения из .env файла
+load_dotenv()
+# Проверка загрузки переменных окружения
+print("DATABASE_URL:", os.getenv("DATABASE_URL"))
+
 
 
 # Добавляем путь к сторонним пакетам (third_party) до импорта роутеров
@@ -20,7 +27,7 @@ if THIRD_PARTY_DIR not in sys.path:
 
 from app import models, database, auth
 from app.chat import router as chat_router
-from app.handlers import deepresearch  # Импортируем модуль deepresearch
+
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
