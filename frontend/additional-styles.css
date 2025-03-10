@@ -6,7 +6,9 @@
 /* Контейнеры для кодовых блоков */
 .code-block-container {
     position: relative;
-    margin: 1rem 0;
+    margin: 0.5rem 0;
+    max-width: 100%;
+    overflow-x: auto;
 }
 
 /* Кнопка копирования кода */
@@ -40,17 +42,17 @@
 /* Стили для блоков кода */
 pre {
     background-color: #282c34;
-    border-radius: 6px;
-    padding: 1rem 1.5rem;
-    margin: 1rem 0;
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    margin: 0.5rem 0;
     overflow-x: auto;
-    position: relative;
+    max-width: 100%;
 }
 
 code {
-    font-family: 'Fira Code', 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-family: 'Fira Code', monospace;
     font-size: 0.9em;
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 pre code {
@@ -103,19 +105,23 @@ pre code {
 }
 
 /* Параграфы и списки */
+.message-content {
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
 .message-content p {
-    margin-bottom: 1rem;
-    line-height: 1.6;
+    margin-bottom: 0.75rem;
 }
 
 .message-content ul,
 .message-content ol {
-    margin: 1rem 0 1.5rem 1.5rem;
+    margin: 0.5rem 0 0.5rem 1.5rem;
     padding-left: 0.5rem;
 }
 
 .message-content li {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
 }
 
 .message-content li > ul,
@@ -149,22 +155,20 @@ pre code {
 
 /* Таблицы */
 .table-wrapper {
+    max-width: 100%;
     overflow-x: auto;
-    margin: 1.5rem 0;
+    margin: 0.5rem 0;
 }
 
 .markdown-table {
-    width: 100%;
     border-collapse: collapse;
-    border-spacing: 0;
-    margin-bottom: 1rem;
-    color: var(--text-light);
+    width: 100%;
 }
 
 .markdown-table th,
 .markdown-table td {
+    padding: 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    padding: 0.75rem 1rem;
     text-align: left;
 }
 
@@ -210,8 +214,9 @@ pre code {
 /* Изображения */
 .message-content img {
     max-width: 100%;
-    border-radius: 6px;
-    margin: 1rem 0;
+    height: auto;
+    border-radius: var(--border-radius);
+    margin: 0.5rem 0;
 }
 
 /* Специальные компоненты */

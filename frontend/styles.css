@@ -25,40 +25,21 @@
 }
 
 html, body {
-    height: 100%;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
     font-family: var(--font-family);
     line-height: 1.6;
     background-color: var(--gray-dark);
     color: var(--text-light);
 }
 
-body {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-}
-
-a {
-    color: var(--accent-color);
-    text-decoration: none;
-}
-
-a:hover {
-    text-decoration: underline;
-}
-
-/* Заголовки и текст */
-h1, h2, h3, h4, h5, h6 {
-    margin-bottom: 0.5rem;
-    font-weight: 600;
-    line-height: 1.2;
-}
-
-/* Основной контейнер */
 .container {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
 }
 
 /* Шапка */
@@ -70,6 +51,8 @@ h1, h2, h3, h4, h5, h6 {
     background-color: var(--primary-color);
     box-shadow: var(--box-shadow);
     z-index: 10;
+    height: 60px;
+    min-height: 60px;
 }
 
 .header .logo {
@@ -83,6 +66,7 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     flex: 1;
     overflow: hidden;
+    height: calc(100vh - 60px - 50px); /* вычитаем высоту header и footer */
 }
 
 /* Боковая панель */
@@ -90,13 +74,14 @@ h1, h2, h3, h4, h5, h6 {
     display: flex;
     flex-direction: column;
     width: 280px;
+    min-width: 280px;
     background-color: var(--gray-medium);
     border-right: 1px solid rgba(255, 255, 255, 0.1);
-    overflow-y: auto;
+    overflow: hidden;
 }
 
 .sidebar-header {
-    padding: 1.5rem;
+    padding: 1rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -121,7 +106,10 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .sidebar-section {
-    padding: 1rem 0;
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .sidebar-title {
@@ -132,7 +120,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .chat-list {
-    list-style: none;
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem;
 }
 
 .chat-item {
@@ -199,10 +189,9 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Область чата */
 .chat-container {
-    flex: 1;
     display: flex;
     flex-direction: column;
-    max-height: 100vh;
+    flex: 1;
     overflow: hidden;
 }
 
@@ -229,20 +218,12 @@ h1, h2, h3, h4, h5, h6 {
 .messages-container {
     flex: 1;
     overflow-y: auto;
-    padding: 1.5rem;
+    padding: 1rem;
 }
 
 .message {
-    display: flex;
-    flex-direction: column;
     max-width: 85%;
-    margin-bottom: 1.5rem;
-    animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    margin-bottom: 1rem;
 }
 
 .message-user {
@@ -255,8 +236,9 @@ h1, h2, h3, h4, h5, h6 {
 
 .message-content {
     padding: 1rem;
-    border-radius: var(--border-radius-lg);
-    position: relative;
+    border-radius: var(--border-radius);
+    background-color: var(--gray-medium);
+    word-wrap: break-word;
 }
 
 .message-user .message-content {
@@ -372,9 +354,10 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Поле ввода сообщения */
 .input-container {
-    padding: 1rem 1.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1rem;
     background-color: var(--gray-dark);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
 }
 
 .upload-preview {
@@ -420,26 +403,23 @@ h1, h2, h3, h4, h5, h6 {
 .input-wrapper {
     position: relative;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
 }
 
 .message-input {
     flex: 1;
     min-height: 44px;
     max-height: 150px;
-    padding: 0.75rem 1rem;
-    padding-right: 3.5rem;
+    padding: 0.75rem;
+    padding-right: 5.5rem;
     background-color: var(--gray-medium);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: var(--border-radius-lg);
+    border-radius: var(--border-radius);
     color: var(--text-light);
     resize: none;
-    outline: none;
-    transition: var(--transition);
-    font-family: var(--font-family);
-    overflow-y: auto;
-    line-height: 1.5;
-    font-size: 0.95rem;
+    width: 100%;
 }
 
 .message-input:focus {
@@ -448,11 +428,12 @@ h1, h2, h3, h4, h5, h6 {
 
 .action-buttons {
     position: absolute;
-    right: 0.75rem;
-    bottom: 7px;
+    right: 0.5rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    z-index: 10;
+    height: 100%;
 }
 
 .action-btn {
@@ -491,10 +472,10 @@ h1, h2, h3, h4, h5, h6 {
 /* Футер */
 .footer {
     padding: 1rem;
-    text-align: center;
     background-color: var(--primary-color);
-    font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+    height: 50px;
+    min-height: 50px;
 }
 
 .social-links {
@@ -662,135 +643,141 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Адаптивность */
 @media (max-width: 768px) {
-    .main-content {
-        flex-direction: column;
-    }
-    
-    .sidebar {
-        width: 100%;
-        max-height: 35vh;
-    }
-    
-    .chat-container {
-        flex: 1;
-    }
-    
-    .message {
-        max-width: 100%;
-    }
-}
-
-/* Дополнительные стили */
-.typing-indicator {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-}
-
-.typing-dot {
-    width: 8px;
-    height: 8px;
-    background-color: var(--text-light);
-    border-radius: 50%;
-    margin-right: 4px;
-    animation: typingDot 1.4s infinite ease-in-out;
-}
-
-.typing-dot:nth-child(1) { animation-delay: 0s; }
-.typing-dot:nth-child(2) { animation-delay: 0.2s; }
-.typing-dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes typingDot {
-    0%, 60%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-6px); }
-}
-
-/* Адаптивный дизайн */
-@media (max-width: 768px) {
-    /* Уменьшаем размер текста для улучшения читаемости на мобильных */
+    /* Базовые стили */
     body {
         font-size: 14px;
+        overflow: hidden;
     }
-    
-    /* Изменяем структуру для мобильных устройств */
+
+    /* Основной контент */
     .main-content {
+        position: relative;
+        display: flex;
         flex-direction: column;
+        height: calc(100vh - 50px);
+        overflow: hidden;
     }
-    
-    .sidebar {
-        width: 100%;
-        max-height: 40vh;
-        overflow-y: auto;
-    }
-    
+
+    /* Чат-контейнер */
     .chat-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 50px);
         width: 100%;
-        height: 60vh;
+        position: relative;
+        z-index: 1;
     }
-    
-    /* Изменяем размер модальных окон */
-    .modal-content {
-        width: 90%;
-        margin: 20% auto;
-        padding: 1.5rem;
+
+    /* Боковая панель */
+    .sidebar {
+        position: fixed;
+        left: -100%;
+        top: 50px;
+        width: 100%;
+        height: calc(100vh - 50px);
+        z-index: 1000;
+        transition: transform 0.3s ease;
+        background-color: var(--primary-color);
+        transform: translateX(-100%);
     }
-    
-    /* Уменьшаем размеры элементов интерфейса */
-    .header {
-        padding: 0.75rem;
+
+    .sidebar.active {
+        transform: translateX(0);
+        left: 0;
     }
-    
-    .chat-header {
-        padding: 0.75rem;
+
+    /* Список чатов */
+    .chat-list {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.5rem;
+        margin: 0;
     }
-    
+
+    .chat-item {
+        padding: 0.75rem 1rem;
+        border-radius: var(--border-radius);
+        margin-bottom: 0.5rem;
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Сообщения */
     .messages-container {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         padding: 0.75rem;
+        height: auto;
     }
-    
-    .message {
-        max-width: 90%;
-    }
-    
+
+    /* Поле ввода */
     .input-container {
+        position: relative;
         padding: 0.75rem;
+        background-color: var(--gray-dark);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
-    
+
+    .message-input {
+        padding: 0.75rem;
+        padding-right: 5rem;
+        max-height: 100px;
+    }
+
+    /* Затемнение */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 50px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 999;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+        opacity: 1;
+    }
+
+    /* Навигация */
+    .nav-links {
+        padding: 0.75rem;
+        margin-top: auto;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .nav-link {
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        border-radius: var(--border-radius);
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+
+    /* Кнопка нового чата */
     .new-chat-btn {
-        padding: 0.5rem 0.75rem;
+        margin: 0.75rem;
+        width: calc(100% - 1.5rem);
     }
-    
-    /* Уменьшаем размер шрифтов */
-    .sidebar-title, .chat-title-container h2 {
+
+    /* Заголовок истории чатов */
+    .sidebar-title {
+        padding: 0.75rem;
+        margin: 0;
         font-size: 1rem;
     }
-    
-    .chat-item .chat-title {
-        font-size: 0.85rem;
-    }
-    
-    .chat-date, .message-time {
-        font-size: 0.7rem;
-    }
-    
-    /* Исправление для чат-списка */
-    .chat-list {
-        padding: 0;
-    }
-    
-    /* Исправление для бокового меню */
-    .nav-links {
-        padding: 0.5rem 0;
-    }
-    
-    .nav-link {
-        padding: 0.5rem 1rem;
-    }
-    
-    /* Улучшение отображения сообщений */
-    .message-content {
-        padding: 0.75rem;
+
+    /* Кнопка меню */
+    .menu-toggle {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
     }
 }
 
@@ -815,5 +802,33 @@ h1, h2, h3, h4, h5, h6 {
     
     .chat-header {
         padding: 1.25rem 1.5rem;
+    }
+}
+
+/* Кнопка меню */
+.menu-toggle {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 10px;
+    margin-right: 10px;
+}
+
+.burger-line {
+    display: block;
+    width: 24px;
+    height: 2px;
+    margin: 4px auto;
+    background-color: #ffffff;
+    transition: var(--transition);
+}
+
+@media (max-width: 768px) {
+    .menu-toggle {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
     }
 }
