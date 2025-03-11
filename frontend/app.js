@@ -84,6 +84,9 @@ function initApp() {
     
     // Инициализация обработчиков событий
     initEventListeners();
+    
+    // Инициализация мобильного меню
+    initMobileMenu();
 }
 
 /**
@@ -172,6 +175,7 @@ function initChatInterface() {
         // Автоматическое изменение высоты поля ввода
         messageInput.style.height = 'auto';
         messageInput.style.height = (messageInput.scrollHeight) + 'px';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
         
         // Активация/деактивация кнопки отправки
         const sendBtn = document.getElementById('send-btn');
@@ -181,10 +185,12 @@ function initChatInterface() {
     // Отправка сообщения
     document.getElementById('send-btn').addEventListener('click', sendMessage);
     messageInput.addEventListener('keydown', (e) => {
-        // Отправка по Ctrl+Enter или Cmd+Enter
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage();
+            if (messageInput.value.trim()) {
+                const sendBtn = document.getElementById('send-btn');
+                sendBtn.click();
+            }
         }
     });
     
@@ -194,6 +200,10 @@ function initChatInterface() {
     
     // Удаление файла
     document.getElementById('remove-file-btn').addEventListener('click', removeUploadedFile);
+    
+    // Обработчики для модальных окон
+    document.getElementById('nav-profile').addEventListener('click', showProfileModal);
+    document.getElementById('nav-about').addEventListener('click', showAboutModal);
 }
 
 
@@ -1204,42 +1214,53 @@ function showAboutModal() {
     modal.style.display = 'block';
 }
 
-// Добавление обработчиков для навигации
-function initChatInterface() {
-    // Кнопка нового чата
-    document.getElementById('new-chat-btn').addEventListener('click', createNewChat);
-    
-    // Поле ввода сообщения
-    const messageInput = document.getElementById('message-input');
-    messageInput.addEventListener('input', () => {
-        // Автоматическое изменение высоты поля ввода
-        messageInput.style.height = 'auto';
-        messageInput.style.height = (messageInput.scrollHeight) + 'px';
-        
-        // Активация/деактивация кнопки отправки
-        const sendBtn = document.getElementById('send-btn');
-        sendBtn.disabled = messageInput.value.trim() === '';
+/**
+ * Инициализация мобильного меню
+ */
+function initMobileMenu() {
+    const menuToggle = document.getElementById('menu-toggle');
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    let isMenuOpen = false;
+
+    // Функция открытия/закрытия меню
+    function toggleMenu(open) {
+        isMenuOpen = open;
+        sidebar.classList.toggle('active', open);
+        overlay.classList.toggle('active', open);
+        document.body.style.overflow = open ? 'hidden' : '';
+    }
+
+    // Обработчик кнопки меню
+    menuToggle.addEventListener('click', () => {
+        toggleMenu(!isMenuOpen);
     });
-    
-    // Отправка сообщения
-    document.getElementById('send-btn').addEventListener('click', sendMessage);
-    messageInput.addEventListener('keydown', (e) => {
-        // Отправка по Ctrl+Enter или Cmd+Enter
-        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault();
-            sendMessage();
+
+    // Закрытие меню при клике на оверлей
+    overlay.addEventListener('click', () => {
+        toggleMenu(false);
+    });
+
+    // Закрытие меню при выборе чата
+    document.addEventListener('click', (e) => {
+        const chatItem = e.target.closest('.chat-item');
+        if (chatItem && window.innerWidth <= 768) {
+            toggleMenu(false);
         }
     });
-    
-    // Загрузка файла
-    const fileUpload = document.getElementById('file-upload');
-    fileUpload.addEventListener('change', handleFileUpload);
-    
-    // Удаление файла
-    document.getElementById('remove-file-btn').addEventListener('click', removeUploadedFile);
-    
-    // Обработчики для модальных окон
-    document.getElementById('nav-profile').addEventListener('click', showProfileModal);
-    document.getElementById('nav-about').addEventListener('click', showAboutModal);
+
+    // Закрытие меню при изменении ориентации устройства
+    window.addEventListener('orientationchange', () => {
+        if (isMenuOpen) {
+            toggleMenu(false);
+        }
+    });
+
+    // Закрытие меню при ресайзе окна больше 768px
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 768 && isMenuOpen) {
+            toggleMenu(false);
+        }
+    });
 }
 

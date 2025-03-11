@@ -139,6 +139,11 @@
         <!-- Основной интерфейс приложения -->
         <div id="main-app" class="container" style="display: none;">
             <header class="header">
+                <button id="menu-toggle" class="menu-toggle">
+                    <span class="burger-line"></span>
+                    <span class="burger-line"></span>
+                    <span class="burger-line"></span>
+                </button>
                 <div class="logo">LawGPT</div>
                 <div class="user-info">
                     <span id="user-name"></span>
@@ -149,7 +154,6 @@
             </header>
             
             <div class="main-content">
-                <!-- Боковая панель -->
                 <aside class="sidebar">
                     <div class="sidebar-header">
                         <button id="new-chat-btn" class="new-chat-btn">
@@ -173,6 +177,8 @@
                         </a>
                     </div>
                 </aside>
+                
+                <div id="sidebar-overlay" class="sidebar-overlay"></div>
                 
                 <!-- Область чата -->
                 <div class="chat-container">
