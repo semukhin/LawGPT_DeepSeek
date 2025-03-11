@@ -1198,9 +1198,15 @@ function showAboutModal() {
             <p>Наш сервис помогает быстро получать ответы на сложные юридические вопросы, обращаясь к актуальной базе российского законодательства.</p>
             
             <div class="social-links">
-                <h3>VK | Telegram</h3>
-                <a href="#" target="_blank" class="social-link"><i class="fab fa-vk"></i> ВКонтакте</a>
-                <a href="#" target="_blank" class="social-link"><i class="fab fa-telegram"></i> Telegram</a>
+                <h3>Наши социальные сети</h3>
+                <div class="social-buttons">
+                    <a href="https://vk.com/lawgptru" target="_blank" rel="noopener" class="social-link">
+                        <i class="fab fa-vk"></i> ВКонтакте
+                    </a>
+                    <a href="https://t.me/Law_GPT" target="_blank" rel="noopener" class="social-link">
+                        <i class="fab fa-telegram"></i> Telegram
+                    </a>
+                </div>
             </div>
         </div>
     `;

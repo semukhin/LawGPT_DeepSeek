@@ -98,3 +98,49 @@
     background-color: rgba(255, 255, 255, 0.05);
     text-decoration: none;
 }
+
+.modal-content .social-links {
+    margin-top: 2rem;
+    text-align: center;
+}
+
+.modal-content .social-links h3 {
+    margin-bottom: 1rem;
+    color: #2d3748;
+}
+
+.modal-content .social-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+}
+
+.modal-content .social-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    color: #2d3748;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.modal-content .social-link:hover {
+    background-color: #e2e8f0;
+    transform: translateY(-2px);
+}
+
+.modal-content .social-link i {
+    margin-right: 0.5rem;
+    font-size: 1.25rem;
+}
+
+/* Специфичные цвета для разных соцсетей при наведении */
+.modal-content .social-link:hover i.fa-vk {
+    color: #4a76a8;
+}
+
+.modal-content .social-link:hover i.fa-telegram {
+    color: #0088cc;
+}
