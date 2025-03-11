@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
 from app.services.research_factory import ResearchAdapter
+from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
 deep_research_service = ResearchAdapter()
 import logging
 import time
@@ -95,6 +96,15 @@ app.include_router(deepresearch.router)
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
 
+# Инициализация Elasticsearch при запуске приложения
+@app.on_event("startup")
+async def startup_event():
+    """Выполняется при запуске приложения"""
+    # Асинхронная инициализация Elasticsearch
+    if init_elasticsearch_async():
+        logger.info("Запущена асинхронная инициализация Elasticsearch")
+    else:
+        logger.error("Ошибка при запуске инициализации Elasticsearch")
 
 # Настройка CORS с указанием кодировки
 app.add_middleware(
@@ -125,6 +135,11 @@ def read_root():
 @app.get("/ping")
 async def ping():
     return {"message": "pong"}
+
+@app.get("/indexing-status")
+async def indexing_status():
+    """Возвращает текущий статус индексации"""
+    return get_indexing_status()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
