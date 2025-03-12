@@ -70,7 +70,7 @@ DEEPSEEK_API_BASE=https://api.deepseek.com/v1
 DEEPSEEK_MODEL=deepseek-reasoner
 
 # Elasticsearch 
-ELASTICSEARCH_URL=http://localhost:9200
+
 
 # Почтовые настройки
 MAIL_SERVER=smtp.example.com

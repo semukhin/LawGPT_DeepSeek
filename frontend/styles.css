@@ -408,12 +408,13 @@ html, body {
     width: 100%;
 }
 
+/* Поле ввода сообщения с увеличенным отступом для кнопок */
 .message-input {
     flex: 1;
     min-height: 44px;
     max-height: 150px;
     padding: 0.75rem;
-    padding-right: 5.5rem;
+    padding-right: 8rem;  /* Увеличен отступ с 5.5rem до 6rem */
     background-color: var(--gray-medium);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: var(--border-radius);
@@ -426,9 +427,10 @@ html, body {
     border-color: var(--accent-color);
 }
 
+/* Позиционирование кнопок действий */
 .action-buttons {
     position: absolute;
-    right: 0.5rem;
+    right: 2rem;  /* Увеличен отступ с 0.5rem до 1rem */
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -474,21 +476,29 @@ html, body {
     padding: 1rem;
     background-color: var(--primary-color);
     text-align: center;
-    height: 50px;
-    min-height: 50px;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
 .social-links {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    margin-top: 0.5rem;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
 }
 
 .social-link {
     color: rgba(255, 255, 255, 0.7);
     transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    font-size: 0.9rem;
 }
 
 .social-link:hover {
@@ -824,11 +834,11 @@ html, body {
     transition: var(--transition);
 }
 
+/* Адаптация для мобильных устройств */
 @media (max-width: 768px) {
-    .menu-toggle {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
+    .message-input {
+        padding: 0.75rem;
+        padding-right: 8rem;  /* Увеличен отступ с 5rem до 6rem */
+        max-height: 100px;
     }
 }

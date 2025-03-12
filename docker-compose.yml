@@ -1,0 +1,64 @@
+services:
+  backend:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    volumes:
+      - ./documents_docx:/app/documents_docx
+      - ./documents_html:/app/documents_html
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+    environment:
+      - DB_HOST=82.97.242.92
+      - DB_PORT=5432
+      - DB_NAME=ruslaw_db
+      - DB_USER=gen_user
+      - DB_PASSWORD=P?!ri#ag5%G1Si
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  nginx:
+    platform: linux/arm64
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./documents_html:/usr/share/nginx/documents_html
+      - ./static:/usr/share/nginx/static
+    depends_on:
+      - backend
+    restart: always
+
+  elasticsearch:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: elasticsearch.Dockerfile
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://0.0.0.0:9200 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  elasticsearch_data:
+
+networks:
+  default:
+    driver: bridge 

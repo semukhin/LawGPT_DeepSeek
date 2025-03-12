@@ -22,8 +22,15 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Конфигурация базы данных
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./lawgpt.db")
+# Database settings
+DB_HOST = os.getenv("DB_HOST", "82.97.242.92")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "ruslaw_db")
+DB_USER = os.getenv("DB_USER", "gen_user")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "P?!ri#ag5%G1Si")
+
+# Construct database URL
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 # Конфигурация безопасности
 SECRET_KEY = os.environ.get("SECRET_KEY", "default_secret_key_replace_in_production")
@@ -83,10 +90,9 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek")  # Возможные зна�
 
 
 # Настройки ElasticSearch
-ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://elasticsearch:9200")
 
 # Elasticsearch конфигурация
-ES_HOST = os.getenv('ES_HOST', 'http://localhost:9200')
 ES_USER = os.getenv('ES_USER')
 ES_PASS = os.getenv('ES_PASS')
 
@@ -113,7 +119,7 @@ ES_INDICES = {
 if __name__ == "__main__":
     try:
         es = Elasticsearch(
-            [ES_HOST],
+            [ELASTICSEARCH_URL],
             basic_auth=(ES_USER, ES_PASS),
             retry_on_timeout=True,
             max_retries=3

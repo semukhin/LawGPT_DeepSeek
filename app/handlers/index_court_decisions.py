@@ -19,7 +19,8 @@ from elasticsearch import Elasticsearch
 from app.config import (
     ES_HOST, ES_USER, ES_PASS, 
     DB_CONFIG, ES_INDICES, 
-    INDEXING_INTERVAL
+    INDEXING_INTERVAL,
+    ELASTICSEARCH_URL
 )
 
 
@@ -34,7 +35,7 @@ def get_es_client():
     """Создает клиент Elasticsearch"""
     try:
         es = Elasticsearch(
-            [ES_HOST],
+            [ELASTICSEARCH_URL],
             basic_auth=(ES_USER, ES_PASS),
             retry_on_timeout=True,
             max_retries=3

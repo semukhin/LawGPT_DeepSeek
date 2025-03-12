@@ -1,6 +1,6 @@
 from elasticsearch import Elasticsearch
 import logging
-from app.config import ES_HOST, ES_USER, ES_PASS, ES_INDICES, DB_CONFIG
+from app.config import ES_USER, ES_PASS, ES_INDICES, DB_CONFIG, ELASTICSEARCH_URL
 import psycopg2
 from psycopg2.extras import DictCursor
 from datetime import datetime
@@ -99,8 +99,8 @@ def get_es_client():
     """Создает и возвращает клиент Elasticsearch"""
     try:
         es = Elasticsearch(
-            [ES_HOST],
-            basic_auth=(ES_USER, ES_PASS),
+            ELASTICSEARCH_URL,
+            basic_auth=(ES_USER, ES_PASS) if ES_USER and ES_PASS else None,
             retry_on_timeout=True,
             max_retries=3
         )
@@ -170,7 +170,7 @@ def index_table_data_batch(es, conn, table_name, index_name, batch_size=1000):
             
             # Выполняем bulk индексацию
             if bulk_data:
-                es.bulk(operations=bulk_data)
+                es.bulk(body=bulk_data)
             
             offset += batch_size
             progress = min(100, int(offset * 100 / total_rows))
