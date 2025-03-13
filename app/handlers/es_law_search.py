@@ -4,23 +4,22 @@ import logging
 from typing import List, Dict, Any, Optional
 from elasticsearch import Elasticsearch
 import re
+from app.config import ELASTICSEARCH_URL, ES_USER, ES_PASS, ES_INDICES as CONFIG_ES_INDICES
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Параметры подключения к Elasticsearch
-ES_HOST = "http://localhost:9200"
-ES_USER = "elastic"
-ES_PASS = "GIkb8BKzkXK7i2blnG2O"
-
-# Индексы в Elasticsearch
-ES_INDICES = {
+# Индексы в Elasticsearch с возможностью переопределения из конфигурации
+DEFAULT_ES_INDICES = {
     "court_decisions": "court_decisions_index",
     "court_reviews": "court_reviews_index",
     "legal_articles": "legal_articles_index",
     "ruslawod_chunks": "ruslawod_chunks_index"
 }
+
+# Используем индексы из конфигурации или значения по умолчанию
+ES_INDICES = CONFIG_ES_INDICES or DEFAULT_ES_INDICES
 
 def get_es_client():
     """
@@ -31,16 +30,14 @@ def get_es_client():
     """
     try:
         es = Elasticsearch(
-            [ES_HOST],
+            ELASTICSEARCH_URL,
             basic_auth=(ES_USER, ES_PASS),
             retry_on_timeout=True,
-            max_retries=3,
-            request_timeout=30
+            max_retries=3
         )
-        logger.info("✅ Успешное подключение к Elasticsearch")
         return es
     except Exception as e:
-        logger.error(f"❌ Ошибка подключения к Elasticsearch: {str(e)}")
+        logging.error(f"Ошибка подключения к Elasticsearch: {e}")
         raise
 
 def search_law_chunks(query: str, top_n: int = 7) -> List[str]:

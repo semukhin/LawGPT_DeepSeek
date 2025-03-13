@@ -116,7 +116,7 @@ def fix_encoding(text):
 
 # ===================== Эндпоинты чата =====================
 @measure_time
-@router.post("/chat/{thread_id}")
+@router.post("/api/chat/{thread_id}")
 async def chat_in_thread(
     request: Request,
     thread_id: str,
@@ -244,7 +244,7 @@ async def chat_in_thread(
 # ===================== Эндпоинты работы с тредами =====================
 
 @measure_time
-@router.post("/create_thread")
+@router.post("/api/create_thread")
 async def create_thread(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -260,7 +260,7 @@ async def create_thread(
 
 
 @measure_time
-@router.get("/chat/threads")
+@router.get("/api/chat/threads")
 async def get_threads(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -280,7 +280,7 @@ async def get_threads(
 
 
 @measure_time
-@router.get("/messages/{thread_id}")
+@router.get("/api/messages/{thread_id}")
 async def get_messages(
     thread_id: str,
     current_user: User = Depends(get_current_user),
@@ -294,7 +294,7 @@ async def get_messages(
 # ===================== Эндпоинты для загрузки и скачивания файлов =====================
 
 @measure_time
-@router.post("/upload_file")
+@router.post("/api/upload_file")
 async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -322,7 +322,7 @@ async def upload_file(
     return {"message": "Файл успешно загружен.", "file_path": file_path}
 
 
-@router.get("/download/{filename}")
+@router.get("/api/download/{filename}")
 async def download_document(filename: str):
     """Позволяет скачать документ."""
     file_path = os.path.join(DOCX_FOLDER, filename)

@@ -2,7 +2,7 @@ import sys
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -12,6 +12,7 @@ from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
 deep_research_service = ResearchAdapter()
 import logging
 import time
+from contextlib import asynccontextmanager
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -37,6 +38,8 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Подключение папки frontend для раздачи статических файлов
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -96,16 +99,6 @@ app.include_router(deepresearch.router)
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
 
-# Инициализация Elasticsearch при запуске приложения
-@app.on_event("startup")
-async def startup_event():
-    """Выполняется при запуске приложения"""
-    # Асинхронная инициализация Elasticsearch
-    if init_elasticsearch_async():
-        logger.info("Запущена асинхронная инициализация Elasticsearch")
-    else:
-        logger.error("Ошибка при запуске инициализации Elasticsearch")
-
 # Настройка CORS с указанием кодировки
 app.add_middleware(
     CORSMiddleware,
@@ -116,8 +109,8 @@ app.add_middleware(
 )
 
 # Главная страница
-@app.get("/", response_class=HTMLResponse)
-def read_root():
+@app.get("/", response_class=FileResponse)
+async def read_root():
     html_content = """
     <html>
         <head>
@@ -130,16 +123,42 @@ def read_root():
         </body>
     </html>
     """
-    return HTMLResponse(content=html_content)
+    return FileResponse("frontend/index.html")
 
 @app.get("/ping")
 async def ping():
     return {"message": "pong"}
+
 
 @app.get("/indexing-status")
 async def indexing_status():
     """Возвращает текущий статус индексации"""
     return get_indexing_status()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Обработчик событий жизненного цикла приложения."""
+    # Действия при запуске
+    try:
+        with database.engine.connect() as conn:
+            result = conn.execute("SELECT 1")
+            logging.info("Соединение с MySQL успешно установлено")
+    except Exception as e:
+        logging.error(f"Ошибка соединения с MySQL: {str(e)}")
+
+    # Асинхронная инициализация Elasticsearch
+    if init_elasticsearch_async():
+        logger.info("Запущена асинхронная инициализация Elasticsearch")
+    else:
+        logger.error("Ошибка при запуске инициализации Elasticsearch")
+
+    yield  # Здесь можно добавить код, который будет выполняться во время работы приложения
+
+    # Действия при завершении
+    logger.info("Приложение завершает работу")
+
+app.lifespan = lifespan
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

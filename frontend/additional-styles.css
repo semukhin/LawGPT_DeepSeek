@@ -317,4 +317,11 @@ pre code {
 }
 
 .hljs-attr,
-.hljs-variable,
+.hljs-variable {
+    color: #d19a66;
+}
+
+.hljs-attr,
+.hljs-variable {
+    color: #d19a66;
+}

@@ -4,15 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LawGPT - Юридический ассистент</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="additional-styles.css">
+    <link rel="stylesheet" href="/frontend/styles.css">
+    <link rel="stylesheet" href="/frontend/additional-styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/atom-one-dark.min.css">
-    <link rel="stylesheet" href="modal.css">
-    <!-- Загружаем библиотеки для обработки Markdown и кода -->
+    <link rel="stylesheet" href="/frontend/modal.css">
     <script src="https://cdn.jsdelivr.net/npm/marked@4.2.12/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/highlight.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.0.2/dist/mermaid.min.js"></script>
@@ -24,8 +23,8 @@
             <!-- Экран входа -->
             <div id="login-screen" class="auth-card">
                 <div class="auth-header">
-                    <h1>Вход в систему</h1>
-                    <p>Войдите в свой аккаунт LawGPT</p>
+                    <h1>Вход в LawGPT</h1>
+                    <p>Войдите в свой аккаунт</p>
                 </div>
                 <form id="login-form">
                     <div class="form-group">
@@ -144,7 +143,7 @@
                     <span class="burger-line"></span>
                     <span class="burger-line"></span>
                 </button>
-                <div class="logo">LawGPT</div>
+                <a href="/" class="logo">LawGPT</a>
                 <div class="user-info">
                     <span id="user-name"></span>
                     <button id="logout-btn" class="logout-button">
@@ -152,7 +151,6 @@
                     </button>
                 </div>
             </header>
-            
             <div class="main-content">
                 <aside class="sidebar">
                     <div class="sidebar-header">
@@ -220,12 +218,15 @@
                     </div>
                 </div>
             </div>
-            
             <footer class="footer">
                 <div>LawGPT © 2025 - Юридический ассистент</div>
                 <div class="social-links">
-                    <a href="https://vk.com/lawgptru" target="_blank" rel="noopener" class="social-link" aria-label="VKontakte"><i class="fab fa-vk"></i></a>
-                    <a href="https://t.me/Law_GPT" target="_blank" rel="noopener" class="social-link" aria-label="Telegram"><i class="fab fa-telegram"></i></a>
+                    <a href="https://vk.com/lawgptru" target="_blank" rel="noopener" class="social-link">
+                        <i class="fab fa-vk"></i> ВКонтакте
+                    </a>
+                    <a href="https://t.me/Law_GPT" target="_blank" rel="noopener" class="social-link">
+                        <i class="fab fa-telegram"></i> Telegram
+                    </a>
                 </div>
             </footer>
         </div>
@@ -253,7 +254,105 @@
         </div>
     </template>
     
-    <script src="markdown.js"></script>
-    <script src="app.js"></script>
+    <script src="/frontend/markdown.js"></script>
+    <script src="/frontend/app.js"></script>
+    
+    <!-- Компоненты для улучшения мобильной версии -->
+
+    <!-- Шаблон для индикатора "pull-to-refresh" -->
+    <template id="pull-to-refresh-template">
+        <div class="pull-indicator">
+            <div class="pull-icon">
+                <i class="fas fa-arrow-down"></i>
+            </div>
+            <div class="pull-text">Потяните вниз для обновления</div>
+        </div>
+    </template>
+
+    <!-- Шаблон для индикатора загрузки сообщений -->
+    <template id="message-loading-template">
+        <div class="message-loading">
+            <div class="message-loading-spinner"></div>
+        </div>
+    </template>
+
+    <!-- Шаблон для пустого состояния (когда нет чатов или сообщений) -->
+    <template id="empty-state-template">
+        <div class="empty-state">
+            <i class="fas fa-comment-slash"></i>
+            <h3>Ничего не найдено</h3>
+            <p>У вас пока нет активных чатов</p>
+            <button class="empty-action-btn">Начать новый чат</button>
+        </div>
+    </template>
+
+    <!-- Шаблон для свайп-подсказки -->
+    <template id="swipe-indicator-template">
+        <div class="swipe-indicator">
+            <div class="swipe-icon">
+                <i class="fas fa-chevron-right"></i>
+            </div>
+        </div>
+    </template>
+
+    <!-- Шаблон для оффлайн-уведомления -->
+    <template id="offline-notice-template">
+        <div class="offline-notice">
+            <i class="fas fa-wifi-slash"></i>
+            <span>Нет соединения с интернетом</span>
+        </div>
+    </template>
+
+    <!-- Экран быстрого доступа для мобильных устройств -->
+    <template id="mobile-quick-actions-template">
+        <div class="mobile-quick-actions">
+            <button class="quick-action-btn" data-action="new-chat">
+                <i class="fas fa-plus"></i>
+                <span>Новый чат</span>
+            </button>
+            <button class="quick-action-btn" data-action="upload">
+                <i class="fas fa-file-upload"></i>
+                <span>Загрузить файл</span>
+            </button>
+            <button class="quick-action-btn" data-action="history">
+                <i class="fas fa-history"></i>
+                <span>История</span>
+            </button>
+            <button class="quick-action-btn" data-action="profile">
+                <i class="fas fa-user"></i>
+                <span>Профиль</span>
+            </button>
+        </div>
+    </template>
+
+    <!-- Индикатор непрочитанных сообщений для мобильных устройств -->
+    <template id="unread-indicator-template">
+        <div class="unread-indicator">
+            <span class="unread-count">1</span>
+        </div>
+    </template>
+
+    <!-- Компонент мобильной подсказки -->
+    <template id="mobile-tooltip-template">
+        <div class="mobile-tooltip">
+            <div class="tooltip-content"></div>
+            <div class="tooltip-arrow"></div>
+        </div>
+    </template>
+
+    <!-- Оптимизированная форма мобильного поиска -->
+    <template id="mobile-search-template">
+        <div class="mobile-search">
+            <div class="search-input-container">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" class="search-input" placeholder="Поиск в чатах...">
+                <button class="clear-search-btn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="search-results"></div>
+        </div>
+    </template>
+
 </body>
 </html>
