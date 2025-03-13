@@ -235,6 +235,9 @@ async def chat_in_thread(
             Message(thread_id=thread_id, role="assistant", content=assistant_response)
         ])
         db.commit()
+        if not thread.first_message and query:
+            thread.first_message = query[:100] + ('...' if len(query) > 100 else '')
+            db.commit()
 
         return {"assistant_response": assistant_response}
     
@@ -262,9 +265,18 @@ async def get_threads(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Возвращает список тредов пользователя."""
     threads = db.query(Thread).filter_by(user_id=current_user.id).order_by(Thread.created_at.desc()).all()
-    return {"threads": [{"id": t.id, "created_at": t.created_at} for t in threads]}
+    
+    # Добавляем first_message в возвращаемые данные
+    return {
+        "threads": [
+            {
+                "id": t.id, 
+                "created_at": t.created_at, 
+                "first_message": t.first_message
+            } for t in threads
+        ]
+    }
 
 
 @measure_time

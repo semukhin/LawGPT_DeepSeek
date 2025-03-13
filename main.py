@@ -1,13 +1,22 @@
-import sys, os
+import sys
+from dotenv import load_dotenv
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
 from app.services.research_factory import ResearchAdapter
+from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
 deep_research_service = ResearchAdapter()
 import logging
 import time
+
+# Загрузка переменных окружения из .env файла
+load_dotenv()
+# Проверка загрузки переменных окружения
+print("DATABASE_URL:", os.getenv("DATABASE_URL"))
 
 
 
@@ -19,7 +28,7 @@ if THIRD_PARTY_DIR not in sys.path:
 
 from app import models, database, auth
 from app.chat import router as chat_router
-from app.handlers import deepresearch  # Импортируем модуль deepresearch
+
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
@@ -87,6 +96,15 @@ app.include_router(deepresearch.router)
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
 
+# Инициализация Elasticsearch при запуске приложения
+@app.on_event("startup")
+async def startup_event():
+    """Выполняется при запуске приложения"""
+    # Асинхронная инициализация Elasticsearch
+    if init_elasticsearch_async():
+        logger.info("Запущена асинхронная инициализация Elasticsearch")
+    else:
+        logger.error("Ошибка при запуске инициализации Elasticsearch")
 
 # Настройка CORS с указанием кодировки
 app.add_middleware(
@@ -117,6 +135,11 @@ def read_root():
 @app.get("/ping")
 async def ping():
     return {"message": "pong"}
+
+@app.get("/indexing-status")
+async def indexing_status():
+    """Возвращает текущий статус индексации"""
+    return get_indexing_status()
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

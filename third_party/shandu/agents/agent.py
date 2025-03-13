@@ -79,7 +79,7 @@ class ResearchAgent:
         llm: Optional[ChatOpenAI] = None,
         searcher: Optional[UnifiedSearcher] = None,
         scraper: Optional[WebScraper] = None,
-        temperature: float = 0,
+        temperature: float = 1.0,
         max_depth: int = 2,
         breadth: int = 4,
         max_urls_per_query: int = 3,
@@ -88,7 +88,7 @@ class ResearchAgent:
         # Initialize components
         self.llm = llm or ChatOpenAI(
             temperature=temperature,
-            model="gpt-4"  # Using GPT-4 for better reasoning
+            model="deepseek-reasoner" 
         )
         self.searcher = searcher or UnifiedSearcher()
         self.scraper = scraper or WebScraper(proxy=proxy)

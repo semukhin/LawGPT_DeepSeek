@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LawGPT - Юридический ассистент</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="additional-styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="modal.css">
+    <!-- Загружаем библиотеки для обработки Markdown и кода -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.2.12/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.0.2/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Экраны аутентификации -->
+        <div id="auth-screens" class="auth-container">
+            <!-- Экран входа -->
+            <div id="login-screen" class="auth-card">
+                <div class="auth-header">
+                    <h1>Вход в систему</h1>
+                    <p>Войдите в свой аккаунт LawGPT</p>
+                </div>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label for="login-email" class="form-label">Email</label>
+                        <input type="email" id="login-email" class="form-input" placeholder="Ваш email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password" class="form-label">Пароль</label>
+                        <input type="password" id="login-password" class="form-input" placeholder="Ваш пароль" required>
+                    </div>
+                    <button type="submit" class="form-button">Войти</button>
+                </form>
+                <div class="auth-links">
+                    <a href="#" id="to-register" class="auth-link">Еще нет аккаунта? Зарегистрируйтесь</a>
+                    <br>
+                    <a href="#" id="to-forgot-password" class="auth-link">Забыли пароль?</a>
+                </div>
+            </div>
+            
+            <!-- Экран регистрации -->
+            <div id="register-screen" class="auth-card" style="display: none;">
+                <div class="auth-header">
+                    <h1>Регистрация</h1>
+                    <p>Создайте свой аккаунт LawGPT</p>
+                </div>
+                <form id="register-form">
+                    <div class="form-group">
+                        <label for="register-firstname" class="form-label">Имя</label>
+                        <input type="text" id="register-firstname" class="form-input" placeholder="Ваше имя" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-lastname" class="form-label">Фамилия</label>
+                        <input type="text" id="register-lastname" class="form-input" placeholder="Ваша фамилия" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-email" class="form-label">Email</label>
+                        <input type="email" id="register-email" class="form-input" placeholder="Ваш email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password" class="form-label">Пароль</label>
+                        <input type="password" id="register-password" class="form-input" placeholder="Ваш пароль" required>
+                    </div>
+                    <button type="submit" class="form-button">Зарегистрироваться</button>
+                </form>
+                <div class="auth-links">
+                    <a href="#" id="to-login" class="auth-link">Уже есть аккаунт? Войти</a>
+                </div>
+            </div>
+            
+            <!-- Экран верификации -->
+            <div id="verify-screen" class="auth-card" style="display: none;">
+                <div class="auth-header">
+                    <h1>Подтверждение Email</h1>
+                    <p>Мы отправили код на ваш email</p>
+                </div>
+                <form id="verify-form">
+                    <div class="form-group">
+                        <label for="verify-code" class="form-label">Код подтверждения</label>
+                        <input type="text" id="verify-code" class="form-input" placeholder="Введите код" required>
+                    </div>
+                    <button type="submit" class="form-button">Подтвердить</button>
+                </form>
+                <div class="auth-links">
+                    <a href="#" id="resend-code" class="auth-link">Отправить код повторно</a>
+                    <br>
+                    <a href="#" id="verify-to-login" class="auth-link">Вернуться на страницу входа</a>
+                </div>
+            </div>
+            
+            <!-- Экран восстановления пароля -->
+            <div id="forgot-password-screen" class="auth-card" style="display: none;">
+                <div class="auth-header">
+                    <h1>Забыли пароль?</h1>
+                    <p>Введите ваш email для восстановления</p>
+                </div>
+                <form id="forgot-password-form">
+                    <div class="form-group">
+                        <label for="forgot-email" class="form-label">Email</label>
+                        <input type="email" id="forgot-email" class="form-input" placeholder="Ваш email" required>
+                    </div>
+                    <button type="submit" class="form-button">Отправить код на почту</button>
+                    <button type="button" id="back-to-login" class="form-button secondary">Вернуться назад</button>
+                </form>
+            </div>
+            
+            <!-- Экран сброса пароля -->
+            <div id="reset-password-screen" class="auth-card" style="display: none;">
+                <div class="auth-header">
+                    <h1>Сброс пароля</h1>
+                    <p>Введите код и новый пароль</p>
+                </div>
+                <form id="reset-password-form">
+                    <div class="form-group">
+                        <label for="reset-email" class="form-label">Email</label>
+                        <input type="email" id="reset-email" class="form-input" placeholder="Ваш email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-code" class="form-label">Код подтверждения</label>
+                        <input type="text" id="reset-code" class="form-input" placeholder="Код из email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-password" class="form-label">Новый пароль</label>
+                        <input type="password" id="reset-password" class="form-input" placeholder="Новый пароль" required>
+                    </div>
+                    <button type="submit" class="form-button">Сбросить пароль</button>
+                    <button type="button" id="reset-back-to-login" class="form-button secondary">Вернуться назад</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Основной интерфейс приложения -->
+        <div id="main-app" class="container" style="display: none;">
+            <header class="header">
+                <button id="menu-toggle" class="menu-toggle">
+                    <span class="burger-line"></span>
+                    <span class="burger-line"></span>
+                    <span class="burger-line"></span>
+                </button>
+                <div class="logo">LawGPT</div>
+                <div class="user-info">
+                    <span id="user-name"></span>
+                    <button id="logout-btn" class="logout-button">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </header>
+            
+            <div class="main-content">
+                <aside class="sidebar">
+                    <div class="sidebar-header">
+                        <button id="new-chat-btn" class="new-chat-btn">
+                            <i class="fas fa-plus"></i> Новый чат
+                        </button>
+                    </div>
+                    
+                    <div class="sidebar-section">
+                        <h3 class="sidebar-title">История чатов</h3>
+                        <ul id="chat-list" class="chat-list">
+                            <!-- Чаты будут добавлены через JavaScript -->
+                        </ul>
+                    </div>
+                    
+                    <div class="nav-links">
+                        <a href="#" id="nav-about" class="nav-link">
+                            <i class="fas fa-info-circle"></i> О нас
+                        </a>
+                        <a href="#" id="nav-profile" class="nav-link">
+                            <i class="fas fa-user"></i> Профиль
+                        </a>
+                    </div>
+                </aside>
+                
+                <div id="sidebar-overlay" class="sidebar-overlay"></div>
+                
+                <!-- Область чата -->
+                <div class="chat-container">
+                    <div class="chat-header">
+                        <div class="chat-title-container">
+                            <h2 id="current-chat-title">Чат с ассистентом</h2>
+                            <span id="current-chat-id" class="chat-thread-id"></span>
+                        </div>
+                    </div>
+                    
+                    <div id="messages-container" class="messages-container">
+                        <!-- Сообщения будут добавлены через JavaScript -->
+                        <div class="initial-message">
+                            <h3>Добро пожаловать в LawGPT!</h3>
+                            <p>Юридический ассистент готов ответить на ваши вопросы по российскому законодательству.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="input-container">
+                        <div id="upload-preview" class="upload-preview hidden">
+                            <span id="file-name"></span>
+                            <button id="remove-file-btn" class="remove-file-btn">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="input-wrapper">
+                            <textarea id="message-input" class="message-input" placeholder="Введите сообщение..." rows="1"></textarea>
+                            <div class="action-buttons">
+                                <label for="file-upload" class="action-btn">
+                                    <i class="fas fa-paperclip"></i>
+                                    <input type="file" id="file-upload" style="display: none;" accept=".pdf,.doc,.docx">
+                                </label>
+                                <button id="send-btn" class="action-btn send-btn" disabled>
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <footer class="footer">
+                <div>LawGPT © 2025 - Юридический ассистент</div>
+                <div class="social-links">
+                    <a href="https://vk.com/lawgptru" target="_blank" rel="noopener" class="social-link" aria-label="VKontakte"><i class="fab fa-vk"></i></a>
+                    <a href="https://t.me/Law_GPT" target="_blank" rel="noopener" class="social-link" aria-label="Telegram"><i class="fab fa-telegram"></i></a>
+                </div>
+            </footer>
+        </div>
+        
+        <!-- Компоненты уведомлений и загрузки -->
+        <div id="notification" class="notification" style="display: none;"></div>
+        <div id="loading-overlay" class="loading-overlay" style="display: none;">
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <!-- Шаблоны сообщений (используются для клонирования) -->
+    <template id="message-template">
+        <div class="message">
+            <div class="message-content"></div>
+            <div class="message-time"></div>
+        </div>
+    </template>
+    
+    <template id="typing-indicator-template">
+        <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+        </div>
+    </template>
+    
+    <script src="markdown.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

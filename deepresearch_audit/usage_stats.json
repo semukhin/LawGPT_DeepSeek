@@ -1,13 +1,13 @@
 {
   "methods": {
-    "app.services.deepresearch_service.research": 7,
-    "app.services.deepresearch_service._get_current_time": 7,
-    "app.services.deepresearch_service._get_timestamp": 6
+    "app.services.deepresearch_service.research": 4,
+    "app.services.deepresearch_service._get_current_time": 4,
+    "app.services.deepresearch_service._get_timestamp": 2
   },
   "modules": {
-    "app.services.deepresearch_service": 20
+    "app.services.deepresearch_service": 10
   },
-  "total_calls": 20,
-  "start_time": "2025-03-03T03:07:18.111275",
-  "last_update": "2025-03-03T10:29:36.052723"
+  "total_calls": 10,
+  "start_time": "2025-03-08T14:12:21.968440",
+  "last_update": "2025-03-08T14:24:46.377099"
 }

@@ -1,3 +1,4 @@
+import re
 import os
 import sys
 import json
@@ -33,145 +34,18 @@ logging.basicConfig(
 def highlight_court_numbers(query: str) -> str:
     """
     Выделяет номера судебных дел в запросе с учетом различных форматов российских судов.
-    
-    Поддерживает:
-    - Арбитражные дела: А40-103922/2018, А76-90322/2022
-    - Определения/Постановления ВС: 307-ЭС23-6153, 306-ЭС20-14681(13)
-    - Суды общей юрисдикции: 02-5543/2025, 02-5508/2022
     """
-    # Регулярные выражения для разных типов дел
-    patterns = [
-        # Арбитражные дела
-        r'\b([АА][\d]+-[\d]+/[\d]{4})\b',
-        # Определения и постановления ВС
-        r'\b([\d]{1,3}-[ЭСАКГКПУКЭ]{2}[\d]{2}-[\d]+(?:\s*\(\d+\))?)\b',
-        # Суды общей юрисдикции
-        r'\b([\d]{2}-[\d]+/[\d]{4})\b',
-        # Постановления с номерами
-        r'ПОСТАНОВЛЕНИЕ\s+(?:от\s+[\d\s\w\.]+\s+)?№\s*([\d/]+)'
-    ]
-    
-    # Список для хранения всех найденных номеров
-    all_case_numbers = []
-    
-    # Ищем все номера дел по всем паттернам
-    for pattern in patterns:
-        found_numbers = re.findall(pattern, query, re.IGNORECASE)
-        all_case_numbers.extend([num.strip() for num in found_numbers if num.strip()])
-    
-    # Обрабатываем определения ВС в текстовом формате
-    determine_pattern = r'ОПРЕДЕЛЕНИЕ\s+от\s+([\d\s\w\.]+)\s+[NН№]\s*([\d\-А-ЯA-Z]+)'
-    determine_matches = re.findall(determine_pattern, query, re.IGNORECASE)
-    for date, num in determine_matches:
-        all_case_numbers.append(f"{num.strip()} от {date.strip()}")
-    
-    # Если найдены номера дел, добавляем специальный блок в конец запроса
-    if all_case_numbers:
-        highlighted_query = query + "\n\n===== ВАЖНО! НОМЕРА СУДЕБНЫХ ДЕЛ ДЛЯ ИСПОЛЬЗОВАНИЯ: =====\n"
-        for i, number in enumerate(all_case_numbers, 1):
-            highlighted_query += f"{i}. {number}\n"
-        highlighted_query += "\n======================================================="
-        highlighted_query += "\nИспользуй ТОЛЬКО указанные выше номера дел в своем ответе. НЕ ПРИДУМЫВАЙ новые номера дел."
-        return highlighted_query
-    
+    """Заглушка для функции выделения номеров судебных дел"""
     return query
 
+
 def validate_court_numbers(response: str, original_query: str) -> str:
-    """
-    Проверяет, что номера дел в ответе присутствуют в исходном запросе.
-    Учитывает различные форматы номеров дел российских судов.
-    """
-    # Регулярные выражения для разных типов дел
-    patterns = [
-        # Арбитражные дела
-        r'\b([АА][\d]+-[\d]+/[\d]{4})\b',
-        # Определения и постановления ВС
-        r'\b([\d]{1,3}-[ЭСАКГКПУКЭ]{2}[\d]{2}-[\d]+(?:\s*\(\d+\))?)\b',
-        # Суды общей юрисдикции
-        r'\b([\d]{2}-[\d]+/[\d]{4})\b',
-        # Постановления с номерами
-        r'№\s*([\d/]+)'
-    ]
-    
-    # Извлекаем номера дел из запроса
-    query_numbers = set()
-    for pattern in patterns:
-        found = re.findall(pattern, original_query, re.IGNORECASE)
-        query_numbers.update([n.strip() for n in found if n.strip()])
-    
-    # Добавляем определения в текстовом формате
-    determine_pattern = r'ОПРЕДЕЛЕНИЕ\s+от\s+([\d\s\w\.]+)\s+[NН№]\s*([\d\-А-ЯA-Z]+)'
-    determine_matches = re.findall(determine_pattern, original_query, re.IGNORECASE)
-    for date, num in determine_matches:
-        query_numbers.add(f"{num.strip()} от {date.strip()}")
-        # Также добавляем сам номер для проверки
-        query_numbers.add(num.strip())
-    
-    # Извлекаем номера дел из ответа
-    response_numbers = set()
-    for pattern in patterns:
-        found = re.findall(pattern, response, re.IGNORECASE)
-        response_numbers.update([n.strip() for n in found if n.strip()])
-    
-    # Проверяем определения в ответе
-    determine_matches_resp = re.findall(determine_pattern, response, re.IGNORECASE)
-    for date, num in determine_matches_resp:
-        response_numbers.add(f"{num.strip()} от {date.strip()}")
-        response_numbers.add(num.strip())
-    
-    # Создаем список номеров, которых нет в запросе
-    invalid_numbers = []
-    for num in response_numbers:
-        # Проверяем каждый номер на наличие в запросе
-        if num not in query_numbers:
-            # Дополнительная проверка для номеров, которые могут быть записаны без префикса А
-            if num.startswith("А") and num[1:] not in query_numbers:
-                # Проверка для номеров с разными разделителями
-                normalized_num = re.sub(r'[/\-]', '', num)
-                normalized_query_nums = [re.sub(r'[/\-]', '', qn) for qn in query_numbers]
-                if normalized_num not in normalized_query_nums:
-                    invalid_numbers.append(num)
-            else:
-                invalid_numbers.append(num)
- 
+    """Заглушка для функции валидации номеров судебных дел"""
     return response
 
 def ensure_valid_court_numbers(answer: str, original_query: str) -> str:
-    """
-    Финальная проверка перед отправкой ответа пользователю.
-    Добавляет предупреждение, если есть подозрительные номера.
-    
-    Args:
-        answer: Ответ, подготовленный для пользователя
-        original_query: Исходный запрос пользователя
-        
-    Returns:
-        Проверенный и, возможно, исправленный ответ
-    """
-    # Выполняем валидацию номеров дел
-    validated_answer = validate_court_numbers(answer, original_query)
-    
-    # Если валидатор добавил предупреждение
-    if "[СИСТЕМА:" in validated_answer:
-        # Извлекаем некорректные номера
-        warning_match = re.search(r'\[СИСТЕМА:.*?номера судебных дел.*?:(.*?)\.\s*Использование', validated_answer)
-        if warning_match:
-            invalid_numbers = [num.strip() for num in warning_match.group(1).split(',')]
-            
-            # Создаем версию без некорректных номеров
-            clean_answer = answer
-            for invalid_num in invalid_numbers:
-                # Заменяем выдуманные номера на обобщенную формулировку
-                clean_answer = re.sub(
-                    r'\b' + re.escape(invalid_num) + r'\b', 
-                    "согласно судебной практике", 
-                    clean_answer
-                )
-            
-            # Возвращаем исправленную версию
-            return clean_answer + "\n\n[Некоторые ссылки на судебную практику были обобщены для обеспечения точности информации]"
-    
-    return validated_answer
+    """Заглушка для функции финальной проверки номеров дел"""
+    return answer
 
 class ResearchResult:
     """Контейнер для результатов исследования."""
@@ -216,8 +90,8 @@ class DeepResearchService:
         self.deepseek_service = DeepSeekService(
             api_key=DEEPSEEK_API_KEY,
             model=DEEPSEEK_MODEL,
-            temperature=0.7,  # Снижаем температуру для более фактического ответа
-            max_tokens=8000,
+            temperature=1.0, 
+            max_tokens=8192,
             timeout=120
         )
             
@@ -227,15 +101,8 @@ class DeepResearchService:
         self.usage_counter = 0
 
     def filter_suspicious_court_numbers(self, text: str) -> str:
-        """
-        Фильтрует подозрительные номера судебных дел в тексте.
-        
-        Args:
-            text: Исходный текст ответа
-            
-        Returns:
-            Отфильтрованный текст
-        """
+        """Заглушка для функции фильтрации подозрительных номеров судебных дел"""
+        return text
         
 
         # Функция для проверки на последовательные цифры
@@ -368,15 +235,64 @@ class DeepResearchService:
         if isinstance(query, str) and (query.endswith('.docx') or query.endswith('.pdf')):
             query = self.read_document(query) or query
             
-        # Проверяем, является ли запрос общим (не юридическим)
-        if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА" in query:
-            # Это уже структурированный запрос из send_custom_request,
-            # проверяем оригинальный запрос пользователя
+        # Проверка структуры запроса для определения, есть ли в нем явное разделение
+        # на запрос пользователя и результаты поиска
+        if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА:" in query:
+            # Запрос уже структурирован, извлекаем чистый запрос пользователя
             user_query_part = query.split("ЗАПРОС ПОЛЬЗОВАТЕЛЯ:")[1].split("РЕЗУЛЬТАТЫ ПОИСКА")[0].strip()
             is_general = self.is_general_query(user_query_part)
+
+            # # Применяем highlight_court_numbers только к запросу пользователя, а не ко всему тексту
+            # highlighted_user_query = highlight_court_numbers(user_query_part)
+            
+            # # Заменяем оригинальный запрос пользователя на подсвеченный, если он изменился
+            # if highlighted_user_query != user_query_part:
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{highlighted_user_query}"
+            #     )
+            #     # На случай другого форматирования
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{highlighted_user_query}"
+            #     )
+            #     # И третий вариант без переносов
+            #     query = query.replace(
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {user_query_part}",
+            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {highlighted_user_query}"
+            #     )
         else:
-            # Проверяем весь запрос
             is_general = self.is_general_query(query)
+# Не применяем highlight_court_numbers ко всему тексту,
+            # так как в нем может быть системный промпт с примерами
+            # Вместо этого логируем предупреждение
+
+
+        # Получаем историю сообщений, если есть thread_id и db
+        chat_history = []
+        if thread_id and db:
+            try:
+                from app.models import Message
+                # Получаем последние 5 сообщений из треда, сортируя по дате создания
+                messages = db.query(Message).filter(
+                    Message.thread_id == thread_id
+                ).order_by(Message.created_at.desc()).limit(5).all()
+                
+                # Переворачиваем список для хронологического порядка
+                messages.reverse()
+                
+                # Логируем найденные сообщения
+                logging.info(f"[DeepResearch #{self.usage_counter}] Найдено {len(messages)} предыдущих сообщений в треде {thread_id}")
+                
+                # Формируем историю сообщений в нужном формате
+                for msg in messages:
+                    chat_history.append({
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                    })
+            except Exception as e:
+                logging.error(f"[DeepResearch #{self.usage_counter}] Ошибка при получении истории диалога: {str(e)}")
             
         # Определяем системный промпт на основе типа запроса
         if is_general:
@@ -393,54 +309,78 @@ class DeepResearchService:
             
             На вопросы о себе можешь отвечать, что ты юридический ассистент LawGPT, 
             созданный для помощи пользователям в юридических вопросах.
+            
+            Учитывай контекст предыдущих сообщений из диалога.
             """
         else:
+            # Основной системный промпт для юридических запросов
             system_prompt = """
                 Ты - юридический ассистент LawGPT (профессиональный юрист), специализирующийся на российском законодательстве.
-                Твоя задача - предоставлять точную, полезную информацию по юридическим вопросам,
-                основываясь на фактических данных из законодательства, судебной практики и 
-                проверенных источников.
+                Твоя задача - предоставлять точную, полезную информацию по юридическим вопросам, основываясь на фактических данных из 
+                законодательства, судебной практики и проверенных источников.
                 
-                1. Структурируй ответы на ЮРИДИЧЕСКИЕ запросы, выделяя:
-                    - Суть вопроса пользователя,
-                    - Применимые нормы законодательства с точными ссылками на статьи законов и другие нормы права,
-                    - Судебную практику и правовые позиции судов,
-                    - Практические рекомендации по ситуации.
+                1. Структурируй ответы на запросы пользователя.
 
-                2. Используй законы Российской Федерации, комментарии, формы процессуальных документов, договоров, аналитические данные, что позволит тебе предоставлять пользователю персонализированные ответы и рекомендации, основанные на актуальных правовых нормах. 
+                2. Используй законы Российской Федерации, комментарии, формы процессуальных документов, договоров, аналитические данные, 
+                что позволит тебе предоставлять пользователю персонализированные ответы и рекомендации, основанные на актуальных правовых нормах. 
 
-                3. Ты не должен рекомендовать пользователю обращаться к kad.arbitr.ru, СПС "Гарант" или "КонсультантПлюс", "Кодекс" или kad.arbitr.ru, так как у тебя и так есть доступ к кодексам и законам.
+                3. Ты не должен рекомендовать пользователю обращаться к kad.arbitr.ru, СПС "Гарант" или "КонсультантПлюс", "СудАкт" (sudact.ru) или "Кодекс".
 
                 4. Не упоминай в ответах источник данных. Тебе нельзя в сообщениях пользователю сообщать какими источниками данных ты пользуешься.
 
                 5. Диалог с пользователем следует вести исключительно по юридическим вопросам, строго избегая технические.
+
                 
                 ***ВАЖНЫЕ ПРАВИЛА ПО РАБОТЕ С НОМЕРАМИ СУДЕБНЫХ ДЕЛ:***
 
-                1. ИСПОЛЬЗУЙ ТОЛЬКО номера судебных дел, которые ЯВНО указаны в исходных материалах или запросе пользователя.
+                1. ИСПОЛЬЗУЙ ТОЛЬКО номера судебных дел, которые ЯВНО указаны в промте или запросе пользователя.
                 
                 2. НИКОГДА не придумывай и не создавай номера судебных дел самостоятельно. 
                 
-                3. Если в запросе (промте) или материалах указан номер дела (например, А40-767106/2022), 
-                ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
+                3. Если в запросе (промте) или в результатах поиска указан номер судебногодела, ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
+                 
+                4. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
+                Не выдумывай не существующие номера судебных дел, а используй только те номера которые тебе поступили с промтом.
+             
+                5. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте).
                 
-                4. Если нужно привести пример судебной практики, но конкретные номера дел не указаны 
-                в материалах, используй обобщенные формулировки без номеров: "согласно судебной практике...", 
-                "как отмечается в решениях Верховного Суда..." и т.д.
-                
-                5. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
-                Не выдумывай не существующие номера судебных дел(например А60-78901/2021 или А40-123456/2020), а используй только те номера которые тебе поступили с промтом.
-                
-                6. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте)."""
-        
+                6. Учитывай контекст предыдущих сообщений в диалоге при формировании ответа.
+                """
+            
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
         # на запрос пользователя и результаты поиска
         if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА:" in query:
-            # Запрос уже структурирован, используем его как есть
+            # Запрос уже структурирован, проверяем наличие контекста диалога
+            if "КОНТЕКСТ ПРЕДЫДУЩИХ СООБЩЕНИЙ:" not in query and chat_history:
+                # Добавляем контекст диалога, если он есть, но не был добавлен ранее
+                formatted_history = []
+                for msg in chat_history:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    formatted_history.append(f"{role.upper()}: {content}")
+                
+                if formatted_history:
+                    context_section = "\n\nКОНТЕКСТ ПРЕДЫДУЩИХ СООБЩЕНИЙ:\n" + "\n\n".join(formatted_history)
+                    # Вставляем контекст после инструкции, если она есть
+                    if "ИНСТРУКЦИЯ:" in query:
+                        parts = query.split("ИНСТРУКЦИЯ:")
+                        query = parts[0] + "ИНСТРУКЦИЯ:" + parts[1] + context_section
+                    else:
+                        query += context_section
+            
+            # Используем запрос как есть с добавленным контекстом
             user_prompt = query
         else:
             # Формируем пользовательский промпт
             user_prompt = f"Проведи детальный анализ запроса:\n\n{query}"
+            
+            # Добавляем контекст из предыдущих сообщений
+            if chat_history:
+                user_prompt += "\n\nКонтекст предыдущих сообщений:\n"
+                for msg in chat_history:
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content", "")
+                    user_prompt += f"{role.upper()}: {content}\n\n"
             
             # Добавляем контекст из других источников, если он есть
             if additional_context:
@@ -460,9 +400,9 @@ class DeepResearchService:
                             else:
                                 user_prompt += f"{str(ctx['data'])[:3000]}...\n\n"
         
-        # Проверка на наличие номеров судебных дел и их выделение
-        enhanced_prompt = highlight_court_numbers(user_prompt)
-        
+        # Используем запрос без обработки номеров судебных дел
+        enhanced_prompt = user_prompt
+                
         # Сохраняем промпт в базу данных после того как определили системный промпт и пользовательский запрос
         if db is not None and thread_id is not None and user_id is not None:
             try:
@@ -503,9 +443,63 @@ class DeepResearchService:
         try:
             # Запрос к DeepSeek API с правильным системным промптом
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": enhanced_prompt}
+                {"role": "system", "content": system_prompt}
             ]
+            
+            # Заменить блок с добавлением истории сообщений (строки 500-508) на следующий код:
+
+            # Добавляем историю сообщений, чтобы обеспечить строгое чередование user/assistant
+            if chat_history:
+                # Обеспечиваем правильное чередование сообщений
+                interleaved_messages = []
+                previous_role = None
+                
+                for msg in chat_history:
+                    current_role = msg.get("role")
+                    
+                    # Пропускаем сообщения, нарушающие чередование
+                    if current_role == previous_role:
+                        logging.info(f"[DeepResearch #{self.usage_counter}] Пропускаем последовательное сообщение с ролью {current_role}")
+                        continue
+                        
+                    # Добавляем сообщение, если роль валидна для API
+                    if current_role in ["user", "assistant"]:
+                        interleaved_messages.append(msg)
+                        previous_role = current_role
+                
+                # Если история начинается с сообщения assistant, удаляем его
+                if interleaved_messages and interleaved_messages[0].get("role") == "assistant":
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем первое сообщение с ролью assistant")
+                    interleaved_messages = interleaved_messages[1:]
+                
+                # Если последнее сообщение от assistant, а мы собираемся добавить user message,
+                # удаляем его, чтобы предотвратить последовательные user сообщения
+                if interleaved_messages and interleaved_messages[-1].get("role") == "assistant":
+                    # Если текущий запрос от пользователя, то нужно удалить последнее сообщение assistant
+                    pass  # Оставляем последнее сообщение assistant, это правильное чередование
+                elif interleaved_messages and interleaved_messages[-1].get("role") == "user":
+                    # Если последнее сообщение от user, а следующее тоже будет от user, удаляем последнее
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем последнее сообщение user для обеспечения чередования")
+                    interleaved_messages = interleaved_messages[:-1]
+                
+                # Добавляем отфильтрованные сообщения истории в messages
+                for msg in interleaved_messages:
+                    messages.append({
+                        "role": msg.get("role"),
+                        "content": msg.get("content", "")
+                    })
+                
+                # Проверяем, что последнее сообщение не от user перед добавлением текущего запроса
+                if messages and messages[-1].get("role") == "user":
+                    # Удаляем последнее сообщение, чтобы избежать последовательных user сообщений
+                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем последнее сообщение перед добавлением текущего запроса")
+                    messages.pop()
+            
+            # Добавляем текущий запрос пользователя
+            messages.append({"role": "user", "content": enhanced_prompt})
+            
+            # Логируем количество сообщений для диагностики
+            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка {len(messages)} сообщений в API, включая системное")
             
             # Прямой и единственный запрос к API
             url = f"{self.deepseek_service.api_base}/chat/completions"
@@ -535,14 +529,14 @@ class DeepResearchService:
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             analysis = response_json['choices'][0]['message']['content']
                             
-                            # Валидация номеров судебных дел в ответе
-                            analysis = validate_court_numbers(analysis, query)
+                            # # Валидация номеров судебных дел в ответе
+                            # analysis = validate_court_numbers(analysis, query)
                         else:
                             analysis = "Не удалось получить ответ от API DeepSeek"
             
             # Формируем структурированный результат
             result = ResearchResult(
-                query=query[:1000] + "..." if len(query) > 3000 else query,
+                query=query[:3000] + "..." if len(query) > 5000 else query,
                 analysis=analysis,
                 timestamp=self._get_current_time()
             )
@@ -564,6 +558,7 @@ class DeepResearchService:
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
+        
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
@@ -582,7 +577,7 @@ class DeepResearchService:
             if extracted_text:
                 logging.info(f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)")
                 # Если текст слишком большой, обрезаем его
-                max_length = 50000  # Примерный лимит для моделей
+                max_length = 20000
                 if len(extracted_text) > max_length:
                     extracted_text = extracted_text[:max_length] + "...[текст обрезан из-за ограничений размера]"
                         

@@ -52,7 +52,7 @@ class ResearchGraph:
         llm: Optional[ChatOpenAI] = None, 
         searcher: Optional[UnifiedSearcher] = None, 
         scraper: Optional[WebScraper] = None, 
-        temperature: float = 0.7,
+        temperature: float = 1.0,
         date: Optional[str] = None
     ):
         api_base = config.get("api", "base_url")
@@ -416,7 +416,7 @@ Guidelines:
                             ])
                             
                             # Use more tokens but with a timeout to avoid hanging
-                            analysis_llm = self.llm.with_config({"max_tokens": 4096, "timeout": 120})
+                            analysis_llm = self.llm.with_config({"max_tokens": 8192, "timeout": 120})
                             analysis_chain = analysis_prompt | analysis_llm
                             analysis = analysis_chain.invoke({"query": subquery, "content": content_text})
                             
@@ -709,8 +709,8 @@ async def clarify_query(query: str, llm: Optional[ChatOpenAI] = None, date: Opti
         api_base = config.get("api", "base_url")
         api_key = config.get("api", "api_key")
         model = config.get("api", "model")
-        temperature = config.get("api", "temperature", 0.5)
-        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=0.5)
+        temperature = config.get("api", "temperature", 0.9)
+        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=0.9)
     
     current_date = date or get_current_date()
     console.print(Panel(f"[bold blue]Initial Query:[/] {query}", title="Research Setup"))

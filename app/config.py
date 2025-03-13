@@ -4,7 +4,13 @@
 """
 import os
 from dotenv import load_dotenv
+from elasticsearch import Elasticsearch
 from fastapi.security import OAuth2PasswordBearer
+import logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Загружаем переменные окружения из .env файла
 load_dotenv()
@@ -50,8 +56,6 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 
-# Настройки ElasticSearch
-ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 
 # Настройки почты
 MAIL_SETTINGS = {
@@ -78,3 +82,43 @@ RESPONSE_QUALITY_MONITORING = {
 AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek")  # Возможные значения: openai, vertex, deepseek
 
 
+# Настройки ElasticSearch
+ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+
+# Elasticsearch конфигурация
+ES_HOST = os.getenv('ES_HOST', 'http://localhost:9200')
+ES_USER = os.getenv('ES_USER')
+ES_PASS = os.getenv('ES_PASS')
+
+# PostgreSQL конфигурация
+DB_CONFIG = {
+    "host": os.getenv('DB_HOST'),
+    "port": int(os.getenv('DB_PORT', 5432)),
+    "database": os.getenv('DB_NAME'),
+    "user": os.getenv('DB_USER'),
+    "password": os.getenv('DB_PASSWORD')
+}
+
+# Интервал индексации
+INDEXING_INTERVAL = int(os.getenv('INDEXING_INTERVAL', 48))
+
+# Словарь индексов
+ES_INDICES = {
+    "ruslawod_chunks": "ruslawod_chunks_index",
+    "court_decisions": "court_decisions_index",
+    "court_reviews": "court_reviews_index", 
+    "legal_articles": "legal_articles_index"
+}
+
+if __name__ == "__main__":
+    try:
+        es = Elasticsearch(
+            [ES_HOST],
+            basic_auth=(ES_USER, ES_PASS),
+            retry_on_timeout=True,
+            max_retries=3
+        )
+        health = es.cluster.health()
+        print("Статус кластера:", health['status'])
+    except Exception as e:
+        print("Ошибка подключения:", str(e))
