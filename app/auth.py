@@ -65,7 +65,7 @@ async def get_current_user(
         raise credentials_exception
     return user
 
-@router.post("/register")
+@router.post("/api/register")
 async def register_user(
     user: schemas.UserCreate,
     background_tasks: BackgroundTasks,
@@ -105,7 +105,7 @@ async def register_user(
 
 
 
-@router.post("/verify")
+@router.post("/api/verify")
 async def verify_code(
     request: schemas.VerifyRequest,  # Используйте схему для тела запроса
     token: str = Depends(config.oauth2_scheme),
@@ -155,7 +155,7 @@ async def verify_code(
 
 
 
-@router.post("/login")
+@router.post("/api/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     """Авторизация пользователя."""
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
@@ -174,7 +174,7 @@ async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db))
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/profile", response_model=schemas.UserOut)
+@router.get("/api/profile", response_model=schemas.UserOut)
 async def get_profile(
     current_user: models.User = Depends(get_current_user)
 ):
@@ -182,7 +182,7 @@ async def get_profile(
     return current_user
 
 
-@router.post("/forgot-password")
+@router.post("/api/forgot-password")
 async def forgot_password(
     request: PasswordResetRequest,
     background_tasks: BackgroundTasks,
@@ -205,7 +205,7 @@ async def forgot_password(
     return {"message": "Код восстановления отправлен на вашу почту"}
 
 
-@router.post("/reset-password")
+@router.post("/api/reset-password")
 async def reset_password(
     request: PasswordResetConfirm,
     db: Session = Depends(database.get_db)
@@ -236,7 +236,7 @@ async def reset_password(
     return {"message": "Пароль успешно изменён"}
 
 
-@router.post("/logout")
+@router.post("/api/logout")
 async def logout():
     """Выход из системы."""
     # В FastAPI токены хранятся на клиенте, так что для "выхода" можно просто уведомить клиента.

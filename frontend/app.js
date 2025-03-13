@@ -162,12 +162,26 @@ function initAuthSwitchers() {
     });
 }
 
+
 /**
  * Инициализация интерфейса чата
  */
 function initChatInterface() {
     // Кнопка нового чата
     document.getElementById('new-chat-btn').addEventListener('click', createNewChat);
+    
+    // Логотип как ссылка на главную
+    document.querySelector('.logo').addEventListener('click', function(e) {
+        e.preventDefault(); // Предотвращаем обычное действие ссылки
+        
+        // Код для перехода на главную
+        const savedThreadId = localStorage.getItem(config.storageThreadKey);
+        if (savedThreadId) {
+            selectChatThread(savedThreadId);
+        } else {
+            createNewChat();
+        }
+    });
     
     // Поле ввода сообщения
     const messageInput = document.getElementById('message-input');
@@ -205,7 +219,6 @@ function initChatInterface() {
     document.getElementById('nav-profile').addEventListener('click', showProfileModal);
     document.getElementById('nav-about').addEventListener('click', showAboutModal);
 }
-
 
 /**
  * Возвращает текущее время в формате ЧЧ:ММ
@@ -1196,7 +1209,12 @@ function showAboutModal() {
             <p>Приветствуем вас на странице сервиса юридического ассистента LawGPT!</p>
             <p>LawGPT — это интеллектуальный помощник, специализирующийся на российском законодательстве.</p>
             <p>Наш сервис помогает получать ответы на  юридические вопросы, обращаясь к актуальной базе российского законодательства
-            <p>и судебной практики</p>
+            <p>и судебной практики.</p>
+            <p>В настоящее вермя сервис имеет RAG c почти полной базой российского законодательства.</p>
+            <p>Пополяется база судебных решений и обзоров судебной практики.</p>
+            <p>Приглашаем вас принять участие в развитии сервиса, предлагая свои идеи и предложения 
+            <p>на почту <a href="mailto:info@lawgpt.ru">info@lawgpt.ru</a>.</p>
+            <p>Спасибо за ваш интерес к LawGPT!</p>
             
             <div class="social-links">
                 <h3>Наши социальные сети</h3>

@@ -1,0 +1,528 @@
+/**
+ * Модуль поддержки оффлайн-режима и кэширования для мобильной версии
+ */
+
+// Конфигурация оффлайн-режима
+const offlineConfig = {
+    cacheEnabled: true,                      // Включено ли кэширование
+    cacheName: 'lawgpt-offline-cache-v1',    // Имя кэша
+    assetsToCache: [                         // Статические ресурсы для кэширования
+        '/',
+        '/index.html',
+        '/styles.css',
+        '/app.js',
+        '/markdown.js',
+        '/additional-styles.css',
+        '/modal.css',
+        'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+        'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
+        'https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/atom-one-dark.min.css',
+        'https://cdn.jsdelivr.net/npm/marked@4.2.12/marked.min.js',
+        'https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/highlight.min.js',
+        'https://cdn.jsdelivr.net/npm/mermaid@10.0.2/dist/mermaid.min.js'
+    ],
+    maxCachedMessages: 50,                   // Максимальное количество кэшированных сообщений
+    offlineModeKey: 'lawgpt-offline-mode',   // Ключ для localStorage
+    dataSaverKey: 'lawgpt-data-saver',       // Ключ для режима экономии трафика
+    syncInterval: 30000                       // Интервал синхронизации (30 секунд)
+};
+
+// Инициализация оффлайн-поддержки
+function initOfflineSupport() {
+    // Регистрируем Service Worker для кэширования, если он поддерживается
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(registration => {
+                    console.log('Service Worker зарегистрирован:', registration);
+                })
+                .catch(error => {
+                    console.error('Ошибка регистрации Service Worker:', error);
+                });
+        });
+    }
+
+    // Инициализируем отслеживание состояния сети
+    initNetworkTracking();
+    
+    // Инициализируем IndexedDB для кэширования сообщений
+    initMessageCache();
+    
+    // Инициализируем режим экономии трафика
+    initDataSaver();
+}
+
+/**
+ * Отслеживание состояния сети
+ */
+function initNetworkTracking() {
+    let isOnline = navigator.onLine;
+    let offlineNoticeElement = null;
+    
+    // Функция для отображения уведомления об отсутствии сети
+    function showOfflineNotice() {
+        if (!offlineNoticeElement) {
+            // Создаем уведомление, если его еще нет
+            const template = document.getElementById('offline-notice-template');
+            if (template) {
+                offlineNoticeElement = template.content.cloneNode(true).querySelector('.offline-notice');
+                document.body.appendChild(offlineNoticeElement);
+            } else {
+                // Создаем вручную, если шаблон не найден
+                offlineNoticeElement = document.createElement('div');
+                offlineNoticeElement.className = 'offline-notice';
+                offlineNoticeElement.innerHTML = '<i class="fas fa-wifi-slash"></i><span>Нет соединения с интернетом</span>';
+                document.body.appendChild(offlineNoticeElement);
+            }
+        } else {
+            // Показываем существующее уведомление
+            offlineNoticeElement.style.display = 'flex';
+        }
+        
+        // Сохраняем состояние оффлайн-режима
+        localStorage.setItem(offlineConfig.offlineModeKey, 'true');
+        
+        // Активируем оффлайн-режим в интерфейсе
+        document.body.classList.add('offline-mode');
+    }
+    
+    // Функция для скрытия уведомления
+    function hideOfflineNotice() {
+        if (offlineNoticeElement) {
+            offlineNoticeElement.style.display = 'none';
+        }
+        
+        // Удаляем состояние оффлайн-режима
+        localStorage.removeItem(offlineConfig.offlineModeKey);
+        
+        // Деактивируем оффлайн-режим в интерфейсе
+        document.body.classList.remove('offline-mode');
+        
+        // Синхронизируем данные с сервером
+        synchronizeData();
+    }
+    
+    // Обработчики событий онлайн/оффлайн
+    window.addEventListener('online', () => {
+        isOnline = true;
+        hideOfflineNotice();
+        console.log('Подключение к сети восстановлено');
+    });
+    
+    window.addEventListener('offline', () => {
+        isOnline = false;
+        showOfflineNotice();
+        console.log('Отсутствует подключение к сети');
+    });
+    
+    // Периодическая проверка соединения
+    setInterval(() => {
+        checkConnection();
+    }, 10000); // Каждые 10 секунд
+    
+    // Функция проверки соединения с сервером
+    async function checkConnection() {
+        if (navigator.onLine) {
+            try {
+                // Пытаемся сделать запрос к серверу
+                const response = await fetch('/api/ping', {
+                    method: 'GET',
+                    headers: { 'Cache-Control': 'no-cache' },
+                    timeout: 5000 // Таймаут 5 секунд
+                });
+                
+                if (response.ok) {
+                    // Если запрос успешен, но мы считали, что оффлайн
+                    if (!isOnline) {
+                        isOnline = true;
+                        hideOfflineNotice();
+                        console.log('Подключение к серверу восстановлено');
+                    }
+                } else {
+                    // Сервер отвечает с ошибкой
+                    if (isOnline) {
+                        isOnline = false;
+                        showOfflineNotice();
+                        console.log('Сервер недоступен');
+                    }
+                }
+            } catch (error) {
+                // Ошибка запроса - вероятно, нет соединения с сервером
+                if (isOnline) {
+                    isOnline = false;
+                    showOfflineNotice();
+                    console.log('Ошибка соединения с сервером:', error);
+                }
+            }
+        } else if (isOnline) {
+            // Браузер сообщает, что нет сети, но мы считали, что онлайн
+            isOnline = false;
+            showOfflineNotice();
+        }
+    }
+    
+    // Проверяем соединение при инициализации
+    checkConnection();
+}
+
+/**
+ * Инициализация кэширования сообщений в IndexedDB
+ */
+function initMessageCache() {
+    // Создаем/открываем базу данных
+    const request = indexedDB.open('lawgpt-message-cache', 1);
+    
+    request.onerror = (event) => {
+        console.error('Ошибка открытия IndexedDB:', event.target.error);
+    };
+    
+    request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        
+        // Создаем хранилище для сообщений
+        if (!db.objectStoreNames.contains('messages')) {
+            const store = db.createObjectStore('messages', { keyPath: 'id', autoIncrement: true });
+            store.createIndex('threadId', 'threadId', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+        
+        // Создаем хранилище для тредов
+        if (!db.objectStoreNames.contains('threads')) {
+            const store = db.createObjectStore('threads', { keyPath: 'id' });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+        
+        // Создаем хранилище для queue отложенных действий
+        if (!db.objectStoreNames.contains('actionsQueue')) {
+            const store = db.createObjectStore('actionsQueue', { keyPath: 'id', autoIncrement: true });
+            store.createIndex('type', 'type', { unique: false });
+            store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+    };
+    
+    request.onsuccess = (event) => {
+        const db = event.target.result;
+        console.log('IndexedDB успешно открыта');
+        
+        // Присваиваем базу данных к глобальному объекту
+        window.messageCache = {
+            db: db,
+            
+            // Сохранить сообщение в кэш
+            saveMessage: async function(message, threadId) {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['messages'], 'readwrite');
+                    const store = transaction.objectStore('messages');
+                    
+                    // Добавляем метку времени и ID треда
+                    const messageToSave = {
+                        ...message,
+                        threadId: threadId,
+                        timestamp: new Date().getTime(),
+                        syncStatus: 'synced' // 'synced', 'pending', 'failed'
+                    };
+                    
+                    const request = store.add(messageToSave);
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Получить сообщения для треда
+            getMessages: async function(threadId) {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['messages'], 'readonly');
+                    const store = transaction.objectStore('messages');
+                    const index = store.index('threadId');
+                    
+                    const request = index.getAll(threadId);
+                    
+                    request.onsuccess = () => {
+                        // Сортируем сообщения по времени (от старых к новым)
+                        const messages = request.result.sort((a, b) => a.timestamp - b.timestamp);
+                        resolve(messages);
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Сохранить информацию о треде
+            saveThread: async function(thread) {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['threads'], 'readwrite');
+                    const store = transaction.objectStore('threads');
+                    
+                    // Добавляем метку времени
+                    const threadToSave = {
+                        ...thread,
+                        timestamp: new Date().getTime()
+                    };
+                    
+                    const request = store.put(threadToSave);
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Получить все треды
+            getThreads: async function() {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['threads'], 'readonly');
+                    const store = transaction.objectStore('threads');
+                    
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => {
+                        // Сортируем треды по времени (от новых к старым)
+                        const threads = request.result.sort((a, b) => b.timestamp - a.timestamp);
+                        resolve(threads);
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Добавить действие в очередь синхронизации
+            addToQueue: async function(action) {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['actionsQueue'], 'readwrite');
+                    const store = transaction.objectStore('actionsQueue');
+                    
+                    const actionToSave = {
+                        ...action,
+                        timestamp: new Date().getTime(),
+                        status: 'pending' // 'pending', 'processing', 'failed'
+                    };
+                    
+                    const request = store.add(actionToSave);
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Получить действия из очереди
+            getQueue: async function() {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['actionsQueue'], 'readonly');
+                    const store = transaction.objectStore('actionsQueue');
+                    
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => {
+                        // Сортируем по времени (от старых к новым)
+                        const actions = request.result.sort((a, b) => a.timestamp - b.timestamp);
+                        resolve(actions);
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Удалить действие из очереди
+            removeFromQueue: async function(id) {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['actionsQueue'], 'readwrite');
+                    const store = transaction.objectStore('actionsQueue');
+                    
+                    const request = store.delete(id);
+                    
+                    request.onsuccess = () => resolve(true);
+                    request.onerror = () => reject(request.error);
+                });
+            },
+            
+            // Очистить старые сообщения
+            clearOldMessages: async function() {
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction(['messages'], 'readwrite');
+                    const store = transaction.objectStore('messages');
+                    const index = store.index('timestamp');
+                    
+                    // Получаем общее количество сообщений
+                    const countRequest = store.count();
+                    
+                    countRequest.onsuccess = () => {
+                        const totalCount = countRequest.result;
+                        
+                        // Если количество меньше лимита, ничего не делаем
+                        if (totalCount <= offlineConfig.maxCachedMessages) {
+                            resolve(0);
+                            return;
+                        }
+                        
+                        // Количество сообщений для удаления
+                        const deleteCount = totalCount - offlineConfig.maxCachedMessages;
+                        
+                        // Получаем все сообщения, сортированные по времени
+                        const getAllRequest = index.getAll();
+                        
+                        getAllRequest.onsuccess = () => {
+                            const messages = getAllRequest.result.sort((a, b) => a.timestamp - b.timestamp);
+                            
+                            // Удаляем самые старые сообщения
+                            const messagesToDelete = messages.slice(0, deleteCount);
+                            let deletedCount = 0;
+                            
+                            messagesToDelete.forEach(message => {
+                                const deleteRequest = store.delete(message.id);
+                                deleteRequest.onsuccess = () => {
+                                    deletedCount++;
+                                    if (deletedCount === deleteCount) {
+                                        resolve(deletedCount);
+                                    }
+                                };
+                            });
+                        };
+                        
+                        getAllRequest.onerror = () => reject(getAllRequest.error);
+                    };
+                    
+                    countRequest.onerror = () => reject(countRequest.error);
+                });
+            }
+        };
+        
+        // Периодически очищаем старые сообщения
+        setInterval(() => {
+            window.messageCache.clearOldMessages()
+                .then(deletedCount => {
+                    if (deletedCount > 0) {
+                        console.log(`Очищено ${deletedCount} старых сообщений из кэша`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при очистке старых сообщений:', error);
+                });
+        }, 3600000); // Каждый час
+    };
+}
+
+/**
+ * Синхронизация данных с сервером после возвращения в онлайн
+ */
+async function synchronizeData() {
+    // Проверяем, есть ли соединение с сервером
+    if (!navigator.onLine) {
+        console.log('Нет соединения с сервером для синхронизации');
+        return;
+    }
+    
+    try {
+        // Проверяем, инициализирован ли messageCache
+        if (!window.messageCache) {
+            console.log('messageCache не инициализирован');
+            return;
+        }
+        
+        // Получаем очередь действий для синхронизации
+        const queue = await window.messageCache.getQueue();
+        
+        if (queue.length === 0) {
+            console.log('Нет действий для синхронизации');
+            return;
+        }
+        
+        console.log(`Начало синхронизации ${queue.length} действий`);
+        
+        // Обрабатываем каждое действие
+        for (const action of queue) {
+            try {
+                switch (action.type) {
+                    case 'sendMessage':
+                        await processSendMessageAction(action);
+                        break;
+                    case 'createThread':
+                        await processCreateThreadAction(action);
+                        break;
+                    default:
+                        console.warn(`Неизвестный тип действия: ${action.type}`);
+                }
+                
+                // Удаляем действие из очереди после успешной обработки
+                await window.messageCache.removeFromQueue(action.id);
+            } catch (error) {
+                console.error(`Ошибка при обработке действия ${action.id}:`, error);
+                // Помечаем действие как неудачное, но не удаляем его
+                // В следующий раз попробуем снова
+            }
+        }
+        
+        console.log('Синхронизация завершена');
+    } catch (error) {
+        console.error('Ошибка при синхронизации данных:', error);
+    }
+}
+
+/**
+ * Обработка действия отправки сообщения
+ */
+async function processSendMessageAction(action) {
+    const { threadId, message } = action.data;
+    
+    // Отправляем сообщение на сервер
+    const formData = new FormData();
+    formData.append('query', message);
+    
+    const response = await apiRequestFormData(`/chat/${threadId}`, formData);
+    
+    // Обновляем локальный кэш с ответом от сервера
+    if (response.assistant_response) {
+        await window.messageCache.saveMessage({
+            role: 'assistant',
+            content: response.assistant_response
+        }, threadId);
+    }
+    
+    return response;
+}
+
+/**
+ * Обработка действия создания нового треда
+ */
+async function processCreateThreadAction(action) {
+    // Отправляем запрос на создание треда
+    const response = await apiRequest('/create_thread', 'POST');
+    
+    if (response.thread_id) {
+        // Обновляем локальные данные
+        await window.messageCache.saveThread({
+            id: response.thread_id,
+            first_message: action.data.first_message || 'Новый чат'
+        });
+    }
+    
+    return response;
+}
+
+/**
+ * Инициализация режима экономии трафика
+ */
+function initDataSaver() {
+    // Проверяем, включен ли режим экономии в localStorage
+    const isDataSaverEnabled = localStorage.getItem(offlineConfig.dataSaverKey) === 'true';
+    
+    // Применяем режим экономии, если включен
+    if (isDataSaverEnabled) {
+        document.body.classList.add('data-saver');
+    }
+    
+    // Функция для переключения режима экономии
+    window.toggleDataSaver = function(enable) {
+        if (enable) {
+            document.body.classList.add('data-saver');
+            localStorage.setItem(offlineConfig.dataSaverKey, 'true');
+        } else {
+            document.body.classList.remove('data-saver');
+            localStorage.removeItem(offlineConfig.dataSaverKey);
+        }
+    };
+}
+
+// Запускаем инициализацию при загрузке страницы
+document.addEventListener('DOMContentLoaded', () => {
+    // Для мобильных устройств инициализируем оффлайн-поддержку
+    if (isMobile()) {
+        initOfflineSupport();
+    }
+});
