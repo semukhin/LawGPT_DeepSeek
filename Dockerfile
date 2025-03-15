@@ -20,7 +20,7 @@ COPY requirements.txt .
 # Обновляем pip и устанавливаем зависимости
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir wheel setuptools \
-    && pip install --no-cache-dir pymysql mysqlclient \
+    && pip install --no-cache-dir pymysql mysqlclient cryptography \
     && pip install --no-cache-dir -r requirements.txt
 
 # Копируем остальной код приложения

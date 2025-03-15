@@ -1,0 +1,10 @@
+FROM lawgpt-backend
+
+# Установка cryptography и необходимых зависимостей
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    libffi-dev \
+    && pip install --no-cache-dir cryptography==41.0.5
+
+# Убедимся, что установили именно cryptography, а не что-то другое
+RUN pip show cryptography
