@@ -1,671 +1,179 @@
 /**
  * LawGPT - Основной файл приложения
- * Обеспечивает функциональность чата с юридическим ассистентом
- * и реализует аутентификацию пользователей
+ * Интегрированная версия с мобильными улучшениями
+ * @version 2.0.0
+ * @date 2024-03-14
  */
 
-// Конфигурация API
+console.log('LawGPT Frontend загружен');
+
+// Конфигурация приложения
 const config = {
-    apiUrl: '/api',  // Базовый URL API через nginx
-    apiTimeout: 60000,                // Таймаут запросов (60 секунд)
-    storageTokenKey: 'lawgpt_token',  // Ключ для хранения токена в localStorage
-    storageThreadKey: 'lawgpt_thread_id', // Ключ для хранения ID текущего треда
-    storageTempTokenKey: 'lawgpt_temp_token', // Ключ для временного токена верификации
-    markdownEnabled: true,            // Включить обработку Markdown
-    autoscrollEnabled: true,          // Автопрокрутка к последнему сообщению
-    maxFileSize: 50 * 1024 * 1024,    // Максимальный размер файла (50 MB)
+    apiUrl: '/api',
+    apiTimeout: 60000,
+    storageTokenKey: 'lawgpt_token',
+    storageThreadKey: 'lawgpt_thread_id',
+    storageTempTokenKey: 'lawgpt_temp_token',
+    markdownEnabled: true,
+    autoscrollEnabled: true,
+    maxFileSize: 50 * 1024 * 1024,
+    mobileBreakpoint: 768 // Точка перехода для мобильных устройств
 };
 
 // ============================================================
-// Инициализация и утилиты
-// ============================================================
-
-document.addEventListener('DOMContentLoaded', () => {
-    // Инициализация приложения
-    initApp();
-    
-    // Загрузка и инициализация библиотек для обработки Markdown
-    if (config.markdownEnabled && window.marked) {
-        window.markdown = marked;
-        window.markdown.setOptions({
-            breaks: true,
-            gfm: true
-        });
-        
-        if (window.hljs) {
-            window.markdown.setOptions({
-                highlight: function(code, lang) {
-                    if (lang && window.hljs.getLanguage(lang)) {
-                        return window.hljs.highlight(code, {language: lang}).value;
-                    }
-                    return window.hljs.highlightAuto(code).value;
-                }
-            });
-        }
-    }
-    
-    // Инициализация Mermaid для диаграмм
-    if (window.mermaid) {
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: 'dark',
-            securityLevel: 'loose'
-        });
-    }
-});
-
-/**
- * Инициализация приложения
- */
-function initApp() {
-    // Проверка авторизации
-    const token = localStorage.getItem(config.storageTokenKey);
-    
-    if (token) {
-        // Если есть токен, проверяем его валидность
-        validateToken(token)
-            .then(isValid => {
-                if (isValid) {
-                    showApp();
-                    loadUserProfile();
-                    loadChatThreads();
-                } else {
-                    showAuth();
-                }
-            })
-            .catch(error => {
-                console.error('Ошибка при проверке токена:', error);
-                showAuth();
-            });
-    } else {
-        // Если токена нет, показываем экран авторизации
-        showAuth();
-    }
-    
-    // Инициализация обработчиков событий
-    initEventListeners();
-    
-    // Инициализация мобильного меню
-    initMobileMenu();
-}
-
-/**
- * Инициализация всех обработчиков событий
- */
-function initEventListeners() {
-    // Обработчики форм аутентификации
-    initAuthForms();
-    
-    // Обработчики интерфейса чата
-    initChatInterface();
-    
-    // Обработчик для кнопки выхода
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
-    
-    // Обработчики для переключения между формами
-    initAuthSwitchers();
-}
-
-/**
- * Инициализация обработчиков форм аутентификации
- */
-function initAuthForms() {
-    // Форма входа
-    const loginForm = document.getElementById('login-form');
-    loginForm.addEventListener('submit', handleLogin);
-    
-    // Форма регистрации
-    const registerForm = document.getElementById('register-form');
-    registerForm.addEventListener('submit', handleRegister);
-    
-    // Форма верификации
-    const verifyForm = document.getElementById('verify-form');
-    verifyForm.addEventListener('submit', handleVerify);
-    
-    // Форма восстановления пароля
-    const forgotPasswordForm = document.getElementById('forgot-password-form');
-    forgotPasswordForm.addEventListener('submit', handleForgotPassword);
-    
-    // Форма сброса пароля
-    const resetPasswordForm = document.getElementById('reset-password-form');
-    resetPasswordForm.addEventListener('submit', handleResetPassword);
-    
-    // Кнопка повторной отправки кода
-    document.getElementById('resend-code').addEventListener('click', handleResendCode);
-    
-    // Кнопки возврата
-    document.getElementById('back-to-login').addEventListener('click', () => showAuthScreen('login-screen'));
-    document.getElementById('reset-back-to-login').addEventListener('click', () => showAuthScreen('login-screen'));
-    document.getElementById('verify-to-login').addEventListener('click', () => showAuthScreen('login-screen'));
-}
-
-/**
- * Инициализация переключателей между формами аутентификации
- */
-function initAuthSwitchers() {
-    // Переход к регистрации
-    document.getElementById('to-register').addEventListener('click', (e) => {
-        e.preventDefault();
-        showAuthScreen('register-screen');
-    });
-    
-    // Переход к входу
-    document.getElementById('to-login').addEventListener('click', (e) => {
-        e.preventDefault();
-        showAuthScreen('login-screen');
-    });
-    
-    // Переход к восстановлению пароля
-    document.getElementById('to-forgot-password').addEventListener('click', (e) => {
-        e.preventDefault();
-        showAuthScreen('forgot-password-screen');
-    });
-}
-
-
-/**
- * Инициализация интерфейса чата
- */
-function initChatInterface() {
-    // Кнопка нового чата
-    document.getElementById('new-chat-btn').addEventListener('click', createNewChat);
-    
-    // Логотип как ссылка на главную
-    document.querySelector('.logo').addEventListener('click', function(e) {
-        e.preventDefault(); // Предотвращаем обычное действие ссылки
-        
-        // Код для перехода на главную
-        const savedThreadId = localStorage.getItem(config.storageThreadKey);
-        if (savedThreadId) {
-            selectChatThread(savedThreadId);
-        } else {
-            createNewChat();
-        }
-    });
-    
-    // Поле ввода сообщения
-    const messageInput = document.getElementById('message-input');
-    messageInput.addEventListener('input', () => {
-        // Автоматическое изменение высоты поля ввода
-        messageInput.style.height = 'auto';
-        messageInput.style.height = (messageInput.scrollHeight) + 'px';
-        messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
-        
-        // Активация/деактивация кнопки отправки
-        const sendBtn = document.getElementById('send-btn');
-        sendBtn.disabled = messageInput.value.trim() === '';
-    });
-    
-    // Отправка сообщения
-    document.getElementById('send-btn').addEventListener('click', sendMessage);
-    messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (messageInput.value.trim()) {
-                const sendBtn = document.getElementById('send-btn');
-                sendBtn.click();
-            }
-        }
-    });
-    
-    // Загрузка файла
-    const fileUpload = document.getElementById('file-upload');
-    fileUpload.addEventListener('change', handleFileUpload);
-    
-    // Удаление файла
-    document.getElementById('remove-file-btn').addEventListener('click', removeUploadedFile);
-    
-    // Обработчики для модальных окон
-    document.getElementById('nav-profile').addEventListener('click', showProfileModal);
-    document.getElementById('nav-about').addEventListener('click', showAboutModal);
-}
-
-/**
- * Возвращает текущее время в формате ЧЧ:ММ
- * @returns {string} - Строка с форматированным временем
- */
-function getCurrentTime() {
-    const now = new Date();
-    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-}
-
-// ============================================================
-// Функции интерфейса чата
+// Мобильные утилиты
 // ============================================================
 
 /**
- * Создает новый чат
+ * Проверка на мобильное устройство
+ * @returns {boolean} 
  */
-async function createNewChat() {
-    showLoading();
-    
-    try {
-        const response = await apiRequest('/create_thread', 'POST');
-        
-        if (response.thread_id) {
-            const threadId = response.thread_id;
-            localStorage.setItem(config.storageThreadKey, threadId);
-            
-            // Обновляем список чатов
-            await loadChatThreads();
-            
-            // Открываем новый чат
-            selectChatThread(threadId);
-            
-            // Очищаем контейнер с сообщениями
-            const messagesContainer = document.getElementById('messages-container');
-            messagesContainer.innerHTML = '';
-            
-            // Показываем приветственное сообщение от ассистента
-            addAssistantMessage('Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?');
-            
-            showNotification('Новый чат создан', 'success');
-        } else {
-            showNotification('Ошибка при создании чата', 'error');
-        }
-    } catch (error) {
-        showNotification(`Ошибка при создании чата: ${error.message}`, 'error');
-    } finally {
-        hideLoading();
-    }
+function isMobile() {
+    return window.innerWidth <= config.mobileBreakpoint;
 }
 
 /**
- * Загружает список чатов пользователя
+ * Проверка производительности устройства
+ * @returns {boolean}
  */
-async function loadChatThreads() {
-    try {
-        const response = await apiRequest('/chat/threads', 'GET');
-        
-        if (response.threads && Array.isArray(response.threads)) {
-            renderChatThreads(response.threads);
-            
-            // Если есть сохраненный ID треда, выбираем его
-            const savedThreadId = localStorage.getItem(config.storageThreadKey);
-            if (savedThreadId) {
-                selectChatThread(savedThreadId);
-            } else if (response.threads.length > 0) {
-                // Иначе выбираем первый чат из списка
-                selectChatThread(response.threads[0].id);
-            }
-        }
-    } catch (error) {
-        console.error('Ошибка при загрузке списка чатов:', error);
-        showNotification('Не удалось загрузить историю чатов', 'error');
-    }
+function isLowPowerDevice() {
+    return (
+        (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) ||
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (navigator.deviceMemory && navigator.deviceMemory < 2)
+    );
 }
 
 /**
- * Отображает список чатов в боковой панели
- * @param {Array} threads - Массив объектов с данными чатов
+ * Инициализация свайп-жестов для мобильных устройств
  */
-function renderChatThreads(threads) {
-    const chatList = document.getElementById('chat-list');
-    chatList.innerHTML = '';
+function initSwipeGestures() {
+    // Заглушка для метода - будет реализована в будущих версиях
+    console.log('Инициализация свайп-жестов');
+}
+
+/**
+ * Инициализация pull-to-refresh для обновления списка чатов
+ */
+function initPullToRefresh() {
+    // Заглушка для метода - будет реализована в будущих версиях
+    console.log('Инициализация pull-to-refresh');
+}
+
+/**
+ * Оптимизация клавиатуры для мобильных устройств
+ */
+function initKeyboardOptimization() {
+    // Заглушка для метода - будет реализована в будущих версиях
+    console.log('Инициализация оптимизации клавиатуры');
+}
+
+/**
+ * Инициализация ленивой загрузки сообщений
+ */
+function initLazyMessageLoading() {
+    // Заглушка для метода - будет реализована в будущих версиях
+    console.log('Инициализация ленивой загрузки сообщений');
+}
+
+/**
+ * Оптимизация для маломощных устройств
+ */
+function optimizeForLowPowerDevices() {
+    // Заглушка для метода - будет реализована в будущих версиях
+    console.log('Оптимизация для маломощных устройств');
+}
+
+/**
+ * Инициализация мобильного меню
+ */
+function initMobileMenu() {
+    // Получаем необходимые элементы
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const header = document.querySelector('.header');
     
-    if (threads.length === 0) {
-        const emptyItem = document.createElement('li');
-        emptyItem.className = 'chat-item empty';
-        emptyItem.textContent = 'У вас пока нет активных чатов.';
-        chatList.appendChild(emptyItem);
+    // Проверяем наличие sidebar и overlay
+    if (!sidebar || !overlay) {
+        console.error('Не найдены sidebar или overlay для мобильного меню');
         return;
     }
     
-    // Сортируем чаты по дате создания (новые сверху)
-    threads.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    // Проверяем наличие кнопки меню
+    let menuToggle = document.getElementById('menu-toggle');
     
-    threads.forEach(thread => {
-        const chatItem = document.createElement('li');
-        chatItem.className = 'chat-item';
-        chatItem.dataset.threadId = thread.id;
-        
-        // Форматируем дату
-        const date = new Date(thread.created_at);
-        const formattedDate = `${date.toLocaleDateString('ru-RU')} ${date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'})}`;
-        
-        // Добавляем контент чата
-        chatItem.innerHTML = `
-            <div class="chat-info">
-                <div class="chat-title">${thread.first_message || 'Новый чат'}</div>
-                <div class="chat-date">${formattedDate}</div>
-            </div>
+    // Если кнопки нет, создаем её
+    if (!menuToggle) {
+        console.log('Создаем новую кнопку меню');
+        menuToggle = document.createElement('button');
+        menuToggle.id = 'menu-toggle';
+        menuToggle.className = 'menu-toggle';
+        menuToggle.innerHTML = `
+            <span class="burger-line"></span>
+            <span class="burger-line"></span>
+            <span class="burger-line"></span>
         `;
         
-        // Обработчик клика
-        chatItem.addEventListener('click', () => {
-            selectChatThread(thread.id);
-        });
-        
-        chatList.appendChild(chatItem);
-    });
-}
-
-/**
- * Выбирает чат из списка и загружает его сообщения
- * @param {string} threadId - ID треда чата
- */
-async function selectChatThread(threadId) {
-    // Сохраняем ID треда в localStorage
-    localStorage.setItem(config.storageThreadKey, threadId);
-    
-    // Обновляем UI - подсвечиваем выбранный чат
-    const chatItems = document.querySelectorAll('.chat-item');
-    chatItems.forEach(item => {
-        if (item.dataset.threadId === threadId) {
-            item.classList.add('active');
-        } else {
-            item.classList.remove('active');
-        }
-    });
-    
-    // Обновляем заголовок чата
-    document.getElementById('current-chat-id').textContent = threadId;
-    
-    // Очищаем контейнер сообщений
-    const messagesContainer = document.getElementById('messages-container');
-    messagesContainer.innerHTML = '';
-    
-    // Загружаем сообщения данного чата
-    await loadChatMessages(threadId);
-}
-
-/**
- * Загружает сообщения выбранного чата
- * @param {string} threadId - ID треда чата
- */
-async function loadChatMessages(threadId) {
-    try {
-        console.log(`Загрузка сообщений для треда ${threadId}`); // Для отладки
-        const response = await apiRequest(`/messages/${threadId}`, 'GET');
-        
-        if (response.messages && Array.isArray(response.messages)) {
-            renderChatMessages(response.messages);
-        }
-    } catch (error) {
-        console.error('Ошибка при загрузке сообщений:', error);
-        showNotification('Не удалось загрузить сообщения чата', 'error');
-    }
-}
-
-/**
- * Отображает сообщения чата
- * @param {Array} messages - Массив объектов с сообщениями
- */
-function renderChatMessages(messages) {
-    const messagesContainer = document.getElementById('messages-container');
-    messagesContainer.innerHTML = '';
-    
-    if (messages.length === 0) {
-        // Если сообщений нет, показываем приветственное сообщение
-        addAssistantMessage('Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?');
-        return;
+        // Вставляем кнопку в начало header
+        header.insertBefore(menuToggle, header.firstChild);
     }
     
-    // Добавляем все сообщения
-    messages.forEach(message => {
-        if (message.role === 'user') {
-            addUserMessage(message.content);
-        } else if (message.role === 'assistant') {
-            addAssistantMessage(message.content);
+    // Удаляем существующие обработчики событий, чтобы избежать дублирования
+    const newMenuToggle = menuToggle.cloneNode(true);
+    if (menuToggle.parentNode) {
+        menuToggle.parentNode.replaceChild(newMenuToggle, menuToggle);
+    }
+    menuToggle = newMenuToggle;
+    
+    // Добавляем обработчик для кнопки меню
+    menuToggle.addEventListener('click', function() {
+        console.log('Клик по кнопке меню обработан');
+        sidebar.classList.toggle('active');
+        overlay.classList.toggle('active');
+        menuToggle.classList.toggle('active');
+        document.body.style.overflow = sidebar.classList.contains('active') ? 'hidden' : '';
+    });
+    
+    // Закрытие меню при клике на оверлей
+    overlay.addEventListener('click', function() {
+        console.log('Клик по оверлею');
+        sidebar.classList.remove('active');
+        overlay.classList.remove('active');
+        menuToggle.classList.remove('active');
+        document.body.style.overflow = '';
+    });
+    
+    // Закрытие меню при выборе чата на мобильных устройствах
+    document.addEventListener('click', function(e) {
+        const chatItem = e.target.closest('.chat-item');
+        if (chatItem && window.innerWidth <= 768) {
+            sidebar.classList.remove('active');
+            overlay.classList.remove('active');
+            menuToggle.classList.remove('active');
+            document.body.style.overflow = '';
         }
     });
     
-    // Прокручиваем к последнему сообщению
-    scrollToBottom();
+    console.log('Мобильное меню инициализировано успешно');
 }
 
- /**
- * Отправляет сообщение пользователя
+/**
+ * Инициализация мобильных улучшений
+ * Централизованный метод для настройки мобильного интерфейса
  */
-async function sendMessage() {
-    const messageInput = document.getElementById('message-input');
-    const fileUpload = document.getElementById('file-upload');
-    const text = messageInput.value.trim();
-    const file = fileUpload.files[0];
-    
-    // Если нет ни текста, ни файла - выходим
-    if (!text && !file) {
-        return;
-    }
-    
-    // Получаем ID текущего треда
-    const threadId = localStorage.getItem(config.storageThreadKey);
-    if (!threadId) {
-        showNotification('Ошибка: чат не выбран', 'error');
-        return;
-    }
-    
-    // Добавляем сообщение пользователя в чат
-    addUserMessage(text);
-    
-    // Очищаем поле ввода
-    messageInput.value = '';
-    messageInput.style.height = 'auto';
-    document.getElementById('send-btn').disabled = true;
-    
-    // Показываем индикатор набора текста
-    showTypingIndicator();
-    
-    // Создаем FormData для отправки текста и файла
-    const formData = new FormData();
-    if (text) {
-        formData.append('query', text);
-    }
-    if (file) {
-        formData.append('file', file);
-        removeUploadedFile(); // Очищаем предпросмотр файла
-    }
-    
-    try {
-        console.log(`Отправка сообщения в тред ${threadId}`); // Для отладки
-        const response = await apiRequestFormData(`/chat/${threadId}`, formData);
+function initMobileEnhancements() {
+    if (isMobile()) {
+        console.log('🚀 Инициализация мобильных улучшений');
         
-        // Скрываем индикатор набора текста
-        hideTypingIndicator();
+        initSwipeGestures();
+        initPullToRefresh();
+        initKeyboardOptimization();
+        initLazyMessageLoading();
         
-        if (response.assistant_response) {
-            // Добавляем ответ ассистента
-            addAssistantMessage(response.assistant_response);
-            
-            // Если был загружен файл, показываем информацию о распознанном тексте
-            if (response.recognized_text) {
-                const infoMessage = document.createElement('div');
-                infoMessage.className = 'message message-system';
-                infoMessage.innerHTML = `
-                    <div class="message-content">
-                        <div class="file-info">
-                            <i class="fas fa-file-alt"></i>
-                            <span>Файл обработан: ${response.file_name}</span>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('messages-container').appendChild(infoMessage);
-            }
-        } else {
-            showNotification('Ошибка: не получен ответ от ассистента', 'error');
+        if (isLowPowerDevice()) {
+            console.log('⚡ Оптимизация для маломощных устройств');
+            optimizeForLowPowerDevices();
         }
-    } catch (error) {
-        hideTypingIndicator();
-        showNotification(`Ошибка при отправке сообщения: ${error.message}`, 'error');
-        console.error('Ошибка при отправке сообщения:', error);
-    }
-    
-    // Прокручиваем к последнему сообщению
-    scrollToBottom();
-}
-
-/**
- * Добавляет сообщение пользователя в чат
- * @param {string} text - Текст сообщения
- */
-function addUserMessage(text) {
-    const template = document.getElementById('message-template');
-    const messageElement = template.content.cloneNode(true).querySelector('.message');
-    
-    messageElement.classList.add('message-user');
-    
-    const contentElement = messageElement.querySelector('.message-content');
-    contentElement.textContent = text;
-    
-    const timeElement = messageElement.querySelector('.message-time');
-    timeElement.textContent = getCurrentTime();
-    
-    document.getElementById('messages-container').appendChild(messageElement);
-    scrollToBottom();
-}
-
-/**
- * Добавляет сообщение ассистента в чат
- * @param {string} text - Текст сообщения
- */
-function addAssistantMessage(text) {
-    const template = document.getElementById('message-template');
-    const messageElement = template.content.cloneNode(true).querySelector('.message');
-    
-    messageElement.classList.add('message-assistant');
-    
-    const contentElement = messageElement.querySelector('.message-content');
-    
-    // Если включена обработка Markdown и библиотека загружена
-    if (config.markdownEnabled && window.markdown) {
-        contentElement.innerHTML = window.markdown.parse(text);
-    } else {
-        contentElement.textContent = text;
-    }
-    
-    const timeElement = messageElement.querySelector('.message-time');
-    timeElement.textContent = getCurrentTime();
-    
-    document.getElementById('messages-container').appendChild(messageElement);
-    
-    // Инициализируем специальные компоненты в сообщении
-    if (window.MarkdownProcessor) {
-        MarkdownProcessor.processMessage(messageElement);
-    }
-    
-    scrollToBottom();
-}
-
-/**
- * Показывает индикатор набора текста ассистентом
- */
-function showTypingIndicator() {
-    const template = document.getElementById('typing-indicator-template');
-    const indicator = template.content.cloneNode(true);
-    
-    const container = document.createElement('div');
-    container.className = 'message message-assistant';
-    container.id = 'typing-indicator-container';
-    container.appendChild(indicator);
-    
-    document.getElementById('messages-container').appendChild(container);
-    scrollToBottom();
-}
-
-/**
- * Скрывает индикатор набора текста
- */
-function hideTypingIndicator() {
-    const indicator = document.getElementById('typing-indicator-container');
-    if (indicator) {
-        indicator.remove();
-    }
-}
-
-/**
- * Обработчик загрузки файла
- * @param {Event} e - Событие изменения input file
- */
-function handleFileUpload(e) {
-    const file = e.target.files[0];
-    
-    if (!file) {
-        return;
-    }
-    
-    // Проверяем размер файла
-    if (file.size > config.maxFileSize) {
-        showNotification(`Размер файла превышает ${config.maxFileSize / (1024 * 1024)} МБ`, 'error');
-        e.target.value = '';
-        return;
-    }
-    
-    // Проверяем тип файла
-    const allowedTypes = ['.pdf', '.doc', '.docx'];
-    const fileType = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    
-    if (!allowedTypes.includes(fileType)) {
-        showNotification('Поддерживаются только файлы PDF и Word (.pdf, .doc, .docx)', 'error');
-        e.target.value = '';
-        return;
-    }
-    
-    // Показываем предпросмотр файла
-    const fileNameElement = document.getElementById('file-name');
-    fileNameElement.textContent = file.name;
-    
-    document.getElementById('upload-preview').classList.remove('hidden');
-    
-    // Активируем кнопку отправки
-    document.getElementById('send-btn').disabled = false;
-}
-
-/**
- * Удаляет загруженный файл
- */
-function removeUploadedFile() {
-    document.getElementById('file-upload').value = '';
-    document.getElementById('upload-preview').classList.add('hidden');
-    
-    // Проверяем статус кнопки отправки
-    const messageInput = document.getElementById('message-input');
-    document.getElementById('send-btn').disabled = messageInput.value.trim() === '';
-}
-
-/**
- * Загружает профиль пользователя
- */
-async function loadUserProfile() {
-    try {
-        const response = await apiRequest('/profile', 'GET');
-        
-        if (response) {
-            const userName = `${response.first_name} ${response.last_name}`;
-            document.getElementById('user-name').textContent = userName;
-        }
-    } catch (error) {
-        console.error('Ошибка при загрузке профиля:', error);
-    }
-}
-
-/**
- * Прокручивает контейнер сообщений к последнему сообщению
- */
-function scrollToBottom() {
-    if (!config.autoscrollEnabled) return;
-    
-    const messagesContainer = document.getElementById('messages-container');
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-// ============================================================
-// Функции для работы с интерфейсом
-// ============================================================
-
-/**
- * Переключает видимость между основным приложением и экранами аутентификации
- * @param {boolean} showAppScreen - true для показа основного приложения, false для экранов аутентификации
- */
-function toggleAppVisibility(showAppScreen) {
-    const authScreens = document.getElementById('auth-screens');
-    const mainApp = document.getElementById('main-app');
-    
-    if (showAppScreen) {
-        authScreens.style.display = 'none';
-        mainApp.style.display = 'flex';
-    } else {
-        mainApp.style.display = 'none';
-        authScreens.style.display = 'flex';
     }
 }
 
@@ -699,10 +207,12 @@ function showAuthScreen(screenId) {
     
     screens.forEach(id => {
         const screen = document.getElementById(id);
-        if (id === screenId) {
-            screen.style.display = 'block';
-        } else {
-            screen.style.display = 'none';
+        if (screen) {
+            if (id === screenId) {
+                screen.style.display = 'block';
+            } else {
+                screen.style.display = 'none';
+            }
         }
     });
 }
@@ -1240,52 +750,1098 @@ function showAboutModal() {
 }
 
 /**
- * Инициализация мобильного меню
+ * Функция для добавления ссылки на Telegram в футер
  */
-function initMobileMenu() {
-    const menuToggle = document.getElementById('menu-toggle');
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    let isMenuOpen = false;
-
-    // Функция открытия/закрытия меню
-    function toggleMenu(open) {
-        isMenuOpen = open;
-        sidebar.classList.toggle('active', open);
-        overlay.classList.toggle('active', open);
-        document.body.style.overflow = open ? 'hidden' : '';
+function ensureTelegramLink() {
+    try {
+        const footerSocialLinks = document.querySelector('.footer .social-links');
+        
+        if (!footerSocialLinks) {
+            console.error('Не найден контейнер для социальных ссылок в футере');
+            return;
+        }
+        
+        const telegramLink = footerSocialLinks.querySelector('a[href*="t.me"], a[href*="telegram"]');
+        
+        if (!telegramLink) {
+            const newTelegramLink = document.createElement('a');
+            newTelegramLink.href = 'https://t.me/Law_GPT';
+            newTelegramLink.target = '_blank';
+            newTelegramLink.rel = 'noopener noreferrer';
+            newTelegramLink.className = 'social-link';
+            newTelegramLink.innerHTML = '<i class="fab fa-telegram"></i> Telegram';
+            
+            footerSocialLinks.appendChild(newTelegramLink);
+            console.log('Ссылка на Telegram добавлена в футер');
+        }
+    } catch (error) {
+        console.error('Ошибка при добавлении ссылки Telegram:', error);
     }
+}
 
-    // Обработчик кнопки меню
-    menuToggle.addEventListener('click', () => {
-        toggleMenu(!isMenuOpen);
-    });
-
-    // Закрытие меню при клике на оверлей
-    overlay.addEventListener('click', () => {
-        toggleMenu(false);
-    });
-
-    // Закрытие меню при выборе чата
-    document.addEventListener('click', (e) => {
-        const chatItem = e.target.closest('.chat-item');
-        if (chatItem && window.innerWidth <= 768) {
-            toggleMenu(false);
+/**
+ * Функция инициализации социальных ссылок для всех страниц
+ */
+function initSocialLinks() {
+    // Проверяем футер на наличие ссылок
+    ensureTelegramLink();
+    
+    // Функция для добавления или обновления иконок социальных сетей
+    function updateSocialIcons() {
+        // Проверяем, загружена ли библиотека Font Awesome
+        if (typeof FontAwesome === 'undefined' && document.querySelector('[class*="fa-"]') === null) {
+            // Если Font Awesome не загружен, добавляем его
+            const fontAwesomeLink = document.createElement('link');
+            fontAwesomeLink.rel = 'stylesheet';
+            fontAwesomeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+            document.head.appendChild(fontAwesomeLink);
+            console.log('Font Awesome добавлен для иконок социальных сетей');
         }
-    });
+        
+        // Находим все социальные ссылки
+        const socialLinks = document.querySelectorAll('.social-link');
+        socialLinks.forEach(link => {
+            // Проверяем, есть ли у ссылки иконка
+            if (!link.querySelector('i[class*="fa-"]')) {
+                // Если иконки нет, определяем, какую добавить
+                if (link.href && link.href.includes('vk.com')) {
+                    link.innerHTML = '<i class="fab fa-vk"></i> ' + link.textContent;
+                } else if (link.href && (link.href.includes('t.me') || link.href.includes('telegram'))) {
+                    link.innerHTML = '<i class="fab fa-telegram"></i> ' + link.textContent;
+                } else if (link.href && link.href.includes('whatsapp')) {
+                    link.innerHTML = '<i class="fab fa-whatsapp"></i> ' + link.textContent;
+                }
+            }
+        });
+    }
+    
+    // Вызываем функцию обновления иконок
+    updateSocialIcons();
+}
 
-    // Закрытие меню при изменении ориентации устройства
-    window.addEventListener('orientationchange', () => {
-        if (isMenuOpen) {
-            toggleMenu(false);
-        }
-    });
+// ============================================================
+// Инициализация и утилиты
+// ============================================================
 
-    // Закрытие меню при ресайзе окна больше 768px
-    window.addEventListener('resize', () => {
-        if (window.innerWidth > 768 && isMenuOpen) {
-            toggleMenu(false);
+/**
+ * Оптимизирует стили футера для более компактного отображения
+ */
+function fixFooterStyles() {
+    const footer = document.querySelector('.footer');
+    if (footer) {
+        // Применяем улучшенные стили для футера
+        footer.style.padding = '0.25rem';
+        footer.style.paddingBottom = 'calc(0.25rem + env(safe-area-inset-bottom))';
+        footer.style.minHeight = 'auto';
+        footer.style.marginTop = 'auto';
+        
+        // Уменьшаем отступы между элементами
+        const footerDivs = footer.querySelectorAll('div');
+        footerDivs.forEach(div => {
+            div.style.margin = '0.05rem 0';
+        });
+    }
+}
+
+/**
+ * Инициализация приложения
+ */
+function initApp() {
+    console.log('Инициализация приложения');
+    
+    // Проверка авторизации
+    const token = localStorage.getItem(config.storageTokenKey);
+    
+    if (token) {
+        // Если есть токен, проверяем его валидность
+        validateToken(token)
+            .then(isValid => {
+                if (isValid) {
+                    showApp();
+                    loadUserProfile();
+                    loadChatThreads();
+                } else {
+                    showAuth();
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при проверке токена:', error);
+                showAuth();
+            });
+    } else {
+        // Если токена нет, показываем экран авторизации
+        showAuth();
+    }
+    
+    // Инициализация обработчиков событий
+    initEventListeners();
+    
+    // Инициализация мобильного меню
+    initMobileMenu();
+    
+    // Оптимизация стилей футера
+    fixFooterStyles();
+}
+
+/**
+ * Инициализация всех обработчиков событий
+ */
+function initEventListeners() {
+    // Обработчики форм аутентификации
+    initAuthForms();
+    
+    // Обработчики интерфейса чата
+    initChatInterface();
+    
+    // Обработчик для кнопки выхода
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+    
+    // Обработчики для переключения между формами
+    initAuthSwitchers();
+}
+
+/**
+ * Инициализация обработчиков форм аутентификации
+ */
+function initAuthForms() {
+    // Форма входа
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLogin);
+    }
+    
+    // Форма регистрации
+    const registerForm = document.getElementById('register-form');
+    if (registerForm) {
+        registerForm.addEventListener('submit', handleRegister);
+    }
+    
+    // Форма верификации
+    const verifyForm = document.getElementById('verify-form');
+    if (verifyForm) {
+        verifyForm.addEventListener('submit', handleVerify);
+    }
+    
+    // Форма восстановления пароля
+    const forgotPasswordForm = document.getElementById('forgot-password-form');
+    if (forgotPasswordForm) {
+        forgotPasswordForm.addEventListener('submit', handleForgotPassword);
+    }
+    
+    // Форма сброса пароля
+    const resetPasswordForm = document.getElementById('reset-password-form');
+    if (resetPasswordForm) {
+        resetPasswordForm.addEventListener('submit', handleResetPassword);
+    }
+    
+    // Кнопка повторной отправки кода
+    const resendCodeBtn = document.getElementById('resend-code');
+    if (resendCodeBtn) {
+        resendCodeBtn.addEventListener('click', handleResendCode);
+    }
+    
+    // Кнопки возврата
+    const backToLoginBtn = document.getElementById('back-to-login');
+    if (backToLoginBtn) {
+        backToLoginBtn.addEventListener('click', () => showAuthScreen('login-screen'));
+    }
+    
+    const resetBackToLoginBtn = document.getElementById('reset-back-to-login');
+    if (resetBackToLoginBtn) {
+        resetBackToLoginBtn.addEventListener('click', () => showAuthScreen('login-screen'));
+    }
+    
+    const verifyToLoginBtn = document.getElementById('verify-to-login');
+    if (verifyToLoginBtn) {
+        verifyToLoginBtn.addEventListener('click', () => showAuthScreen('login-screen'));
+    }
+}
+
+/**
+ * Инициализация переключателей между формами аутентификации
+ */
+function initAuthSwitchers() {
+    // Переход к регистрации
+    const toRegisterBtn = document.getElementById('to-register');
+    if (toRegisterBtn) {
+        toRegisterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAuthScreen('register-screen');
+        });
+    }
+    
+    // Переход к входу
+    const toLoginBtn = document.getElementById('to-login');
+    if (toLoginBtn) {
+        toLoginBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAuthScreen('login-screen');
+        });
+    }
+    
+    // Переход к восстановлению пароля
+    const toForgotPasswordBtn = document.getElementById('to-forgot-password');
+    if (toForgotPasswordBtn) {
+        toForgotPasswordBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAuthScreen('forgot-password-screen');
+        });
+    }
+}
+
+
+/**
+ * Инициализация интерфейса чата
+ */
+function initChatInterface() {
+    // Кнопка нового чата
+    const newChatBtn = document.getElementById('new-chat-btn');
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', createNewChat);
+    }
+    
+    // Логотип как ссылка на главную
+    const logo = document.querySelector('.logo');
+    if (logo) {
+        logo.addEventListener('click', function(e) {
+            e.preventDefault(); // Предотвращаем обычное действие ссылки
+            
+            // Код для перехода на главную
+            const savedThreadId = localStorage.getItem(config.storageThreadKey);
+            if (savedThreadId) {
+                selectChatThread(savedThreadId);
+            } else {
+                createNewChat();
+            }
+        });
+    }
+    
+    // Поле ввода сообщения
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) {
+        messageInput.addEventListener('input', () => {
+            // Автоматическое изменение высоты поля ввода
+            messageInput.style.height = 'auto';
+            messageInput.style.height = (messageInput.scrollHeight) + 'px';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 150) + 'px';
+            
+            // Активация/деактивация кнопки отправки
+            const sendBtn = document.getElementById('send-btn');
+            if (sendBtn) {
+                sendBtn.disabled = messageInput.value.trim() === '';
+            }
+        });
+        
+        // Отправка сообщения по Enter
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (messageInput.value.trim()) {
+                    const sendBtn = document.getElementById('send-btn');
+                    if (sendBtn) {
+                        sendBtn.click();
+                    }
+                }
+            }
+        });
+    }
+    
+    // Отправка сообщения
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.addEventListener('click', sendMessage);
+    }
+    
+    // Загрузка файла
+    const fileUpload = document.getElementById('file-upload');
+    if (fileUpload) {
+        fileUpload.addEventListener('change', handleFileUpload);
+    }
+    
+    // Удаление файла
+    const removeFileBtn = document.getElementById('remove-file-btn');
+    if (removeFileBtn) {
+        removeFileBtn.addEventListener('click', removeUploadedFile);
+    }
+    
+    // Обработчики для модальных окон
+    const navProfileBtn = document.getElementById('nav-profile');
+    if (navProfileBtn) {
+        navProfileBtn.addEventListener('click', showProfileModal);
+    }
+    
+    const navAboutBtn = document.getElementById('nav-about');
+    if (navAboutBtn) {
+        navAboutBtn.addEventListener('click', showAboutModal);
+    }
+}
+
+/**
+ * Возвращает текущее время в формате ЧЧ:ММ
+ * @returns {string} - Строка с форматированным временем
+ */
+function getCurrentTime() {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+}
+
+// ============================================================
+// Функции интерфейса чата
+// ============================================================
+
+/**
+ * Создает новый чат
+ */
+async function createNewChat() {
+    showLoading();
+    
+    try {
+        const response = await apiRequest('/create_thread', 'POST');
+        
+        if (response.thread_id) {
+            const threadId = response.thread_id;
+            localStorage.setItem(config.storageThreadKey, threadId);
+            
+            // Обновляем список чатов
+            await loadChatThreads();
+            
+            // Открываем новый чат
+            selectChatThread(threadId);
+            
+            // Очищаем контейнер с сообщениями
+            const messagesContainer = document.getElementById('messages-container');
+            if (messagesContainer) {
+                messagesContainer.innerHTML = '';
+            }
+            
+            // Показываем приветственное сообщение от ассистента
+            addAssistantMessage('Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?');
+            
+            showNotification('Новый чат создан', 'success');
+        } else {
+            showNotification('Ошибка при создании чата', 'error');
         }
+    } catch (error) {
+        showNotification(`Ошибка при создании чата: ${error.message}`, 'error');
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Загружает список чатов пользователя
+ */
+async function loadChatThreads() {
+    try {
+        const response = await apiRequest('/chat/threads', 'GET');
+        
+        if (response.threads && Array.isArray(response.threads)) {
+            renderChatThreads(response.threads);
+            
+            // Если есть сохраненный ID треда, выбираем его
+            const savedThreadId = localStorage.getItem(config.storageThreadKey);
+            if (savedThreadId) {
+                selectChatThread(savedThreadId);
+            } else if (response.threads.length > 0) {
+                // Иначе выбираем первый чат из списка
+                selectChatThread(response.threads[0].id);
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка при загрузке списка чатов:', error);
+        showNotification('Не удалось загрузить историю чатов', 'error');
+    }
+}
+
+/**
+ * Отображает список чатов в боковой панели
+ * @param {Array} threads - Массив объектов с данными чатов
+ */
+function renderChatThreads(threads) {
+    const chatList = document.getElementById('chat-list');
+    if (!chatList) {
+        console.error('Элемент списка чатов не найден');
+        return;
+    }
+    
+    chatList.innerHTML = '';
+    
+    if (threads.length === 0) {
+        const emptyItem = document.createElement('li');
+        emptyItem.className = 'chat-item empty';
+        emptyItem.textContent = 'У вас пока нет активных чатов.';
+        chatList.appendChild(emptyItem);
+        return;
+    }
+    
+    // Сортируем чаты по дате создания (новые сверху)
+    threads.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    
+    threads.forEach(thread => {
+        const chatItem = document.createElement('li');
+        chatItem.className = 'chat-item';
+        chatItem.dataset.threadId = thread.id;
+        
+        // Форматируем дату
+        const date = new Date(thread.created_at);
+        const formattedDate = `${date.toLocaleDateString('ru-RU')} ${date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'})}`;
+        
+        // Добавляем контент чата
+        chatItem.innerHTML = `
+            <div class="chat-info">
+                <div class="chat-title">${thread.first_message || 'Новый чат'}</div>
+                <div class="chat-date">${formattedDate}</div>
+            </div>
+        `;
+        
+        // Обработчик клика
+        chatItem.addEventListener('click', () => {
+            selectChatThread(thread.id);
+        });
+        
+        chatList.appendChild(chatItem);
     });
 }
 
+/**
+ * Выбирает чат из списка и загружает его сообщения
+ * @param {string} threadId - ID треда чата
+ */
+async function selectChatThread(threadId) {
+    // Сохраняем ID треда в localStorage
+    localStorage.setItem(config.storageThreadKey, threadId);
+    
+    // Обновляем UI - подсвечиваем выбранный чат
+    const chatItems = document.querySelectorAll('.chat-item');
+    chatItems.forEach(item => {
+        if (item.dataset.threadId === threadId) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+    
+    // Обновляем заголовок чата
+    const currentChatId = document.getElementById('current-chat-id');
+    if (currentChatId) {
+        currentChatId.textContent = threadId;
+    }
+    
+    // Очищаем контейнер сообщений
+    const messagesContainer = document.getElementById('messages-container');
+    if (messagesContainer) {
+        messagesContainer.innerHTML = '';
+    }
+    
+    // Загружаем сообщения данного чата
+    await loadChatMessages(threadId);
+}
+
+/**
+ * Загружает сообщения выбранного чата
+ * @param {string} threadId - ID треда чата
+ */
+async function loadChatMessages(threadId) {
+    try {
+        console.log(`Загрузка сообщений для треда ${threadId}`);
+        const response = await apiRequest(`/messages/${threadId}`, 'GET');
+        
+        if (response.messages && Array.isArray(response.messages)) {
+            // Проверяем наличие временных меток и форматируем их, если необходимо
+            const formattedMessages = response.messages.map(message => {
+                // Если у сообщения нет временной метки, добавляем текущую дату
+                if (!message.created_at) {
+                    console.warn(`Сообщение без временной метки: ${message.id || 'без ID'}`);
+                    message.created_at = new Date().toISOString();
+                }
+                
+                // Убедимся, что строка даты/времени корректно форматируется
+                try {
+                    const testDate = new Date(message.created_at);
+                    if (isNaN(testDate.getTime())) {
+                        console.warn(`Некорректная дата в сообщении: ${message.created_at}`);
+                        message.created_at = new Date().toISOString();
+                    }
+                } catch (e) {
+                    console.error(`Ошибка при обработке даты: ${e.message}`);
+                    message.created_at = new Date().toISOString();
+                }
+                
+                return message;
+            });
+            
+            // Передаем обработанные сообщения функции рендеринга
+            renderChatMessages(formattedMessages);
+        }
+    } catch (error) {
+        console.error('Ошибка при загрузке сообщений:', error);
+        showNotification('Не удалось загрузить сообщения чата', 'error');
+    }
+}
+
+/**
+ * Отображает сообщения чата с использованием временных меток
+ * @param {Array} messages - Массив объектов с сообщениями
+ */
+function renderChatMessages(messages) {
+    const messagesContainer = document.getElementById('messages-container');
+    if (!messagesContainer) {
+        console.error('Контейнер сообщений не найден');
+        return;
+    }
+    
+    messagesContainer.innerHTML = '';
+    
+    if (messages.length === 0) {
+        // Если сообщений нет, показываем приветственное сообщение
+        addAssistantMessage('Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?');
+        return;
+    }
+    
+    // Добавляем все сообщения с сохранением временных меток
+    messages.forEach(message => {
+        // Преобразуем строку с датой в объект Date
+        const timestamp = message.created_at ? new Date(message.created_at) : new Date();
+        
+        if (message.role === 'user') {
+            addUserMessage(message.content, timestamp);
+        } else if (message.role === 'assistant') {
+            addAssistantMessage(message.content, timestamp);
+        }
+    });
+    
+    // Прокручиваем к последнему сообщению
+    scrollToBottom();
+}
+
+/**
+ * Отправляет сообщение пользователя
+ */
+async function sendMessage() {
+    const messageInput = document.getElementById('message-input');
+    const fileUpload = document.getElementById('file-upload');
+    
+    if (!messageInput || !fileUpload) {
+        console.error('Элементы ввода сообщения не найдены');
+        return;
+    }
+    
+    const text = messageInput.value.trim();
+    const file = fileUpload.files[0];
+    
+    // Если нет ни текста, ни файла - выходим
+    if (!text && !file) {
+        return;
+    }
+    
+    // Получаем ID текущего треда
+    const threadId = localStorage.getItem(config.storageThreadKey);
+    if (!threadId) {
+        showNotification('Ошибка: чат не выбран', 'error');
+        return;
+    }
+    
+    // Фиксируем время отправки сообщения пользователя
+    const userTimestamp = new Date();
+    
+    // Добавляем сообщение пользователя в чат с зафиксированным временем
+    addUserMessage(text, userTimestamp);
+    
+    // Очищаем поле ввода
+    messageInput.value = '';
+    messageInput.style.height = 'auto';
+    
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = true;
+    }
+    
+    // Показываем индикатор набора текста
+    showTypingIndicator();
+    
+    // Создаем FormData для отправки текста и файла
+    const formData = new FormData();
+    if (text) {
+        formData.append('query', text);
+    }
+    if (file) {
+        formData.append('file', file);
+        removeUploadedFile(); // Очищаем предпросмотр файла
+    }
+    
+    try {
+        console.log(`Отправка сообщения в тред ${threadId}`);
+        const response = await apiRequestFormData(`/chat/${threadId}`, formData);
+        
+        // Скрываем индикатор набора текста
+        hideTypingIndicator();
+        
+        // Фиксируем время получения ответа ассистента
+        const assistantTimestamp = new Date();
+        
+        if (response.assistant_response) {
+            // Добавляем ответ ассистента с зафиксированным временем
+            addAssistantMessage(response.assistant_response, assistantTimestamp);
+            
+            // Если был загружен файл, показываем информацию о распознанном тексте
+            if (response.recognized_text) {
+                const infoMessage = document.createElement('div');
+                infoMessage.className = 'message message-system';
+                infoMessage.innerHTML = `
+                    <div class="message-content">
+                        <div class="file-info">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Файл обработан: ${response.file_name}</span>
+                        </div>
+                    </div>
+                `;
+                
+                // Добавляем системному сообщению ту же временную метку
+                infoMessage.dataset.timestamp = assistantTimestamp.getTime();
+                
+                document.getElementById('messages-container').appendChild(infoMessage);
+            }
+        } else {
+            showNotification('Ошибка: не получен ответ от ассистента', 'error');
+        }
+    } catch (error) {
+        hideTypingIndicator();
+        showNotification(`Ошибка при отправке сообщения: ${error.message}`, 'error');
+        console.error('Ошибка при отправке сообщения:', error);
+    }
+    
+    // Прокручиваем к последнему сообщению
+    scrollToBottom();
+}
+
+/**
+ * Добавляет сообщение пользователя в чат
+ * @param {string} text - Текст сообщения
+ * @param {Date} timestamp - Временная метка сообщения (опционально)
+ */
+function addUserMessage(text, timestamp = null) {
+    const messagesContainer = document.getElementById('messages-container');
+    if (!messagesContainer) {
+        console.error('Контейнер сообщений не найден');
+        return;
+    }
+    
+    // Если временная метка не передана, создаем текущую
+    if (!timestamp) {
+        timestamp = new Date();
+    }
+    
+    const template = document.getElementById('message-template');
+    // Если шаблон не найден, создаем элемент вручную
+    if (!template) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message message-user';
+        
+        const contentElement = document.createElement('div');
+        contentElement.className = 'message-content';
+        contentElement.textContent = text;
+        
+        const timeElement = document.createElement('div');
+        timeElement.className = 'message-time';
+        
+        // Используем переданную или созданную временную метку
+        const dateStr = timestamp.toLocaleDateString('ru-RU');
+        const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+        
+        // Создаем и добавляем элемент даты
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'message-date';
+        dateSpan.textContent = dateStr;
+        
+        timeElement.appendChild(dateSpan);
+        timeElement.appendChild(document.createTextNode(timeStr));
+        
+        // Сохраняем временную метку в атрибуте data-timestamp
+        messageElement.dataset.timestamp = timestamp.getTime();
+        
+        // Собираем элемент сообщения
+        messageElement.appendChild(contentElement);
+        messageElement.appendChild(timeElement);
+        
+        // Добавляем в контейнер сообщений
+        messagesContainer.appendChild(messageElement);
+        scrollToBottom();
+        return;
+    }
+    
+    // Если шаблон найден, используем его
+    const messageElement = template.content.cloneNode(true).querySelector('.message');
+    
+    messageElement.classList.add('message-user');
+    
+    const contentElement = messageElement.querySelector('.message-content');
+    contentElement.textContent = text;
+    
+    const timeElement = messageElement.querySelector('.message-time');
+    
+    // Используем переданную или созданную временную метку
+    const dateStr = timestamp.toLocaleDateString('ru-RU');
+    const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+    
+    // Создаем элемент для даты
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'message-date';
+    dateSpan.textContent = dateStr;
+    
+    // Сохраняем временную метку в атрибуте data-timestamp
+    messageElement.dataset.timestamp = timestamp.getTime();
+    
+    // Добавляем дату и время в элемент времени
+    timeElement.appendChild(dateSpan);
+    timeElement.appendChild(document.createTextNode(timeStr));
+    
+    messagesContainer.appendChild(messageElement);
+    scrollToBottom();
+}
+
+/**
+ * Добавляет сообщение ассистента в чат
+ * @param {string} text - Текст сообщения
+ * @param {Date} timestamp - Временная метка сообщения (опционально)
+ */
+function addAssistantMessage(text, timestamp = null) {
+    const messagesContainer = document.getElementById('messages-container');
+    if (!messagesContainer) {
+        console.error('Контейнер сообщений не найден');
+        return;
+    }
+    
+    // Если временная метка не передана, создаем текущую
+    if (!timestamp) {
+        timestamp = new Date();
+    }
+    
+    const template = document.getElementById('message-template');
+    
+    // Если шаблон не найден, создаем элемент вручную
+    if (!template) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message message-assistant';
+        
+        const contentElement = document.createElement('div');
+        contentElement.className = 'message-content';
+        
+        // Если включена обработка Markdown и библиотека загружена
+        if (config.markdownEnabled && window.markdown) {
+            contentElement.innerHTML = window.markdown.parse(text);
+        } else {
+            contentElement.textContent = text;
+        }
+        
+        const timeElement = document.createElement('div');
+        timeElement.className = 'message-time';
+        
+        // Используем переданную или созданную временную метку
+        const dateStr = timestamp.toLocaleDateString('ru-RU');
+        const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+        
+        // Создаем и добавляем элемент даты
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'message-date';
+        dateSpan.textContent = dateStr;
+        
+        // Сохраняем временную метку в атрибуте data-timestamp
+        messageElement.dataset.timestamp = timestamp.getTime();
+        
+        timeElement.appendChild(dateSpan);
+        timeElement.appendChild(document.createTextNode(timeStr));
+        
+        // Собираем элемент сообщения
+        messageElement.appendChild(contentElement);
+        messageElement.appendChild(timeElement);
+        
+        // Добавляем в контейнер сообщений
+        messagesContainer.appendChild(messageElement);
+        
+        // Инициализируем специальные компоненты в сообщении
+        if (window.MarkdownProcessor) {
+            MarkdownProcessor.processMessage(messageElement);
+        }
+        
+        scrollToBottom();
+        return;
+    }
+    
+    // Если шаблон найден, используем его
+    const messageElement = template.content.cloneNode(true).querySelector('.message');
+    
+    messageElement.classList.add('message-assistant');
+    
+    const contentElement = messageElement.querySelector('.message-content');
+    
+    // Если включена обработка Markdown и библиотека загружена
+    if (config.markdownEnabled && window.markdown) {
+        contentElement.innerHTML = window.markdown.parse(text);
+    } else {
+        contentElement.textContent = text;
+    }
+    
+    const timeElement = messageElement.querySelector('.message-time');
+    
+    // Используем переданную или созданную временную метку
+    const dateStr = timestamp.toLocaleDateString('ru-RU');
+    const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+    
+    // Создаем элемент для даты
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'message-date';
+    dateSpan.textContent = dateStr;
+    
+    // Сохраняем временную метку в атрибуте data-timestamp
+    messageElement.dataset.timestamp = timestamp.getTime();
+    
+    // Добавляем дату и время в элемент времени
+    timeElement.appendChild(dateSpan);
+    timeElement.appendChild(document.createTextNode(timeStr));
+    
+    messagesContainer.appendChild(messageElement);
+    
+    // Инициализируем специальные компоненты в сообщении
+    if (window.MarkdownProcessor) {
+        MarkdownProcessor.processMessage(messageElement);
+    }
+    
+    scrollToBottom();
+}
+
+/**
+ * Показывает индикатор набора текста ассистентом
+ */
+function showTypingIndicator() {
+    const messagesContainer = document.getElementById('messages-container');
+    if (!messagesContainer) {
+        console.error('Контейнер сообщений не найден');
+        return;
+    }
+    
+    // Сначала проверяем, существует ли уже индикатор
+    let indicator = document.getElementById('typing-indicator-container');
+    
+    // Если индикатор уже существует, просто показываем его
+    if (indicator) {
+        indicator.style.display = 'flex';
+        return;
+    }
+    
+    // Создаем новый индикатор
+    const container = document.createElement('div');
+    container.className = 'message message-assistant';
+    container.id = 'typing-indicator-container';
+    
+    // Создаем индикатор с анимированными точками
+    const typingIndicator = document.createElement('div');
+    typingIndicator.className = 'typing-indicator';
+    typingIndicator.innerHTML = `
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+    `;
+    
+    // Добавляем индикатор в контейнер
+    container.appendChild(typingIndicator);
+    
+    // Добавляем контейнер в список сообщений
+    messagesContainer.appendChild(container);
+    
+    // Прокручиваем к нижней части контейнера
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+/**
+ * Скрывает индикатор набора текста
+ */
+function hideTypingIndicator() {
+    const indicator = document.getElementById('typing-indicator-container');
+    if (indicator) {
+        // Удаляем индикатор из DOM
+        indicator.remove();
+    }
+}
+
+/**
+ * Обработчик загрузки файла
+ * @param {Event} e - Событие изменения input file
+ */
+function handleFileUpload(e) {
+    const file = e.target.files[0];
+    
+    if (!file) {
+        return;
+    }
+    
+    // Проверяем размер файла
+    if (file.size > config.maxFileSize) {
+        showNotification(`Размер файла превышает ${config.maxFileSize / (1024 * 1024)} МБ`, 'error');
+        e.target.value = '';
+        return;
+    }
+    
+    // Проверяем тип файла
+    const allowedTypes = ['.pdf', '.doc', '.docx'];
+    const fileType = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    
+    if (!allowedTypes.includes(fileType)) {
+        showNotification('Поддерживаются только файлы PDF и Word (.pdf, .doc, .docx)', 'error');
+        e.target.value = '';
+        return;
+    }
+    
+    // Показываем предпросмотр файла
+    const fileNameElement = document.getElementById('file-name');
+    if (fileNameElement) {
+        fileNameElement.textContent = file.name;
+    }
+    
+    const uploadPreview = document.getElementById('upload-preview');
+    if (uploadPreview) {
+        uploadPreview.classList.remove('hidden');
+    }
+    
+    // Активируем кнопку отправки
+    const sendBtn = document.getElementById('send-btn');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+    }
+}
+
+/**
+ * Удаляет загруженный файл
+ */
+function removeUploadedFile() {
+    const fileUpload = document.getElementById('file-upload');
+    if (fileUpload) {
+        fileUpload.value = '';
+    }
+    
+    const uploadPreview = document.getElementById('upload-preview');
+    if (uploadPreview) {
+        uploadPreview.classList.add('hidden');
+    }
+    
+    // Проверяем статус кнопки отправки
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+    if (messageInput && sendBtn) {
+        sendBtn.disabled = messageInput.value.trim() === '';
+    }
+}
+
+/**
+ * Загружает профиль пользователя
+ */
+async function loadUserProfile() {
+    try {
+        const response = await apiRequest('/profile', 'GET');
+        
+        if (response) {
+            const userName = `${response.first_name} ${response.last_name}`;
+            const userNameElement = document.getElementById('user-name');
+            if (userNameElement) {
+                userNameElement.textContent = userName;
+            }
+        }
+    } catch (error) {
+        console.error('Ошибка при загрузке профиля:', error);
+    }
+}
+
+/**
+ * Прокручивает контейнер сообщений к последнему сообщению
+ */
+function scrollToBottom() {
+    if (!config.autoscrollEnabled) return;
+    
+    const messagesContainer = document.getElementById('messages-container');
+    if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+}
+
+/**
+ * Переключает видимость между основным приложением и экранами аутентификации
+ * @param {boolean} showAppScreen - true для показа основного приложения, false для экранов аутентификации
+ */
+function toggleAppVisibility(showAppScreen) {
+    const authScreens = document.getElementById('auth-screens');
+    const mainApp = document.getElementById('main-app');
+    
+    if (!authScreens || !mainApp) {
+        console.error('Не найдены необходимые элементы для переключения видимости');
+        return;
+    }
+    
+    if (showAppScreen) {
+        authScreens.style.display = 'none';
+        mainApp.style.display = 'flex';
+    } else {
+        mainApp.style.display = 'none';
+        authScreens.style.display = 'flex';
+    }
+}
+
+// Финальная инициализация
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM загружен, начинаем инициализацию приложения');
+    
+    // Первичная инициализация мобильных улучшений
+    initMobileEnhancements();
+    
+    // Инициализация основного приложения
+    initApp();
+    
+    // Инициализация социальных ссылок
+    initSocialLinks();
+    
+    // Загрузка и инициализация библиотек для обработки Markdown
+    if (config.markdownEnabled && window.marked) {
+        window.markdown = marked;
+        window.markdown.setOptions({
+            breaks: true,
+            gfm: true
+        });
+        
+        if (window.hljs) {
+            window.markdown.setOptions({
+                highlight: function(code, lang) {
+                    if (lang && window.hljs.getLanguage(lang)) {
+                        return window.hljs.highlight(code, {language: lang}).value;
+                    }
+                    return window.hljs.highlightAuto(code).value;
+                }
+            });
+        }
+    }
+    
+    // Обработчик изменения размера окна для переинициализации мобильных улучшений
+    window.addEventListener('resize', () => {
+        if (isMobile() && !window.mobileEnhancementsInitialized) {
+            initMobileMenu();
+            window.mobileEnhancementsInitialized = true;
+        }
+    });
+    
+    // Инициализация Mermaid для диаграмм
+    if (window.mermaid) {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            securityLevel: 'loose'
+        });
+    }
+    
+    // Проверяем наличие ссылки на Telegram в футере
+    ensureTelegramLink();
+    
+    // Оптимизируем стили футера
+    fixFooterStyles();
+    
+    console.log('Инициализация приложения завершена');
+});
