@@ -16,7 +16,6 @@ const logsManager = (function() {
     
     // Подключение к WebSocket
     function connect() {
-        // Используем протокол в зависимости от текущего
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
         
@@ -25,7 +24,7 @@ const logsManager = (function() {
         ws = new WebSocket(wsUrl);
         
         ws.onopen = function() {
-            console.log('WebSocket подключен');
+            console.log('WebSocket успешно подключен');
             reconnectAttempts = 0;
             
             // Отправляем пинг каждые 30 секунд для поддержания соединения
@@ -169,13 +168,22 @@ const logsManager = (function() {
 
 // Инициализация менеджера логов при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    // Проверяем, что элементы логов существуют
-    if (document.getElementById('processing-logs') && document.getElementById('logs-container')) {
+    // Добавляем отладочное логирование
+    console.log('DOM загружен, проверяем элементы логирования');
+    const logsContainer = document.getElementById('logs-container');
+    const processingLogs = document.getElementById('processing-logs');
+    
+    console.log('Элемент logs-container:', logsContainer);
+    console.log('Элемент processing-logs:', processingLogs);
+    
+    if (logsContainer && processingLogs) {
         // Инициализируем систему логирования
         logsManager.init();
         console.log('Менеджер логов готов к работе');
     } else {
         console.error('Не найдены элементы для системы логирования!');
+        console.error('processing-logs существует:', !!processingLogs);
+        console.error('logs-container существует:', !!logsContainer);
     }
 });
 

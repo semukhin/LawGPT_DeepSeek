@@ -39,7 +39,7 @@ class WebSocketLogHandler(logging.Handler):
         msg = record.getMessage()
         
         # Идентификаторы ключевых событий для отображения
-        if "Начинаем исследование. Длина запроса:" in msg:
+        if any(term in msg for term in ["Начинаем исследование", "DeepResearch #"]):
             # Извлекаем количество символов из сообщения
             symbols_count = msg.split("Длина запроса: ")[1].split(" символов")[0]
             return f"📋 Подготовка запроса ({symbols_count} символов)"
@@ -89,15 +89,20 @@ def setup_websocket_logging():
     root_logger = logging.getLogger()
     root_logger.addHandler(websocket_handler)
     
-    # Также добавляем в основные логгеры приложения
-    app_loggers = [
-        logging.getLogger("app"),
-        logging.getLogger("app.handlers"),
-        logging.getLogger("app.services"),
-        logging.getLogger("deepresearch"),
+    # Добавляем специально к важным логгерам
+    critical_loggers = [
+        "app",
+        "app.handlers",
+        "app.services",
+        "app.handlers.deepresearch",
+        "app.services.deepresearch_service",
+        "app.handlers.es_law_search",
+        "app.handlers.web_search"
     ]
     
-    for logger in app_loggers:
+    for logger_name in critical_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.INFO)
         logger.addHandler(websocket_handler)
     
     return websocket_handler
