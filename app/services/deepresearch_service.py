@@ -92,7 +92,7 @@ class DeepResearchService:
             model=DEEPSEEK_MODEL,
             temperature=1.0, 
             max_tokens=8192,
-            timeout=120
+            timeout=180
         )
             
         logging.info(f"DeepResearchService инициализирован. Директория для результатов: {self.output_dir}")
@@ -516,8 +516,8 @@ class DeepResearchService:
             
             logging.info("Отправка запроса к DeepSeek API")
             
-            # Единственный запрос с фиксированным таймаутом 120 секунд
-            timeout = aiohttp.ClientTimeout(total=120)
+            # Единственный запрос с фиксированным таймаутом 180 секунд
+            timeout = aiohttp.ClientTimeout(total=180)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, headers=headers, json=payload) as response:
                     if response.status != 200:

@@ -396,7 +396,7 @@ def extract_case_numbers_from_query(query: str) -> List[str]:
 
 
 
-def search_law_chunks(query: str, top_n: int = 7) -> List[str]:
+def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
     """
     Поиск в Elasticsearch по всем индексам с учетом различных форматов номеров дел.
     

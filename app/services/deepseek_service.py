@@ -30,7 +30,7 @@ class DeepSeekService:
         model: str = "deepseek-reasoner",
         temperature: float = 1.0,
         max_tokens: int = 8192,
-        timeout: int = 90
+        timeout: int = 180
     ):
         """
         Инициализирует сервис с параметрами API DeepSeek.
@@ -120,8 +120,8 @@ class DeepSeekService:
             payload["frequency_penalty"] = frequency_penalty
         
         try:
-            # Устанавливаем фиксированный таймаут в 120 секунд (2 минуты)
-            fixed_timeout = 120
+            # Устанавливаем фиксированный таймаут в 180 секунд 3 минуты)
+            fixed_timeout = 180
             
             logging.info(f"Отправка запроса к DeepSeek API: {url}")
             logging.debug(f"Payload: {json.dumps(payload)}")
@@ -199,8 +199,8 @@ class DeepSeekService:
             {"role": "user", "content": user_prompt}
         ]
         
-        # Фиксированный таймаут в 120 секунд
-        timeout = aiohttp.ClientTimeout(total=120)
+        # Фиксированный таймаут в 180 секунд
+        timeout = aiohttp.ClientTimeout(total=180)
         
         headers = {
             "Content-Type": "application/json",
@@ -235,7 +235,7 @@ class DeepSeekService:
                     else:
                         return "Не удалось получить ответ от API DeepSeek"
         except asyncio.TimeoutError:
-            logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит 120 сек)")
+            logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит 180 сек)")
             return "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
         except Exception as e:
             logging.error(f"Ошибка при генерации ответа: {e}")
@@ -259,8 +259,8 @@ async def _generate(
     # Строгая проверка max_tokens
     max_tokens = max(1, min(max_tokens, 8192))
     
-    # Фиксированный таймаут в 120 секунд
-    fixed_timeout = 120
+    # Фиксированный таймаут в 180 секунд
+    fixed_timeout = 180
     
     payload = {
         "model": self.model,
@@ -325,8 +325,8 @@ async def chat_with_functions(
     # Включаем более подробную отладку для функциональных вызовов
     logging.info(f"Запрос chat_with_functions, function_call={function_call}")
     
-    # Фиксированный таймаут в 120 секунд
-    fixed_timeout = 120
+    # Фиксированный таймаут в 180 секунд
+    fixed_timeout = 180
     
     # Формируем payload
     url = f"{self.api_base}/chat/completions"

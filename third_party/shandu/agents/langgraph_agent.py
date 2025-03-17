@@ -416,7 +416,7 @@ Guidelines:
                             ])
                             
                             # Use more tokens but with a timeout to avoid hanging
-                            analysis_llm = self.llm.with_config({"max_tokens": 8192, "timeout": 120})
+                            analysis_llm = self.llm.with_config({"max_tokens": 8192, "timeout": 180})
                             analysis_chain = analysis_prompt | analysis_llm
                             analysis = analysis_chain.invoke({"query": subquery, "content": content_text})
                             

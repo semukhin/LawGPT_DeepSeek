@@ -210,7 +210,7 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
                         extracted_texts.append({
                             "url": result.url,
                             "title": result.title,
-                            "text": result.text[:3000]  # Берем до 3000 символов из каждого источника
+                            "text": result.text[:2000]  # Берем до 2000 символов из каждого источника
                         })
                 
                 combined_text = "\n\n".join([
@@ -289,14 +289,14 @@ async def handle_function_call(function_name: str, arguments: Dict, thread_id: O
                             extracted_texts.append({
                                 "url": result.url,
                                 "title": result.title,
-                                "text": result.text[:5000]  # Ограничиваем размер для каждого результата
+                                "text": result.text[:2000]  # Ограничиваем размер для каждого результата
                             })
                     
                     if extracted_texts:
                         additional_context.append({
                             "type": "web",
                             "found": True,
-                            "data": extracted_texts[:5]  # Берем до 5 наиболее релевантных результатов
+                            "data": extracted_texts[:3]  # Берем до 3 наиболее релевантных результатов
                         })
             except Exception as e:
                 logging.error(f"Ошибка при получении контекста из интернета: {str(e)}")
