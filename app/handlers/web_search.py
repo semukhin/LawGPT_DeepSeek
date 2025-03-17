@@ -208,153 +208,123 @@ def prioritize_links(links: List[str], query: str) -> List[str]:
 
 
 async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_refresh: bool = False) -> list:
-   """
-   Выполняет поиск в Google, получает список веб-ссылок и передаёт их в модуль скрейпера 
-   для извлечения содержимого страниц.
-   
-   Args:
-       query (str): поисковый запрос.
-       logs (list): список для логирования.
-       max_results (int): максимальное количество результатов.
-       force_refresh (bool): флаг принудительного обновления кэша.
-       
-   Returns:
-       list: Список объектов ScrapedContent, полученных после скрейпинга найденных страниц.
-   """
-   start_time = time.time()
-   logs.append(f"🔍 Начало поиска и извлечения данных по запросу: '{query}'")
-   
-   # Выполняем поиск и получаем ссылки
-   links = google_search(query, logs, max_results=max_results) 
-   
-   if not links:
-       logs.append("⚠️ Не найдено ссылок для скрейпинга")
-       return []
-   
-   try:
-       # Приоритизируем ссылки
-       prioritized_links = prioritize_links(links, query)
-       
-       # Берем только необходимое количество ссылок
-       links_to_scrape = prioritized_links[:max_results]
-       logs.append(f"📥 Извлечение содержимого из {len(links_to_scrape)} ссылок...")
+    """
+    Выполняет поиск в Google, получает список веб-ссылок и передаёт их в модуль скрейпера 
+    для извлечения содержимого страниц. Ограничивает количество результатов.
+    
+    Args:
+        query (str): поисковый запрос.
+        logs (list): список для логирования.
+        max_results (int): максимальное количество результатов (по умолчанию 3).
+        force_refresh (bool): флаг принудительного обновления кэша.
+        
+    Returns:
+        list: Список объектов ScrapedContent, полученных после скрейпинга найденных страниц.
+    """
+    start_time = time.time()
+    logs.append(f"🔍 Начало поиска и извлечения данных по запросу: '{query}'")
+    
+    # Выполняем поиск и получаем ссылки (не более чем нам нужно)
+    links = google_search(query, logs, max_results=max_results) 
+    
+    if not links:
+        logs.append("⚠️ Не найдено ссылок для скрейпинга")
+        return []
+    
+    try:
+        # Приоритизируем ссылки
+        prioritized_links = prioritize_links(links, query)
+        
+        # Берем только необходимое количество ссылок
+        links_to_scrape = prioritized_links[:max_results]
+        logs.append(f"📥 Извлечение содержимого из {len(links_to_scrape)} ссылок...")
 
-       if not links:
-           logging.warning(f"⚠️ search_and_scrape: Ссылки не найдены для '{query}'")
-           return []
-       
-       successful_results = []
-       for url in links_to_scrape:
-           try:
-               # Check if the URL points to a binary file
-               is_binary = url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'))
-               
-               if is_binary:
-                   # Handle binary files differently
-                   logs.append(f"📄 Detected binary file: {url}")
-                   
-                   # For PDFs, create a placeholder ScrapedContent with metadata
-                   if url.lower().endswith('.pdf'):
-                       # Create placeholder with file info but don't try to decode content
-                       result = ScrapedContent(
-                           url=url,
-                           title=f"PDF Document: {url.split('/')[-1]}",
-                           text=f"Binary PDF file available at: {url}",
-                           html="",
-                           metadata={"binary_type": "pdf", "scraped": False},
-                           content_type="application/pdf"
-                       )
-                       successful_results.append(result)
-                       logs.append(f"✅ Created placeholder for binary PDF: {url}")
-                   else:
-                       # For other binary types, create appropriate placeholders
-                       file_type = url.split('.')[-1].upper()
-                       result = ScrapedContent(
-                           url=url,
-                           title=f"{file_type} Document: {url.split('/')[-1]}",
-                           text=f"Binary {file_type} file available at: {url}",
-                           html="",
-                           metadata={"binary_type": file_type.lower(), "scraped": False},
-                           content_type=f"application/{file_type.lower()}"
-                       )
-                       successful_results.append(result)
-                       logs.append(f"✅ Created placeholder for binary {file_type}: {url}")
-               else:
-                   # Use regular scraping for non-binary files
-                   # Use existing scraper for HTML content
-                   scraper = get_scraper()
-                   result = await scraper.scrape_url(url, dynamic=False)
-                   
-                   if result.is_successful():
-                       successful_results.append(result)
-                       logs.append(f"✅ Successfully scraped: {url}")
-                   else:
-                       logs.append(f"❌ Failed to scrape: {url} - {result.error}")
-           except Exception as e:
-               logs.append(f"❌ Error processing URL {url}: {str(e)}")
-               logger.error(f"Error processing URL {url}: {str(e)}")
-       
-       return successful_results
-       
-   except Exception as e:
-       logs.append(f"❌ Ошибка при скрейпинге: {str(e)}")
-       logger.error(f"Ошибка при скрейпинге для запроса '{query}': {str(e)}")
-       return []
+        if not links:
+            logging.warning(f"⚠️ search_and_scrape: Ссылки не найдены для '{query}'")
+            return []
+        
+        successful_results = []
+        for url in links_to_scrape:
+            try:
+                # Check if the URL points to a binary file
+                is_binary = url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'))
+                
+                if is_binary:
+                    # Handle binary files differently
+                    logs.append(f"📄 Detected binary file: {url}")
+                    
+                    # For PDFs, create a placeholder ScrapedContent with metadata
+                    if url.lower().endswith('.pdf'):
+                        # Create placeholder with file info but don't try to decode content
+                        result = ScrapedContent(
+                            url=url,
+                            title=f"PDF Document: {url.split('/')[-1]}",
+                            text=f"Binary PDF file available at: {url}",
+                            html="",
+                            metadata={"binary_type": "pdf", "scraped": False},
+                            content_type="application/pdf"
+                        )
+                        successful_results.append(result)
+                        logs.append(f"✅ Created placeholder for binary PDF: {url}")
+                    else:
+                        # For other binary types, create appropriate placeholders
+                        file_type = url.split('.')[-1].upper()
+                        result = ScrapedContent(
+                            url=url,
+                            title=f"{file_type} Document: {url.split('/')[-1]}",
+                            text=f"Binary {file_type} file available at: {url}",
+                            html="",
+                            metadata={"binary_type": file_type.lower(), "scraped": False},
+                            content_type=f"application/{file_type.lower()}"
+                        )
+                        successful_results.append(result)
+                        logs.append(f"✅ Created placeholder for binary {file_type}: {url}")
+                else:
+                    # Use existing scraper for HTML content
+                    scraper = get_scraper()
+                    result = await scraper.scrape_url(url, dynamic=False)
+                    
+                    if result.is_successful():
+                        successful_results.append(result)
+                        logs.append(f"✅ Successfully scraped: {url}")
+                    else:
+                        logs.append(f"❌ Failed to scrape: {url} - {result.error}")
+            except Exception as e:
+                logs.append(f"❌ Error processing URL {url}: {str(e)}")
+                logger.error(f"Error processing URL {url}: {str(e)}")
+        
+        return successful_results
+        
+    except Exception as e:
+        logs.append(f"❌ Ошибка при скрейпинге: {str(e)}")
+        logger.error(f"Ошибка при скрейпинге для запроса '{query}': {str(e)}")
+        return []
 
 
 async def run_multiple_searches(query: str, logs: list, force_refresh: bool = False) -> Dict[str, List]:
-   """
-   Выполняет только один поиск вместо нескольких.
-   """
-   logs.append(f"🔄 Запуск поиска для запроса: '{query}'")
-   
-   # Выполняем только один поиск
-   try:
-       general_results = await search_and_scrape(query, logs, max_results=5, force_refresh=force_refresh)
-       
-       # Объединяем результаты в словарь 
-       results = {
-           "general": general_results,
-           # Для обратной совместимости оставляем пустые списки
-           "legal": [],
-           "recent": []
-       }
-       
-       total_results = len(general_results)
-       logs.append(f"📊 Получено всего {total_results} результатов из поиска")
-       
-       return results
-   
-   except Exception as e:
-       logs.append(f"❌ Ошибка при выполнении поиска: {str(e)}")
-       logging.error(f"Ошибка при выполнении поиска: {str(e)}")
-       return {"legal": [], "recent": [], "general": []}
-
-
-# Для тестирования
-if __name__ == "__main__":
-   import sys
-   
-   if len(sys.argv) < 2:
-       print("Использование: python web_search.py 'поисковый запрос'")
-       sys.exit(1)
-   
-   query = sys.argv[1]
-   logs = []
-   
-   print(f"Выполнение поиска по запросу: '{query}'")
-   results = asyncio.run(search_and_scrape(query, logs))
-   
-   print(f"\nНайдено {len(results)} результатов:")
-   
-   for i, res in enumerate(results, 1):
-       if res.is_successful():
-           print(f"\n[{i}] URL: {res.url}")
-           print(f"Заголовок: {res.title}")
-           print(f"Извлеченный текст (первые 200 символов):\n{res.text[:200]}...\n{'-'*80}")
-       else:
-           print(f"\n[{i}] Не удалось обработать {res.url}: {res.error}")
-   
-   print("\nЛоги выполнения:")
-   for log in logs:
-       print(log)
+    """
+    Выполняет только один поиск вместо нескольких, ограничивая количество результатов до 3.
+    """
+    logs.append(f"🔄 Запуск поиска для запроса: '{query}'")
+    
+    # Выполняем только один поиск
+    try:
+        general_results = await search_and_scrape(query, logs, max_results=3, force_refresh=force_refresh)
+        
+        # Объединяем результаты в словарь 
+        results = {
+            "general": general_results,
+            # Для обратной совместимости оставляем пустые списки
+            "legal": [],
+            "recent": []
+        }
+        
+        total_results = len(general_results)
+        logs.append(f"📊 Получено всего {total_results} результатов из поиска")
+        
+        return results
+    
+    except Exception as e:
+        logs.append(f"❌ Ошибка при выполнении поиска: {str(e)}")
+        logging.error(f"Ошибка при выполнении поиска: {str(e)}")
+        return {"legal": [], "recent": [], "general": []}

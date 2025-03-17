@@ -11,7 +11,7 @@ from elasticsearch import Elasticsearch
 # Load environment variables from .env file
 load_dotenv()
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 

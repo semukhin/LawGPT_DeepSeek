@@ -13,6 +13,11 @@ deep_research_service = ResearchAdapter()
 import logging
 import time
 from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
+from app.websocket_state import connected_clients
+from app.log_streaming import setup_websocket_logging
+import asyncio
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
@@ -48,6 +53,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)  # Создаем логгер для текущего модуля
 
+# Создаем асинхронный замок для синхронизации доступа к connected_clients
+connected_clients_lock = asyncio.Lock()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    async with connected_clients_lock:
+        connected_clients.append(websocket)
+    try:
+        while True:
+            # Ожидаем сообщения от клиента, чтобы поддерживать соединение
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        # Удаляем клиента при отключении
+        async with connected_clients_lock:
+            if websocket in connected_clients:
+                connected_clients.remove(websocket)
 
 
 @app.middleware("http")
@@ -146,6 +168,10 @@ async def lifespan(app: FastAPI):
             logging.info("Соединение с MySQL успешно установлено")
     except Exception as e:
         logging.error(f"Ошибка соединения с MySQL: {str(e)}")
+
+    # Настройка логирования через WebSocket
+    websocket_logger = setup_websocket_logging()
+    logging.info("WebSocket логирование настроено")
 
     # Асинхронная инициализация Elasticsearch
     if init_elasticsearch_async():
