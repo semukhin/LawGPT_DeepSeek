@@ -1372,8 +1372,29 @@ async function sendMessage() {
         removeUploadedFile(); // Очищаем предпросмотр файла
     }
     
+    // Определяем список статусов и времени их показа
+    const processingSteps = [
+        { message: "Обработка запроса...", delay: 0 },
+        { message: "Поиск в законодательстве...", delay: 1000 },
+        { message: "Анализ данных...", delay: 3000 },
+        { message: "Формирование ответа...", delay: 5000 }
+    ];
+    
+    // Запускаем отображение статусов
+    processingSteps.forEach(step => {
+        setTimeout(() => {
+            // Проверяем, что индикатор всё ещё отображается
+            const indicator = document.getElementById('typing-indicator-container');
+            if (indicator) {
+                updateTypingIndicator(step.message);
+            }
+        }, step.delay);
+    });
+    
     try {
         console.log(`Отправка сообщения в тред ${threadId}`);
+        
+        // Делаем реальный запрос к серверу
         const response = await apiRequestFormData(`/chat/${threadId}`, formData);
         
         // Скрываем индикатор набора текста
@@ -1415,6 +1436,39 @@ async function sendMessage() {
     
     // Прокручиваем к последнему сообщению
     scrollToBottom();
+}
+
+/**
+ * Обновляет текст в индикаторе набора текста
+ * @param {string} message - Сообщение о статусе обработки
+ */
+function updateTypingIndicator(message) {
+    const typingContainer = document.getElementById('typing-indicator-container');
+    
+    if (!typingContainer) {
+        showTypingIndicator();
+        setTimeout(() => updateTypingIndicator(message), 100);
+        return;
+    }
+    
+    // Создаем или обновляем текстовый элемент
+    let statusText = typingContainer.querySelector('.typing-status');
+    if (!statusText) {
+        statusText = document.createElement('div');
+        statusText.className = 'typing-status';
+        statusText.style.marginLeft = '10px';
+        statusText.style.fontSize = '12px';
+        statusText.style.color = 'rgba(255, 255, 255, 0.7)';
+        
+        // Добавляем текст после индикатора с точками
+        const indicator = typingContainer.querySelector('.typing-indicator');
+        if (indicator) {
+            typingContainer.appendChild(statusText);
+        } 
+    }
+    
+    // Обновляем текст
+    statusText.textContent = message;
 }
 
 /**

@@ -13,18 +13,12 @@ deep_research_service = ResearchAdapter()
 import logging
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from starlette.websockets import WebSocketState
-from app.websocket_state import connected_clients
-from app.log_streaming import setup_websocket_logging
 import asyncio
 
 # Загрузка переменных окружения из .env файла
 load_dotenv()
 # Проверка загрузки переменных окружения
 print("DATABASE_URL:", os.getenv("DATABASE_URL"))
-
-
 
 # Добавляем путь к сторонним пакетам (third_party) до импорта роутеров
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +28,6 @@ if THIRD_PARTY_DIR not in sys.path:
 
 from app import models, database, auth
 from app.chat import router as chat_router
-
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
@@ -53,25 +46,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)  # Создаем логгер для текущего модуля
 
-# Создаем асинхронный замок для синхронизации доступа к connected_clients
-connected_clients_lock = asyncio.Lock()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    async with connected_clients_lock:
-        connected_clients.append(websocket)
-    try:
-        while True:
-            # Ожидаем сообщения от клиента, чтобы поддерживать соединение
-            data = await websocket.receive_text()
-    except WebSocketDisconnect:
-        # Удаляем клиента при отключении
-        async with connected_clients_lock:
-            if websocket in connected_clients:
-                connected_clients.remove(websocket)
-
-
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
@@ -79,7 +53,6 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
     return response
-
 
 # Middleware для установки правильной кодировки в HTTP заголовках
 @app.middleware("http")
@@ -96,21 +69,17 @@ async def add_charset_middleware(request: Request, call_next):
     
     return response
 
-
 @app.get("/items/{item_id}")
 async def read_item(item_id: int):
     logger.info(f"Получен запрос для item_id: {item_id}")
     # Ваш код обработки запроса
     return {"item_id": item_id}
 
-
-
 @app.post("/deep-research/")
 async def deep_research(query: str):
     """Эндпоинт для глубокого исследования."""
     results = await deep_research_service.research(query)
     return {"results": results}
-
 
 # Подключение роутеров
 app.include_router(chat_router)
@@ -151,12 +120,10 @@ async def read_root():
 async def ping():
     return {"message": "pong"}
 
-
 @app.get("/indexing-status")
 async def indexing_status():
     """Возвращает текущий статус индексации"""
     return get_indexing_status()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -168,10 +135,6 @@ async def lifespan(app: FastAPI):
             logging.info("Соединение с MySQL успешно установлено")
     except Exception as e:
         logging.error(f"Ошибка соединения с MySQL: {str(e)}")
-
-    # Настройка логирования через WebSocket
-    websocket_logger = setup_websocket_logging()
-    logging.info("WebSocket логирование настроено")
 
     # Асинхронная инициализация Elasticsearch
     if init_elasticsearch_async():
