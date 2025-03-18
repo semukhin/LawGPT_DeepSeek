@@ -2,6 +2,7 @@
  * logs-websocket.js - Обработка логов через WebSocket
  * v1.0.0 - 2025-03-17
  */
+console.log("Модуль logs-websocket.js загружен");
 
 // Объект для управления отображением логов
 const logsManager = (function() {
@@ -20,7 +21,8 @@ const logsManager = (function() {
         const wsUrl = `${protocol}//${window.location.host}/ws`;
         
         console.log(`Подключение к WebSocket: ${wsUrl}`);
-        
+        console.log("WebSocket URL:", wsUrl);
+
         ws = new WebSocket(wsUrl);
         
         ws.onopen = function() {
@@ -36,6 +38,7 @@ const logsManager = (function() {
         };
         
         ws.onmessage = function(event) {
+            console.log("Получено сообщение:", event.data);
             try {
                 const data = JSON.parse(event.data);
                 
@@ -166,27 +169,6 @@ const logsManager = (function() {
     };
 })();
 
-// Инициализация менеджера логов при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    // Добавляем отладочное логирование
-    console.log('DOM загружен, проверяем элементы логирования');
-    const logsContainer = document.getElementById('logs-container');
-    const processingLogs = document.getElementById('processing-logs');
-    
-    console.log('Элемент logs-container:', logsContainer);
-    console.log('Элемент processing-logs:', processingLogs);
-    
-    if (logsContainer && processingLogs) {
-        // Инициализируем систему логирования
-        logsManager.init();
-        console.log('Менеджер логов готов к работе');
-    } else {
-        console.error('Не найдены элементы для системы логирования!');
-        console.error('processing-logs существует:', !!processingLogs);
-        console.error('logs-container существует:', !!logsContainer);
-    }
-});
-
 // Модификация функции отправки сообщений
 // Добавляем обработчик для привязки к существующей функции sendMessage (если она есть)
 if (typeof window.sendMessage === 'function') {
@@ -201,4 +183,21 @@ if (typeof window.sendMessage === 'function') {
         return originalSendMessage.apply(this, arguments);
     };
     console.log('Функция sendMessage перехвачена для показа логов');
+    document.addEventListener('DOMContentLoaded', function() {
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) {
+            console.log('Найдена кнопка отправки, добавляем обработчик для логов');
+            sendBtn.addEventListener('click', function() {
+                // Показываем панель логов при отправке сообщения
+                if (logsManager && typeof logsManager.showLogs === 'function') {
+                    logsManager.showLogs();
+                    console.log('Панель логов показана при клике на кнопку отправки');
+                }
+            });
+        } else {
+            console.error('Кнопка отправки не найдена!');
+        }
+    });
+
+
 }

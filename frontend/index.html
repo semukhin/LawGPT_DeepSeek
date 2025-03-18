@@ -353,7 +353,7 @@
         </div>
     </template>
 <!-- Контейнер для отображения логов обработки запросов -->
-<div id="processing-logs" class="processing-logs hidden">
+<div id="processing-logs" class="processing-logs">
     <div class="logs-header">
         <span>Обработка запроса</span>
         <div class="spinner"></div>
@@ -377,7 +377,6 @@
         overflow-y: auto;
         z-index: 1000;
         transition: opacity 0.3s;
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
     }
     
     .processing-logs.hidden {
