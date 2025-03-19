@@ -1491,3 +1491,32 @@ body.data-saver .message-content img:not(.loaded) {
     filter: blur(5px);
     background-color: rgba(255, 255, 255, 0.1);
 }
+
+/* Новая кнопка и анимация */
+const newStyles = document.createElement('style');
+newStyles.textContent = `
+    .new-chat-item {
+        background-color: var(--secondary-color);
+        color: var(--gray-dark);
+        font-weight: bold;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .new-chat-item:hover {
+        background-color: var(--secondary-hover);
+        transform: scale(1.02);
+    }
+    
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+    }
+    
+    .pulse-animation {
+        animation: pulse 1s infinite;
+    }
+`;
+document.head.appendChild(newStyles);

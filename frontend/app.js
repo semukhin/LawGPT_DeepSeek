@@ -860,6 +860,18 @@ function initApp() {
                     showApp();
                     loadUserProfile();
                     loadChatThreads();
+                    
+                    // Добавим проверку на пустой список чатов и автоматически создадим первый чат
+                    setTimeout(() => {
+                        const chatList = document.getElementById('chat-list');
+                        if (chatList && chatList.children.length === 0) {
+                            console.log('Создаем первый чат для нового пользователя');
+                            createNewChat();
+                        } else if (chatList && chatList.querySelector('.chat-item.empty')) {
+                            console.log('Создаем первый чат для нового пользователя (нет активных чатов)');
+                            createNewChat();
+                        }
+                    }, 1000); // Небольшая задержка, чтобы chatList успел загрузиться
                 } else {
                     showAuth();
                 }
@@ -1174,6 +1186,29 @@ function renderChatThreads(threads) {
         emptyItem.className = 'chat-item empty';
         emptyItem.textContent = 'У вас пока нет активных чатов.';
         chatList.appendChild(emptyItem);
+        
+        // Для мобильной версии сделаем кнопку нового чата более заметной
+        if (isMobile()) {
+            // Добавляем кнопку создания чата прямо в список
+            const newChatItem = document.createElement('li');
+            newChatItem.className = 'chat-item new-chat-item';
+            newChatItem.innerHTML = '<i class="fas fa-plus"></i> Создать новый чат';
+            newChatItem.addEventListener('click', createNewChat);
+            chatList.appendChild(newChatItem);
+            
+            // Для мобильной версии также сделаем кнопку в шапке более заметной
+            const menuToggle = document.getElementById('menu-toggle');
+            if (menuToggle) {
+                // Добавим анимацию, чтобы обратить внимание пользователя
+                menuToggle.classList.add('pulse-animation');
+                
+                // Уберем анимацию через некоторое время
+                setTimeout(() => {
+                    menuToggle.classList.remove('pulse-animation');
+                }, 5000);
+            }
+        }
+        
         return;
     }
     
@@ -1374,8 +1409,9 @@ async function sendMessage() {
     
     // Определяем список статусов и времени их показа
     const processingSteps = [
-        { message: "Обработка запроса...", delay: 0 },
+        { message: "Обработка запроса...", delay: 500 },
         { message: "Поиск в законодательстве...", delay: 1000 },
+        { message: "Поиск в судебной практике...", delay: 1000 },
         { message: "Анализ данных...", delay: 3000 },
         { message: "Формирование ответа...", delay: 5000 }
     ];

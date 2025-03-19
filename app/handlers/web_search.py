@@ -152,59 +152,93 @@ def is_valid_url(url: str) -> bool:
        return False
 
 def prioritize_links(links: List[str], query: str) -> List[str]:
-   """
-   Приоритизирует ссылки для скрейпинга на основе релевантности запросу.
-   
-   Args:
-       links: Список URL
-       query: Поисковый запрос
-       
-   Returns:
-       Отсортированный список URL с приоритетом
-   """
-   # Высококачественные домены для правовых запросов
-   high_quality_domains = [
-       "consultant.ru", "garant.ru", "sudact.ru", "pravo.gov.ru", 
-       "zakon.ru", "ksrf.ru", "vsrf.ru", "arbitr.ru"
-   ]
-   
-   # Оценка каждой ссылки
-   scored_links = []
-   
-   for url in links:
-       score = 0
-       parsed_url = urlparse(url)
-       domain = parsed_url.netloc.lower()
-       
-       # Повышаем приоритет для высококачественных доменов
-       if any(good_domain in domain for good_domain in high_quality_domains):
-           score += 10
-       
-       # Повышаем приоритет для правовых доменов
-       if any(term in domain for term in ["garant", "consultant", "pravorub", "pravo", "sudact", "zakon"]):
-           score += 5
-       
-       # Оцениваем по наличию ключевых слов запроса в URL
-       query_terms = query.lower().split()
-       for term in query_terms:
-           if len(term) > 3 and term in url.lower():
-               score += 2
-       
-       # Предпочитаем документы PDF, DOCX и т.д. для правовых запросов
-       if url.lower().endswith(('.pdf', '.doc', '.docx')):
-           score += 3
-       
-       # Русскоязычные сайты получают приоритет для русскоязычных запросов
-       if ".ru" in domain or "рф" in domain:
-           score += 5
-       
-       scored_links.append((url, score))
-   
-   # Сортируем ссылки по убыванию оценки
-   scored_links.sort(key=lambda x: x[1], reverse=True)
-   
-   # Возвращаем только URL, отсортированные по приоритету
-   return [url for url, _ in scored_links]
+    """
+    Приоритизирует ссылки для скрейпинга на основе релевантности запросу.
+    
+    Args:
+        links: Список URL
+        query: Поисковый запрос
+        
+    Returns:
+        Отсортированный список URL с приоритетом
+    """
+    # Высококачественные домены для правовых запросов
+    high_quality_domains = [
+        "consultant.ru", "garant.ru", "sudact.ru", "pravo.gov.ru", 
+        "zakon.ru", "ksrf.ru", "vsrf.ru", "arbitr.ru", "rg.ru", "supcourt.ru",
+        "advgazeta.ru", "kodeks.ru", "pravoved.ru", "legal.ru", "rostrud.gov.ru"
+    ]
+    
+    # Информационные порталы
+    info_portals = [
+        "tass.ru", "rbc.ru", "kommersant.ru", "vedomosti.ru", "interfax.ru", 
+        "pravo.ru", "rapsinews.ru"
+    ]
+    
+    # Оценка каждой ссылки
+    scored_links = []
+    
+    for url in links:
+        score = 0
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc.lower()
+        path = parsed_url.path.lower()
+        
+        # Исключаем социальные сети и нерелевантные ресурсы
+        bad_domains = ["pinterest", "instagram", "facebook", "twitter", "youtube", "tiktok", 
+                       "reddit", "quora", "linkedin", "amazon", "ebay", "avito", "aliexpress"]
+        if any(bad_domain in domain for bad_domain in bad_domains):
+            continue
+        
+        # Повышаем приоритет для высококачественных доменов
+        if any(good_domain in domain for good_domain in high_quality_domains):
+            score += 15
+        
+        # Повышаем приоритет для информационных порталов
+        if any(portal in domain for portal in info_portals):
+            score += 8
+        
+        # Повышаем приоритет для правовых доменов
+        if any(term in domain for term in ["garant", "consultant", "pravorub", "pravo", "sudact", "zakon"]):
+            score += 10
+            
+        # Проверяем пути URL на релевантность юридической тематике
+        legal_path_terms = ["sud", "zakon", "kodeks", "pravo", "jurist", "advokat", "urist", "legal", "law"]
+        if any(term in path for term in legal_path_terms):
+            score += 5
+        
+        # Оцениваем по наличию ключевых слов запроса в URL
+        query_terms = query.lower().split()
+        for term in query_terms:
+            if len(term) > 3 and term in url.lower():
+                score += 3
+        
+        # Предпочитаем документы PDF, DOCX и т.д. для правовых запросов (особенно на официальных сайтах)
+        if url.lower().endswith(('.pdf', '.doc', '.docx')):
+            score += 5
+            # Дополнительный бонус, если PDF на официальном сайте
+            if any(good_domain in domain for good_domain in high_quality_domains):
+                score += 5
+        
+        # Русскоязычные сайты получают приоритет для русскоязычных запросов
+        if ".ru" in domain or ".рф" in domain:
+            score += 7
+        
+        # Понижаем рейтинг для сайтов, которые могут содержать устаревшую информацию
+        if any(old_term in domain for old_term in ["narod.ru", "ucoz.ru", "boom.ru", "by.ru"]):
+            score -= 5
+            
+        # Избегаем страниц с параметрами запросов в URL, которые могут быть динамическими
+        if "?" in url and ("search" in url.lower() or "query" in url.lower()):
+            score -= 3
+        
+        scored_links.append((url, score))
+    
+    # Сортируем ссылки по убыванию оценки
+    scored_links.sort(key=lambda x: x[1], reverse=True)
+    
+    # Возвращаем только URL, отсортированные по приоритету
+    return [url for url, _ in scored_links]
 
 
 async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_refresh: bool = False) -> list:
@@ -224,8 +258,8 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
     start_time = time.time()
     logs.append(f"🔍 Начало поиска и извлечения данных по запросу: '{query}'")
     
-    # Выполняем поиск и получаем ссылки (не более чем нам нужно)
-    links = google_search(query, logs, max_results=max_results) 
+    # Выполняем поиск и получаем ссылки (не более чем нам нужно * 3, чтобы иметь запас)
+    links = google_search(query, logs, max_results=max_results * 3) 
     
     if not links:
         logs.append("⚠️ Не найдено ссылок для скрейпинга")
@@ -239,60 +273,74 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
         links_to_scrape = prioritized_links[:max_results]
         logs.append(f"📥 Извлечение содержимого из {len(links_to_scrape)} ссылок...")
 
-        if not links:
+        if not links_to_scrape:
             logging.warning(f"⚠️ search_and_scrape: Ссылки не найдены для '{query}'")
             return []
         
-        successful_results = []
+        # Создаем задачи для параллельного скрапинга
+        scrape_tasks = []
         for url in links_to_scrape:
-            try:
-                # Check if the URL points to a binary file
-                is_binary = url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'))
-                
-                if is_binary:
-                    # Handle binary files differently
-                    logs.append(f"📄 Detected binary file: {url}")
-                    
-                    # For PDFs, create a placeholder ScrapedContent with metadata
-                    if url.lower().endswith('.pdf'):
-                        # Create placeholder with file info but don't try to decode content
-                        result = ScrapedContent(
-                            url=url,
-                            title=f"PDF Document: {url.split('/')[-1]}",
-                            text=f"Binary PDF file available at: {url}",
-                            html="",
-                            metadata={"binary_type": "pdf", "scraped": False},
-                            content_type="application/pdf"
-                        )
-                        successful_results.append(result)
-                        logs.append(f"✅ Created placeholder for binary PDF: {url}")
-                    else:
-                        # For other binary types, create appropriate placeholders
-                        file_type = url.split('.')[-1].upper()
-                        result = ScrapedContent(
-                            url=url,
-                            title=f"{file_type} Document: {url.split('/')[-1]}",
-                            text=f"Binary {file_type} file available at: {url}",
-                            html="",
-                            metadata={"binary_type": file_type.lower(), "scraped": False},
-                            content_type=f"application/{file_type.lower()}"
-                        )
-                        successful_results.append(result)
-                        logs.append(f"✅ Created placeholder for binary {file_type}: {url}")
-                else:
-                    # Use existing scraper for HTML content
-                    scraper = get_scraper()
-                    result = await scraper.scrape_url(url, dynamic=False)
-                    
-                    if result.is_successful():
-                        successful_results.append(result)
-                        logs.append(f"✅ Successfully scraped: {url}")
-                    else:
-                        logs.append(f"❌ Failed to scrape: {url} - {result.error}")
-            except Exception as e:
-                logs.append(f"❌ Error processing URL {url}: {str(e)}")
-                logger.error(f"Error processing URL {url}: {str(e)}")
+            # Проверяем, является ли URL бинарным файлом
+            is_binary = url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'))
+            
+            if is_binary:
+                # Создаем placeholder для бинарных файлов
+                file_type = url.split('.')[-1].upper()
+                result = ScrapedContent(
+                    url=url,
+                    title=f"{file_type} Document: {url.split('/')[-1]}",
+                    text=f"Binary {file_type} file available at: {url}",
+                    html="",
+                    metadata={"binary_type": file_type.lower(), "scraped": False},
+                    content_type=f"application/{file_type.lower()}"
+                )
+                scrape_tasks.append(asyncio.create_task(asyncio.sleep(0, result)))
+                logs.append(f"✅ Created placeholder for binary {file_type}: {url}")
+            else:
+                # Используем scraper для HTML-контента
+                scraper = get_scraper()
+                task = scraper.scrape_url(url, dynamic=False)
+                scrape_tasks.append(task)
         
+        # Дожидаемся выполнения всех задач с таймаутом для каждой
+        # Это гарантирует, что мы не будем ждать слишком долго
+        completed_tasks = []
+        timeout = 15  # 15 секунд максимум на одну страницу
+        
+        for task in scrape_tasks:
+            try:
+                result = await asyncio.wait_for(task, timeout=timeout)
+                completed_tasks.append(result)
+            except asyncio.TimeoutError:
+                logs.append(f"⚠️ Скрапинг занял слишком много времени и был прерван")
+                logging.warning("Скрапинг URL превысил таймаут и был прерван")
+            except Exception as e:
+                logs.append(f"❌ Ошибка при скрапинге: {str(e)}")
+                logging.error(f"Ошибка при скрапинге: {str(e)}")
+        
+        # Фильтруем успешные результаты и применяем ограничение на длину текста
+        successful_results = []
+        max_content_length = 5000  # максимальная длина текста из одного источника
+        
+        for result in completed_tasks:
+            if result.is_successful():
+                # Ограничиваем размер текста для экономии места в промте
+                if len(result.text) > max_content_length:
+                    truncated_text = result.text[:max_content_length] + "... [текст обрезан из-за ограничений размера]"
+                    result = ScrapedContent(
+                        url=result.url,
+                        title=result.title,
+                        text=truncated_text,
+                        html=result.html,
+                        metadata=result.metadata,
+                        content_type=result.content_type,
+                        error=None
+                    )
+                
+                successful_results.append(result)
+                logs.append(f"✅ Successfully scraped: {result.url}")
+        
+        logging.info(f"✅ search_and_scrape: Получено {len(successful_results)} успешных результатов из {len(links_to_scrape)} ссылок")
         return successful_results
         
     except Exception as e:

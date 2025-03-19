@@ -418,6 +418,7 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
         match = re.search(pattern, query)
         
         if match:
+            # Если нашли номер дела, ищем по нему напрямую
             full_case_number = match.group(0)
             # Получаем базовую часть номера дела (без суффиксов)
             base_parts = full_case_number.split('-')
@@ -616,8 +617,19 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
         if legal_articles_results:
             results.extend(legal_articles_results)
         
-        logger.info(f"🔍 [ES] Стандартный поиск: найдено всего {len(results)} релевантных результатов")
-        return results
+        # Ограничиваем результаты по длине текста
+        max_result_length = 1800  # максимальная длина одного фрагмента
+        truncated_results = []
+        
+        for result in results:
+            if len(result) > max_result_length:
+                truncated_result = result[:max_result_length] + "... [текст обрезан из-за ограничений размера]"
+                truncated_results.append(truncated_result)
+            else:
+                truncated_results.append(result)
+        
+        logger.info(f"🔍 [ES] Стандартный поиск: найдено всего {len(truncated_results)} релевантных результатов")
+        return truncated_results
         
     except Exception as e:
         logger.error(f"❌ Ошибка поиска в Elasticsearch: {str(e)}")

@@ -25,11 +25,93 @@ THIRD_PARTY_DIR = os.path.join(BASE_DIR, "third_party")
 if THIRD_PARTY_DIR not in sys.path:
     sys.path.insert(0, THIRD_PARTY_DIR)
 
+# Добавление констант для контроля размера
+MAX_INPUT_QUERY_SIZE = 12000  # Ограничение для входного запроса
+MAX_ADDITIONAL_CONTEXT_SIZE = 8000  # Ограничение на дополнительный контекст
+
+
 # Улучшенная конфигурация логгера для детальной информации
 logging.basicConfig(
     level=logging.INFO, 
     format="%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s"
 )
+
+def truncate_text_intelligently(text: str, max_length: int) -> str:
+    """
+    Умная обрезка текста, сохраняя наиболее информативные части.
+    
+    Args:
+        text: Исходный текст
+        max_length: Максимальная допустимая длина
+        
+    Returns:
+        Обрезанный текст, который не превышает max_length
+    """
+    if len(text) <= max_length:
+        return text
+        
+    # Определяем размер буфера для начала и конца
+    start_buffer = int(max_length * 0.5)  # 50% для начала
+    end_buffer = int(max_length * 0.3)  # 30% для конца
+    middle_buffer = max_length - start_buffer - end_buffer - 20  # 20 символов для "..."
+    
+    # Разбиваем на абзацы для сохранения структуры
+    paragraphs = text.split('\n\n')
+    
+    # Если всего один абзац, просто обрезаем его
+    if len(paragraphs) <= 1:
+        return text[:start_buffer] + "..." + text[-end_buffer:]
+    
+    # Собираем начало текста, сохраняя целостность абзацев
+    start_text = ""
+    for p in paragraphs:
+        if len(start_text) + len(p) + 2 <= start_buffer:  # +2 для \n\n
+            start_text += p + "\n\n"
+        else:
+            # Если текущий абзац не помещается полностью, берем его часть
+            if len(start_text) < start_buffer:
+                remaining = start_buffer - len(start_text)
+                if remaining > 20:  # Если осталось достаточно места
+                    start_text += p[:remaining] + "..."
+            break
+    
+    # Собираем конец текста, сохраняя целостность абзацев
+    end_text = ""
+    for p in reversed(paragraphs):
+        if len(end_text) + len(p) + 2 <= end_buffer:  # +2 для \n\n
+            end_text = p + "\n\n" + end_text
+        else:
+            # Если текущий абзац не помещается полностью, берем его часть
+            if len(end_text) < end_buffer:
+                remaining = end_buffer - len(end_text)
+                if remaining > 20:  # Если осталось достаточно места
+                    end_text = "..." + p[-remaining:] + "\n\n" + end_text
+            break
+    
+    # Если у нас осталось место для середины, добавляем несколько абзацев из середины
+    if middle_buffer > 100:  # Только если для середины есть достаточно места
+        middle_start_index = len(start_text)
+        middle_end_index = len(text) - len(end_text)
+        
+        # Находим абзацы в середине
+        middle_text = text[middle_start_index:middle_end_index]
+        middle_paragraphs = middle_text.split('\n\n')
+        
+        # Выбираем несколько абзацев из середины (например, 2-3)
+        selected_middle = ""
+        middle_position = len(middle_paragraphs) // 2  # Центр списка абзацев
+        
+        # Пытаемся добавить абзацы из середины
+        for i in range(max(0, middle_position - 1), min(len(middle_paragraphs), middle_position + 2)):
+            if len(selected_middle) + len(middle_paragraphs[i]) + 2 <= middle_buffer:
+                selected_middle += middle_paragraphs[i] + "\n\n"
+            else:
+                break
+        
+        return start_text + "\n...\n\n" + selected_middle + "\n...\n\n" + end_text
+    
+    # Если для середины не хватило места
+    return start_text + "\n...\n\n" + end_text
 
 def highlight_court_numbers(query: str) -> str:
     """
@@ -104,8 +186,7 @@ class DeepResearchService:
         """Заглушка для функции фильтрации подозрительных номеров судебных дел"""
         return text
         
-
-        # Функция для проверки на последовательные цифры
+        
     def is_general_query(self, query: str) -> bool:
         """
         Определяет, является ли запрос общим (не юридическим).
@@ -228,45 +309,32 @@ class DeepResearchService:
         Returns:
             ResearchResult: Результат исследования в структурированном виде
         """
+        # Константы для управления размерами
+        MAX_INPUT_QUERY_SIZE = 20000  # Максимальный размер запроса
+        MAX_ADDITIONAL_CONTEXT_SIZE = 15000  # Максимальный размер дополнительного контекста
+        MAX_CHAT_HISTORY_SIZE = 10000  # Максимальный размер истории чата
+        MAX_MESSAGE_SIZE = 2000  # Максимальный размер одного сообщения в истории
+        
         self.usage_counter += 1
         logging.info(f"[DeepResearch #{self.usage_counter}] Начинаем исследование. Длина запроса: {len(query)} символов")
         
         # Обработка файлов, если query - путь к файлу
         if isinstance(query, str) and (query.endswith('.docx') or query.endswith('.pdf')):
             query = self.read_document(query) or query
-            
+        
+        # Ограничиваем размер запроса
+        if len(query) > MAX_INPUT_QUERY_SIZE:
+            logging.warning(f"[DeepResearch #{self.usage_counter}] Запрос слишком длинный ({len(query)} символов). Обрезаем до {MAX_INPUT_QUERY_SIZE} символов.")
+            query = truncate_text_intelligently(query, MAX_INPUT_QUERY_SIZE)
+        
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
         # на запрос пользователя и результаты поиска
         if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА:" in query:
             # Запрос уже структурирован, извлекаем чистый запрос пользователя
             user_query_part = query.split("ЗАПРОС ПОЛЬЗОВАТЕЛЯ:")[1].split("РЕЗУЛЬТАТЫ ПОИСКА")[0].strip()
             is_general = self.is_general_query(user_query_part)
-
-            # # Применяем highlight_court_numbers только к запросу пользователя, а не ко всему тексту
-            # highlighted_user_query = highlight_court_numbers(user_query_part)
-            
-            # # Заменяем оригинальный запрос пользователя на подсвеченный, если он изменился
-            # if highlighted_user_query != user_query_part:
-            #     query = query.replace(
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{user_query_part}",
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{highlighted_user_query}"
-            #     )
-            #     # На случай другого форматирования
-            #     query = query.replace(
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{user_query_part}",
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: \n{highlighted_user_query}"
-            #     )
-            #     # И третий вариант без переносов
-            #     query = query.replace(
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {user_query_part}",
-            #         f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ: {highlighted_user_query}"
-            #     )
         else:
             is_general = self.is_general_query(query)
-# Не применяем highlight_court_numbers ко всему тексту,
-            # так как в нем может быть системный промпт с примерами
-            # Вместо этого логируем предупреждение
-
 
         # Получаем историю сообщений, если есть thread_id и db
         chat_history = []
@@ -285,15 +353,27 @@ class DeepResearchService:
                 logging.info(f"[DeepResearch #{self.usage_counter}] Найдено {len(messages)} предыдущих сообщений в треде {thread_id}")
                 
                 # Формируем историю сообщений в нужном формате
+                total_history_size = 0
                 for msg in messages:
+                    content = msg.content
+                    # Ограничиваем размер каждого сообщения истории
+                    if len(content) > MAX_MESSAGE_SIZE:
+                        content = content[:MAX_MESSAGE_SIZE] + "...[сообщение обрезано]"
+                    
+                    # Проверяем, не превысим ли общий размер истории
+                    if total_history_size + len(content) > MAX_CHAT_HISTORY_SIZE:
+                        break
+                    
                     chat_history.append({
                         "role": msg.role,
-                        "content": msg.content,
+                        "content": content,
                         "timestamp": msg.created_at.isoformat() if msg.created_at else None
                     })
+                    total_history_size += len(content)
+                    
             except Exception as e:
                 logging.error(f"[DeepResearch #{self.usage_counter}] Ошибка при получении истории диалога: {str(e)}")
-            
+        
         # Определяем системный промпт на основе типа запроса
         if is_general:
             logging.info(f"[DeepResearch #{self.usage_counter}] Обнаружен общий (не юридический) запрос")
@@ -338,15 +418,25 @@ class DeepResearchService:
                 2. НИКОГДА не придумывай и не создавай номера судебных дел самостоятельно. 
                 
                 3. Если в запросе (промте) или в результатах поиска указан номер судебногодела, ОБЯЗАТЕЛЬНО используй ИМЕННО ЭТОТ номер в ответе без изменений.
-                 
+                
                 4. Проверяй каждый номер дела в своем ответе - он должен ТОЧНО соответствовать номеру из исходных материалов. 
                 Не выдумывай не существующие номера судебных дел, а используй только те номера которые тебе поступили с промтом.
-             
+            
                 5. При цитировании судебной практики ВСЕГДА указывай ТОЧНЫЙ номер дела из источника (источник в промте).
                 
                 6. Учитывай контекст предыдущих сообщений в диалоге при формировании ответа.
                 """
+        
+        # Обрабатываем дополнительный контекст для ограничения размера
+        additional_context_text = ""
+        if additional_context:
+            for i, ctx in enumerate(additional_context):
+                if "data" in ctx and isinstance(ctx["data"], str) and len(ctx["data"]) > MAX_ADDITIONAL_CONTEXT_SIZE:
+                    additional_context[i]["data"] = truncate_text_intelligently(ctx["data"], MAX_ADDITIONAL_CONTEXT_SIZE)
             
+            # Заменяем оригинальный контекст обработанным
+            additional_context_text = "\n\n".join(additional_context)
+        
         # Проверка структуры запроса для определения, есть ли в нем явное разделение
         # на запрос пользователя и результаты поиска
         if "ЗАПРОС ПОЛЬЗОВАТЕЛЯ:" in query and "РЕЗУЛЬТАТЫ ПОИСКА:" in query:
@@ -381,28 +471,19 @@ class DeepResearchService:
                     role = msg.get("role", "unknown")
                     content = msg.get("content", "")
                     user_prompt += f"{role.upper()}: {content}\n\n"
-            
-            # Добавляем контекст из других источников, если он есть
-            if additional_context:
-                user_prompt += "\n\nДополнительная информация из других источников:\n"
-                for ctx in additional_context:
-                    source_type = ctx.get("type", "неизвестный источник")
-                    if ctx.get("found"):
-                        user_prompt += f"\n--- Из источника {source_type} ---\n"
-                        if "data" in ctx:
-                            if isinstance(ctx["data"], list):
-                                for item in ctx["data"][:3]:  # Берем до 3 элементов
-                                    user_prompt += f"{item[:1000]}...\n\n"
-                            elif isinstance(ctx["data"], dict):
-                                for key, value in ctx["data"].items():
-                                    if key not in ["path", "error", "type"]:
-                                        user_prompt += f"{value[:1000]}...\n\n"
-                            else:
-                                user_prompt += f"{str(ctx['data'])[:3000]}...\n\n"
         
-        # Используем запрос без обработки номеров судебных дел
-        enhanced_prompt = user_prompt
-                
+        # Создаем финальный запрос с учетом контекста и дополнительных данных
+        if additional_context_text:
+            # Если есть дополнительный контекст, добавляем его к запросу
+            enhanced_prompt = f"{user_prompt}\n\nДополнительная информация из поиска:\n{additional_context_text}"
+        else:
+            enhanced_prompt = user_prompt
+        
+        # Ограничиваем размер финального запроса перед отправкой в API
+        if len(enhanced_prompt) > MAX_INPUT_QUERY_SIZE:
+            logging.warning(f"[DeepResearch #{self.usage_counter}] Финальный запрос слишком длинный. Обрезаем до {MAX_INPUT_QUERY_SIZE} символов.")
+            enhanced_prompt = truncate_text_intelligently(enhanced_prompt, MAX_INPUT_QUERY_SIZE)
+        
         # Сохраняем промпт в базу данных после того как определили системный промпт и пользовательский запрос
         if db is not None and thread_id is not None and user_id is not None:
             try:
@@ -419,8 +500,8 @@ class DeepResearchService:
                 prompt_data = {
                     "thread_id": thread_id,
                     "user_id": user_id,
-                    "system_prompt": system_prompt,  # Теперь system_prompt уже определен
-                    "user_prompt": enhanced_prompt    # И enhanced_prompt тоже
+                    "system_prompt": system_prompt,
+                    "user_prompt": enhanced_prompt[:5000]  # Ограничиваем длину запроса, сохраняемого в БД
                 }
                 
                 # Добавляем message_id только если столбец существует и значение не None
@@ -441,14 +522,12 @@ class DeepResearchService:
                 logging.error(f"❌ Ошибка при сохранении промпта: {e}")
         
         try:
-            # Запрос к DeepSeek API с правильным системным промптом
-            messages = [
+            # Формируем сообщения для отправки в API
+            all_messages = [
                 {"role": "system", "content": system_prompt}
             ]
             
-            # Заменить блок с добавлением истории сообщений (строки 500-508) на следующий код:
-
-            # Добавляем историю сообщений, чтобы обеспечить строгое чередование user/assistant
+            # Добавляем историю диалога, чтобы обеспечить строгое чередование user/assistant
             if chat_history:
                 # Обеспечиваем правильное чередование сообщений
                 interleaved_messages = []
@@ -464,7 +543,10 @@ class DeepResearchService:
                         
                     # Добавляем сообщение, если роль валидна для API
                     if current_role in ["user", "assistant"]:
-                        interleaved_messages.append(msg)
+                        interleaved_messages.append({
+                            "role": current_role,
+                            "content": msg.get("content", "")
+                        })
                         previous_role = current_role
                 
                 # Если история начинается с сообщения assistant, удаляем его
@@ -483,25 +565,15 @@ class DeepResearchService:
                     interleaved_messages = interleaved_messages[:-1]
                 
                 # Добавляем отфильтрованные сообщения истории в messages
-                for msg in interleaved_messages:
-                    messages.append({
-                        "role": msg.get("role"),
-                        "content": msg.get("content", "")
-                    })
-                
-                # Проверяем, что последнее сообщение не от user перед добавлением текущего запроса
-                if messages and messages[-1].get("role") == "user":
-                    # Удаляем последнее сообщение, чтобы избежать последовательных user сообщений
-                    logging.info(f"[DeepResearch #{self.usage_counter}] Удаляем последнее сообщение перед добавлением текущего запроса")
-                    messages.pop()
+                all_messages.extend(interleaved_messages)
             
             # Добавляем текущий запрос пользователя
-            messages.append({"role": "user", "content": enhanced_prompt})
+            all_messages.append({"role": "user", "content": enhanced_prompt})
             
             # Логируем количество сообщений для диагностики
-            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка {len(messages)} сообщений в API, включая системное")
+            logging.info(f"[DeepResearch #{self.usage_counter}] Отправка {len(all_messages)} сообщений в API, включая системное")
             
-            # Прямой и единственный запрос к API
+            # Прямой запрос к API
             url = f"{self.deepseek_service.api_base}/chat/completions"
             headers = {
                 "Content-Type": "application/json",
@@ -509,7 +581,7 @@ class DeepResearchService:
             }
             payload = {
                 "model": self.deepseek_service.model,
-                "messages": messages,
+                "messages": all_messages,
                 "temperature": self.deepseek_service.temperature,
                 "max_tokens": self.deepseek_service.max_tokens
             }
@@ -528,15 +600,12 @@ class DeepResearchService:
                         response_json = await response.json()
                         if 'choices' in response_json and len(response_json['choices']) > 0:
                             analysis = response_json['choices'][0]['message']['content']
-                            
-                            # # Валидация номеров судебных дел в ответе
-                            # analysis = validate_court_numbers(analysis, query)
                         else:
                             analysis = "Не удалось получить ответ от API DeepSeek"
             
             # Формируем структурированный результат
             result = ResearchResult(
-                query=query[:3000] + "..." if len(query) > 5000 else query,
+                query=query[:3000] + "..." if len(query) > 3000 else query,
                 analysis=analysis,
                 timestamp=self._get_current_time()
             )
@@ -553,12 +622,12 @@ class DeepResearchService:
             error_msg = f"Ошибка при исследовании: {str(e)}"
             logging.error(f"[DeepResearch #{self.usage_counter}] {error_msg}")
             return ResearchResult(
-                query=query[:5000] + "..." if len(query) > 5000 else query,
+                query=query[:3000] + "..." if len(query) > 3000 else query,
                 analysis=f"Произошла ошибка при выполнении исследования: {str(e)}",
                 timestamp=self._get_current_time(),
                 error=str(e)
             )
-        
+    
     @audit_deepresearch
     def read_document(self, file_path: str) -> Optional[str]:
         """
