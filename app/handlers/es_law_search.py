@@ -4,12 +4,19 @@ import logging
 from typing import List, Dict, Any, Optional
 from elasticsearch import Elasticsearch
 import re
+import os
 import json
-from app.config import ELASTICSEARCH_URL, ES_USER, ES_PASS, ES_INDICES as CONFIG_ES_INDICES
+from app.config import ELASTICSEARCH_URL, ES_INDICES as CONFIG_ES_INDICES
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+
+ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
+ES_USER = os.getenv("ES_USER", "elastic")
+ES_PASS = os.getenv("ES_PASS", "GIkb8BKzkXK7i2blnG2O")
+
 
 # Индексы в Elasticsearch с возможностью переопределения из конфигурации
 DEFAULT_ES_INDICES = {

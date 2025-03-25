@@ -18,20 +18,21 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import traceback
 
-# Чтение конфигурации из переменных окружения
-ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://elasticsearch:9200')
-ES_USER = os.getenv('ES_USER', 'elastic')
-ES_PASS = os.getenv('ES_PASS', 'GIkb8BKzkXK7i2blnG2O')
-INDEXING_INTERVAL = int(os.getenv('INDEXING_INTERVAL', '24'))
+# Жестко закодированные переменные
+ES_HOST = "http://localhost:9200"
+ES_USER = "elastic"
+ES_PASS = "GIkb8BKzkXK7i2blnG2O"
+ELASTICSEARCH_URL = ES_HOST
 
-# Конфигурация базы данных
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '82.97.242.92'),
-    'port': int(os.getenv('DB_PORT', '5432')),
-    'database': os.getenv('DB_NAME', 'ruslaw_db'),
-    'user': os.getenv('DB_USER', 'gen_user'),
-    'password': os.getenv('DB_PASSWORD', 'P?!ri#ag5%G1Si')
+    "host": "82.97.242.92",
+    "port": 5432,
+    "database": "ruslaw_db",
+    "user": "gen_user",
+    "password": "P?!ri#ag5%G1Si"
 }
+
+INDEXING_INTERVAL = 48
 
 # Индексы
 ES_INDICES = {
@@ -518,8 +519,12 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                         doc['content'] = doc['summary']
                     
                     # Обработка массива для referenced_cases
-                    if table_name == 'court_reviews' and 'referenced_cases' in doc and isinstance(doc['referenced_cases'], list):
-                        doc['referenced_cases'] = ','.join(doc['referenced_cases'])
+                    if table_name == 'court_reviews' and 'referenced_cases' in doc:
+                        if isinstance(doc['referenced_cases'], list):
+                            # Преобразуем все элементы в строки перед объединением
+                            doc['referenced_cases'] = ','.join([str(item) for item in doc['referenced_cases']])
+                        elif doc['referenced_cases'] is None:
+                            doc['referenced_cases'] = ''
                     
                     # Преобразуем datetime объекты в строки
                     for key, value in doc.items():

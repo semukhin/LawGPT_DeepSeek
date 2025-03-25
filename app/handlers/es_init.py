@@ -17,21 +17,20 @@ import queue
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import traceback
-
-# Чтение конфигурации из переменных окружения
-ELASTICSEARCH_URL = os.getenv('ELASTICSEARCH_URL', 'http://elasticsearch:9200')
-ES_USER = os.getenv('ES_USER', 'elastic')
-ES_PASS = os.getenv('ES_PASS', 'changeme')
+import os
+if 'ES_HOST' not in globals():
+    ES_HOST = os.getenv('ES_HOST', 'http://localhost:9200')
+    ES_USER = os.getenv('ES_USER', 'elastic')
+    ES_PASS = os.getenv('ES_PASS', 'GIkb8BKzkXK7i2blnG2O')
+    DB_CONFIG = {
+        "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
+        "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))),
+        "database": os.getenv('PG_DB_NAME', os.getenv('DB_NAME')),
+        "user": os.getenv('PG_DB_USER', os.getenv('DB_USER')),
+        "password": os.getenv('PG_DB_PASSWORD', os.getenv('DB_PASSWORD'))
+    }
 INDEXING_INTERVAL = int(os.getenv('INDEXING_INTERVAL', '24'))
 
-# Конфигурация базы данных
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'postgres'),
-    'port': int(os.getenv('DB_PORT', '5432')),
-    'database': os.getenv('DB_NAME', 'lawgpt'),
-    'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'postgres')
-}
 
 # Индексы
 ES_INDICES = {

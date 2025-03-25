@@ -6,12 +6,13 @@ from app.config import POSTGRES_DATABASE_URL, MYSQL_DATABASE_URL
 # Используем MySQL для основных данных приложения
 DATABASE_URL = MYSQL_DATABASE_URL
 
-# Создайте объект engine
+
 engine = create_engine(
-    DATABASE_URL,
+    "mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db",
     pool_pre_ping=True,
     pool_recycle=3600
-)
+),
+
 
 # Для Elasticsearch/RAG (если нужно)
 es_engine = create_engine(

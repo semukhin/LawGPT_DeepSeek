@@ -22,13 +22,15 @@ DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
+
 # Construct database URL
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DATABASE_URL = "mysql+pymysql://gen_user:63%29%240oJ%5CWRP%5C%24J@194.87.243.188:3306/default_db"
 
 # Elasticsearch configuration
-ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
-ES_USER = os.getenv('ES_USER')
-ES_PASS = os.getenv('ES_PASS')
+ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+ES_HOST = os.environ.get("ES_HOST", ELASTICSEARCH_URL)  
+ES_USER = os.environ.get("ES_USER", "elastic")  
+ES_PASS = os.environ.get("ES_PASS", "GIkb8BKzkXK7i2blnG2O")
 
 # Инициализация Elasticsearch
 es = None
@@ -53,24 +55,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # MySQL Configuration
-DB_USER_MYSQL = os.getenv("DB_USER_MYSQL", "default_user")
-DB_PASSWORD_MYSQL = os.getenv("DB_PASSWORD_MYSQL", "default_password")
-DB_HOST_MYSQL = os.getenv("DB_HOST_MYSQL", "194.87.243.188")  # Ваш хост MySQL
+DB_USER_MYSQL = os.getenv("DB_USER", "default_user")
+DB_PASSWORD_MYSQL = os.getenv("DB_PASSWORD", "default_password")
+DB_HOST_MYSQL = os.getenv("DB_HOST_MYSQL", "194.87.243.188")  
 DB_PORT_MYSQL = os.getenv("DB_PORT_MYSQL", "3306")
 DB_NAME_MYSQL = os.getenv("DB_NAME_MYSQL", "default_db")
 
-MYSQL_DATABASE_URL = f"mysql+pymysql://{DB_USER_MYSQL}:{DB_PASSWORD_MYSQL}@{DB_HOST_MYSQL}:{DB_PORT_MYSQL}/{DB_NAME_MYSQL}"
+MYSQL_DATABASE_URL = "mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db"
 
 
 # PostgreSQL Configuration
 POSTGRES_DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
+# PostgreSQL конфигурация
 DB_CONFIG = {
-    "host": DB_HOST,
-    "port": int(DB_PORT),
-    "database": DB_NAME,
-    "user": DB_USER,
-    "password": DB_PASSWORD
+    "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
+    "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))), 
+    "database": os.getenv('PG_DB_NAME', os.getenv('DB_NAME')),
+    "user": os.getenv('PG_DB_USER', os.getenv('DB_USER')),
+    "password": os.getenv('PG_DB_PASSWORD', os.getenv('DB_PASSWORD'))
 }
 
 # Конфигурация безопасности

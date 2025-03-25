@@ -76,7 +76,7 @@ async def register_user(
         raise HTTPException(status_code=400, detail="Пользователь уже проходит регистрацию")
 
     # Генерация кода верификации
-    code = randint(100000, 999999)
+    code = randint(1000, 9999)
 
     # Сохраняем данные пользователя в таблице TempUser
     temp_user = models.TempUser(
@@ -194,7 +194,7 @@ async def forgot_password(
         raise HTTPException(status_code=404, detail="Пользователь с таким email не найден")
 
     # Генерация кода восстановления
-    reset_code = randint(100000, 999999)
+    reset_code = randint(1000, 9999)
     password_reset = models.PasswordReset(email=request.email, code=reset_code)
     db.add(password_reset)
     db.commit()
