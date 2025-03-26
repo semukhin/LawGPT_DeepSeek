@@ -26,7 +26,7 @@ parser.add_argument('--vexa-engine-url', type=str, help='URL для Vexa Engine 
 args = parser.parse_args()
 
 # Настройка подключения к базе данных LawGPT
-DB_URL = os.getenv("DATABASE_URL", "mysql+pymysql://gen_user:63%29%240oJ%5CWRP%5C%24J@194.87.243.188:3306/default_db")
+DB_URL = os.getenv("DATABASE_URL", "postgresql://gen_user:Grisha1977!@147.45.232.224:5432/default_db")
 
 # Настройка подключения к API Vexa
 VEXA_API_KEY = args.vexa_api_key or os.getenv("VEXA_API_KEY")

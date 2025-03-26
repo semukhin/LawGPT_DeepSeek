@@ -3,6 +3,14 @@ from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
+from vexa.vexa_integration_models import (
+    VexaMeeting, 
+    VexaTranscript, 
+    VexaMeetingSummary, 
+    VexaIntegrationSettings, 
+    VexaAudioStream, 
+    extend_user_model
+)
 
 
 class VerificationCode(Base):
@@ -104,3 +112,23 @@ class PromptLog(Base):
     thread = relationship("Thread", back_populates="prompt_logs")
     message = relationship("Message", back_populates="prompt_log", uselist=False)
     user = relationship("User", back_populates="prompt_logs")
+
+
+# Импорт и инициализацию моделей Vexa
+import importlib.util
+
+# Загружаем модуль динамически
+spec = importlib.util.spec_from_file_location("vexa_models", "vexa/vexa-integration-models.py")
+vexa_models = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vexa_models)
+
+# Доступ к классам и функциям
+VexaMeeting = vexa_models.VexaMeeting
+VexaTranscript = vexa_models.VexaTranscript
+VexaMeetingSummary = vexa_models.VexaMeetingSummary
+VexaIntegrationSettings = vexa_models.VexaIntegrationSettings
+VexaAudioStream = vexa_models.VexaAudioStream
+extend_user_model = vexa_models.extend_user_model
+
+# Расширяем модель User для связи с Vexa
+extend_user_model()
