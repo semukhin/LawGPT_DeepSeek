@@ -8,9 +8,9 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
 from app.handlers import vexa_handlers
+app.include_router(vexa_handlers.router)
 from app.services.research_factory import ResearchAdapter
 from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
-app.include_router(vexa_handlers.router)
 deep_research_service = ResearchAdapter()
 import logging
 import time
@@ -47,6 +47,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
 logger = logging.getLogger(__name__)  # Создаем логгер для текущего модуля
+
+
+# Путь к директории vexa
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VEXA_DIR = os.path.join(BASE_DIR, "vexa")
+if VEXA_DIR not in sys.path:
+    sys.path.insert(0, VEXA_DIR)
+
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
