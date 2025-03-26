@@ -32,10 +32,6 @@ from datetime import datetime, timedelta
 # Кэш для проверки токенов
 token_cache = {}
 
-# Создаем ключ шифрования при запуске приложения
-encryption_key = Fernet.generate_key()
-cipher_suite = Fernet(encryption_key)
-
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -45,17 +41,14 @@ VEXA_API_KEY = os.getenv("VEXA_API_KEY")
 VEXA_STREAM_URL = os.getenv("VEXA_STREAM_URL", "https://streamqueue.dev.vexa.ai")
 VEXA_ENGINE_URL = os.getenv("VEXA_ENGINE_URL", "https://engine.dev.vexa.ai")
 VEXA_TRANSCRIPTION_URL = os.getenv("VEXA_TRANSCRIPTION_URL", "https://transcription.dev.vexa.ai")
+ENCRYPTION_KEY = os.getenv("VEXA_ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    # Генерируем ключ только при первом запуске и сохраняем его
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    print(f"Generated new encryption key: {ENCRYPTION_KEY}")
+    print("Save this key in your environment variables as VEXA_ENCRYPTION_KEY")
 
-# Создание клиента Vexa
-vexa_client = VexaApiClient(
-    api_key=VEXA_API_KEY,
-    stream_url=VEXA_STREAM_URL,
-    engine_url=VEXA_ENGINE_URL,
-    transcription_url=VEXA_TRANSCRIPTION_URL
-)
-
-# Расширение модели User
-extend_user_model()
+cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
 
 # Создание роутера
 router = APIRouter(
@@ -64,6 +57,16 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+# Кэшированная функция для получения клиента Vexa
+@lru_cache(maxsize=1)
+def get_vexa_client():
+    """Возвращает экземпляр VexaApiClient с кэшированием"""
+    return VexaApiClient(
+        api_key=VEXA_API_KEY,
+        stream_url=VEXA_STREAM_URL,
+        engine_url=VEXA_ENGINE_URL,
+        transcription_url=VEXA_TRANSCRIPTION_URL
+    )
 
 def encrypt_token(token: str) -> str:
     """Шифрует токен для безопасного хранения"""
@@ -73,54 +76,25 @@ def decrypt_token(encrypted_token: str) -> str:
     """Дешифрует токен для использования"""
     return cipher_suite.decrypt(encrypted_token.encode()).decode()
 
-# Затем в API-маршрутах:
-@router.get("/extension/token")
-async def get_extension_token(
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    settings = await get_user_vexa_settings(current_user, db)
-    
-    if not settings.vexa_token:
-        # Если токена нет, регистрируем пользователя заново
-        registration = await vexa_client.register_user(str(current_user.id), current_user.email)
-        
-        # Шифруем токен перед сохранением
-        settings.vexa_token = encrypt_token(registration.get("token"))
-        settings.updated_at = datetime.now()
-        
-        db.commit()
-        db.refresh(settings)
-    
-    # Дешифруем токен для использования
-    token = decrypt_token(settings.vexa_token)
-    
-    return {
-        "token": token,
-        "extension_config": {
-            "stream_url": VEXA_STREAM_URL,
-            "enable_recording": settings.enable_recording,
-            "user_id": str(current_user.id),
-            "extension_version": "1.0.0"
-        }
-    }
-
-
-
 # Получение настроек интеграции с Vexa для текущего пользователя
 async def get_user_vexa_settings(user: models.User, db: Session):
+    """Получает или создает настройки интеграции с Vexa для пользователя"""
     settings = db.query(VexaIntegrationSettings).filter(VexaIntegrationSettings.user_id == user.id).first()
     
     if not settings:
         # Если настроек нет, регистрируем пользователя в Vexa и создаем настройки
+        vexa_client = get_vexa_client()
         registration = await vexa_client.register_user(str(user.id), user.email)
+        
+        # Шифруем токен перед сохранением
+        encrypted_token = encrypt_token(registration.get("token"))
         
         settings = VexaIntegrationSettings(
             user_id=user.id,
             enable_recording=True,
             enable_summary=True,
             enable_search=True,
-            vexa_token=registration.get("token"),
+            vexa_token=encrypted_token,
             browser_extension_installed=False,
             updated_at=datetime.now()
         )
@@ -132,7 +106,6 @@ async def get_user_vexa_settings(user: models.User, db: Session):
     return settings
 
 # Роутеры для настройки интеграции с Vexa
-
 @router.get("/settings")
 async def get_vexa_integration_settings(
     current_user: models.User = Depends(get_current_user),
@@ -143,12 +116,13 @@ async def get_vexa_integration_settings(
     """
     settings = await get_user_vexa_settings(current_user, db)
     
+    # Не возвращаем сам токен в ответе, только его наличие
     return {
         "user_id": current_user.id,
         "enable_recording": settings.enable_recording,
         "enable_summary": settings.enable_summary,
         "enable_search": settings.enable_search,
-        "vexa_token": settings.vexa_token,
+        "has_token": bool(settings.vexa_token),
         "browser_extension_installed": settings.browser_extension_installed,
         "updated_at": settings.updated_at.isoformat() if settings.updated_at else None
     }
@@ -179,7 +153,7 @@ async def update_vexa_integration_settings(
         "enable_recording": settings.enable_recording,
         "enable_summary": settings.enable_summary,
         "enable_search": settings.enable_search,
-        "vexa_token": settings.vexa_token,
+        "has_token": bool(settings.vexa_token),
         "browser_extension_installed": settings.browser_extension_installed,
         "updated_at": settings.updated_at.isoformat() if settings.updated_at else None
     }
@@ -205,7 +179,8 @@ async def mark_extension_installed(
 @router.get("/extension/token")
 async def get_extension_token(
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Получает токен для расширения браузера
@@ -216,14 +191,18 @@ async def get_extension_token(
         # Если токена нет, регистрируем пользователя заново
         registration = await vexa_client.register_user(str(current_user.id), current_user.email)
         
-        settings.vexa_token = registration.get("token")
+        # Шифруем токен перед сохранением
+        settings.vexa_token = encrypt_token(registration.get("token"))
         settings.updated_at = datetime.now()
         
         db.commit()
         db.refresh(settings)
     
+    # Дешифруем токен для использования
+    token = decrypt_token(settings.vexa_token)
+    
     return {
-        "token": settings.vexa_token,
+        "token": token,
         "extension_config": {
             "stream_url": VEXA_STREAM_URL,
             "enable_recording": settings.enable_recording,
@@ -233,13 +212,13 @@ async def get_extension_token(
     }
 
 # Роутеры для управления встречами
-
 @router.post("/meetings")
 async def create_meeting(
     title: str = Form(...),
     source_type: str = Form(...),
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Создает новую встречу
@@ -310,7 +289,8 @@ async def create_meeting(
 async def end_meeting(
     meeting_id: str,
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Завершает встречу
@@ -410,7 +390,6 @@ async def end_meeting(
         # В случае ошибки возвращаем статус встречи
         raise HTTPException(status_code=500, detail=f"Ошибка при завершении встречи в Vexa: {str(e)}")
 
-
 # Простой in-memory лимитер запросов
 class RateLimiter:
     def __init__(self, requests_limit: int = 100, window_seconds: int = 60):
@@ -451,7 +430,6 @@ def rate_limit_dependency(
             detail="Rate limit exceeded. Please try again later."
         )
     return current_user
-
 
 @router.get("/meetings")
 async def get_meetings(
@@ -519,7 +497,6 @@ async def get_meetings(
         "offset": offset,
         "limit": limit
     }
-
 
 def verify_meeting_ownership(meeting_id: str, user_id: int, db: Session):
     """Проверяет, принадлежит ли встреча пользователю"""
@@ -635,13 +612,13 @@ async def get_meeting_transcript(
     }
 
 # Роутеры для поиска по транскриптам
-
 @router.post("/search")
 async def search_in_transcripts(
     query: str = Form(...),
     limit: int = Form(10),
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Ищет в транскриптах встреч по запросу
@@ -688,7 +665,6 @@ async def search_in_transcripts(
         raise HTTPException(status_code=500, detail=f"Ошибка при поиске в транскриптах: {str(e)}")
 
 # Роутеры для обработки аудиоданных из расширения браузера
-
 @router.put("/stream/audio")
 async def upload_audio_chunk(
     chunk_index: int = Query(...),
@@ -699,7 +675,8 @@ async def upload_audio_chunk(
     sample_rate: int = Query(16000, description="Audio sample rate"),
     channels: int = Query(1, description="Audio channels count"),
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Загружает аудиочанк из расширения браузера с дополнительной информацией о формате
@@ -760,9 +737,6 @@ async def upload_audio_chunk(
         stream.last_activity = datetime.now()
         db.commit()
     
-    # Читаем аудиоданные
-    audio_data = await audio_file.read()
-    
     # Отправляем аудиоданные в Vexa
     try:
         result = await vexa_client.upload_audio_chunk(
@@ -782,13 +756,13 @@ async def upload_audio_chunk(
         logger.error(f"Ошибка при загрузке аудиочанка: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-
 @router.websocket("/stream/ws/{connection_id}")
 async def websocket_audio_stream(
     websocket: WebSocket,
     connection_id: str,
     token: str = Query(...),
-    meeting_id: Optional[str] = Query(None)
+    meeting_id: Optional[str] = Query(None),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     WebSocket эндпоинт для потоковой передачи аудио в реальном времени
@@ -808,9 +782,20 @@ async def websocket_audio_stream(
         # Извлечение user_id из токена
         user_id = None
         try:
-            # Логика получения user_id из токена
-            pass
+            # Проверяем, есть ли в ответе token_check информация о user_id
+            user_id = token_check.get("data", {}).get("user_id")
+            if not user_id:
+                # Если нет, парсим токен (format: lawgpt_USER_ID_TIMESTAMP)
+                token_parts = token.split('_')
+                if len(token_parts) >= 3 and token_parts[0] == 'lawgpt':
+                    user_id = token_parts[1]
         except:
+            logger.error("Не удалось извлечь user_id из токена")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        
+        if not user_id:
+            logger.error("User ID не найден в токене")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         
@@ -818,11 +803,13 @@ async def websocket_audio_stream(
         db = next(get_db())
         user = db.query(models.User).filter(models.User.id == user_id).first()
         if not user:
+            logger.error(f"Пользователь с ID {user_id} не найден")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
             
         settings = await get_user_vexa_settings(user, db)
         if not settings.enable_recording:
+            logger.warning(f"Запись отключена для пользователя {user_id}")
             await websocket.close(code=status.WS_1003_UNSUPPORTED_DATA)
             return
         
@@ -841,7 +828,11 @@ async def websocket_audio_stream(
                 user_id=user.id,
                 source_type="websocket",
                 stream_status="active",
-                last_activity=datetime.now()
+                last_activity=datetime.now(),
+                stream_metadata=json.dumps({
+                    "connection_type": "websocket",
+                    "user_agent": websocket.headers.get("user-agent", "unknown")
+                })
             )
             
             # Если указан meeting_id, связываем с ним
@@ -856,6 +847,7 @@ async def websocket_audio_stream(
             
             db.add(stream)
             db.commit()
+            db.refresh(stream)
         
         # Обрабатываем аудиоданные
         chunk_index = 0
@@ -901,14 +893,14 @@ async def websocket_audio_stream(
         logger.error(f"Authentication error in WebSocket: {str(e)}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
 
-
 @router.put("/stream/speakers")
 async def update_speakers_data(
     connection_id: str = Query(...),
     meeting_id: Optional[str] = Query(None),
     speakers_data: Dict[str, Any] = None,
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Обновляет информацию о говорящих
@@ -937,13 +929,13 @@ async def update_speakers_data(
         return {"status": "error", "message": str(e)}
 
 # Роутер для интеграции с LawGPT для обогащения ответов контекстом из встреч
-
 @router.post("/context")
 async def get_context_for_llm(
     query: str = Form(...),
     thread_id: Optional[str] = Form(None),
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
     Получает релевантный контекст из транскриптов для запроса к LLM
@@ -967,8 +959,6 @@ async def get_context_for_llm(
         logger.error(f"Ошибка при получении контекста: {str(e)}")
         return {"context": "", "has_context": False}
 
-
-
 async def validate_token_with_cache(token: str) -> bool:
     """Проверяет токен с использованием кэша"""
     now = datetime.now()
@@ -981,6 +971,7 @@ async def validate_token_with_cache(token: str) -> bool:
             return is_valid
     
     # Если нет в кэше или кэш устарел, делаем запрос к API
+    vexa_client = get_vexa_client()
     result = await vexa_client._make_request(
         "GET", 
         f"{vexa_client.stream_url}/api/v1/extension/check-token?token={token}"

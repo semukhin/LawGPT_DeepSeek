@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
+from app.handlers import vexa_handlers
 from app.services.research_factory import ResearchAdapter
 from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
+app.include_router(vexa_handlers.router)
 deep_research_service = ResearchAdapter()
 import logging
 import time
@@ -93,10 +95,11 @@ models.Base.metadata.create_all(bind=database.engine)
 # Настройка CORS с указанием кодировки
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"]
 )
 
 # Главная страница
