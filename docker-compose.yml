@@ -15,18 +15,16 @@ services:
       - ./uploads:/app/uploads
       - ./static:/app/static
     environment:
-      # MySQL настройки для основного приложения
-      - DATABASE_URL="mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db"
-      - DB_HOST=194.87.243.188
-      - DB_PORT=3306
-      - DB_NAME=default_db
-      - DB_USER=gen_user
-      - DB_PASSWORD=Grisha1977!
-      - DB_USER_MYSQL=gen_user
-      - DB_PASSWORD_MYSQL=Grisha1977!
-      - DB_HOST_MYSQL=194.87.243.188
-      - DB_PORT_MYSQL=3306
-      - DB_NAME_MYSQL=default_db
+
+      # PostgreSQL (БД приложения)
+      - DB_USER_V=gen_user
+      - DB_PASSWORD_V=Grisha1977!
+      - DB_HOST_V=147.45.232.224
+      - DB_PORT_V=5432
+      - DB_NAME_V=default_db
+      - SECRET_KEY=Grisha1977! 
+      - default_user=gen_user
+      - default_password=Grisha1977!
       
 
       # ElasticSearch настройки
@@ -117,7 +115,7 @@ services:
       - ES_PASS=GIkb8BKzkXK7i2blnG2O
       
       # Важно: для es-indexer мы переопределяем стандартные DB_ переменные
-      # на PostgreSQL (а не MySQL) значения
+      # на PostgreSQL значения
       - DB_HOST=82.97.242.92
       - DB_PORT=5432                      
       - DB_NAME=ruslaw_db

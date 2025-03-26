@@ -143,9 +143,9 @@ async def lifespan(app: FastAPI):
     try:
         with database.engine.connect() as conn:
             result = conn.execute("SELECT 1")
-            logging.info("Соединение с MySQL успешно установлено")
+            logging.info("Соединение с PostgreSQL успешно установлено")
     except Exception as e:
-        logging.error(f"Ошибка соединения с MySQL: {str(e)}")
+        logging.error(f"Ошибка соединения с PostgreSQL: {str(e)}")
 
     # Асинхронная инициализация Elasticsearch
     if init_elasticsearch_async():
