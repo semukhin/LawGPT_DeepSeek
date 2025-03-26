@@ -23,8 +23,7 @@ DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 
-# Construct database URL
-DATABASE_URL = "mysql+pymysql://gen_user:63%29%240oJ%5CWRP%5C%24J@194.87.243.188:3306/default_db"
+
 
 # Elasticsearch configuration
 ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
@@ -48,21 +47,21 @@ except Exception as e:
     # Можно добавить логирование вместо print
 
 # JWT настройки
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
+SECRET_KEY = os.getenv("SECRET_KEY", "Grisha1977!")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# MySQL Configuration
-DB_USER_MYSQL = os.getenv("DB_USER", "default_user")
-DB_PASSWORD_MYSQL = os.getenv("DB_PASSWORD", "default_password")
-DB_HOST_MYSQL = os.getenv("DB_HOST_MYSQL", "194.87.243.188")  
-DB_PORT_MYSQL = os.getenv("DB_PORT_MYSQL", "3306")
-DB_NAME_MYSQL = os.getenv("DB_NAME_MYSQL", "default_db")
+# PostgreSQL (БД приложения)
+DB_USER_V = os.getenv("DB_USER_V", "gen_user")
+DB_PASSWORD_V = os.getenv("DB_PASSWORD_V", "Grisha1977!")
+DB_HOST_V = os.getenv("DB_HOST_V", "147.45.232.224")  
+DB_PORT_V = os.getenv("DB_PORT_V", "5432")
+DB_NAME_V = os.getenv("DB_NAME_V", "default_db")
 
-MYSQL_DATABASE_URL = "mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db"
-
+# Construct database URL
+DATABASE_URL = "postgresql://gen_user:Grisha1977!@147.45.232.224:5432/default_db"
 
 # PostgreSQL Configuration
 POSTGRES_DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -77,7 +76,7 @@ DB_CONFIG = {
 }
 
 # Конфигурация безопасности
-SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key")
+SECRET_KEY = os.environ.get("SECRET_KEY", "Grisha1977!")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 

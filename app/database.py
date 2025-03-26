@@ -1,17 +1,31 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from app.config import POSTGRES_DATABASE_URL, MYSQL_DATABASE_URL
+from app.config import POSTGRES_DATABASE_URL
 
-# Используем MySQL для основных данных приложения
-DATABASE_URL = MYSQL_DATABASE_URL
+# Используем PostgreSQL для основных данных приложения
+DATABASE_URL = POSTGRES_DATABASE_URL
 
 
+# Создаем движок PostgreSQL
 engine = create_engine(
-    "mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db",
+    DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600
-),
+)
+
+# Создаем сессию
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+# Функция для получения сессии БД
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # Для Elasticsearch/RAG (если нужно)

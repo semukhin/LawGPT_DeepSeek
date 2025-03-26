@@ -451,8 +451,6 @@ class VexaApiClient:
             logger.error(f"Ошибка при поиске в транскриптах: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Ошибка поиска в транскриптах: {str(e)}")
 
-    # Методы для работы с аудиопотоком через Chrome Extension API
-    
     async def upload_audio_chunk(self, connection_id: str, chunk_index: int, audio_data: bytes, meeting_id: Optional[str] = None, source: str = "google_meet") -> Dict[str, Any]:
         """
         Загружает чанк аудио через Stream API Vexa
@@ -467,31 +465,24 @@ class VexaApiClient:
         Returns:
             Информация о загруженном чанке
         """
-        try:
-            url = f"{self.stream_url}/api/v1/extension/audio?i={chunk_index}&connection_id={connection_id}&source={source}"
-            
-            if meeting_id:
-                url += f"&meeting_id={meeting_id}"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.put(
-                    url,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    data=audio_data,
-                    timeout=5
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logger.error(f"Ошибка при загрузке аудиочанка: {error_text}")
-                        return {"success": False, "error": error_text}
-                    
-                    result = await response.json()
-            
-            return {"success": True, "result": result}
-            
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке аудиочанка: {str(e)}")
-            return {"success": False, "error": str(e)}
+        # Формируем URL с параметрами
+        url = f"{self.stream_url}/api/v1/extension/audio?i={chunk_index}&connection_id={connection_id}&source={source}"
+        
+        if meeting_id:
+            url += f"&meeting_id={meeting_id}"
+        
+        # Используем _make_request вместо прямой работы с сессией
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        
+        # Для бинарных данных важно не устанавливать Content-Type
+        result = await self._make_request("put", url, headers=headers, data=audio_data, timeout=5)
+        
+        # Возвращаем результат в согласованном формате
+        if result.get("success"):
+            return {"success": True, "result": result.get("data", {})}
+        else:
+            logger.error(f"Ошибка при загрузке аудиочанка: {result.get('error')}")
+            return {"success": False, "error": result.get("error")}
 
     async def update_speakers(self, connection_id: str, speakers_data: Dict[str, Any], meeting_id: Optional[str] = None) -> Dict[str, Any]:
         """
