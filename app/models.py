@@ -161,5 +161,5 @@ class VoiceInputLog(Base):
     thread = relationship("Thread")
 
 # Обновляем модель User для связи с логами голосового ввода
-def extend_user_model(Base):
+def extend_user_model_for_voice(Base):
     Base.voice_input_logs = relationship("VoiceInputLog", back_populates="user")

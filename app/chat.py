@@ -470,6 +470,18 @@ async def process_voice_input(
         raise HTTPException(status_code=500, detail=f"Ошибка при распознавании речи: {str(e)}")
 
 
+@router.post("/api/chat/{thread_id}/voice-input")
+async def handle_voice_input(
+    thread_id: str,
+    file: UploadFile = File(...),
+    language: str = Form('ru-RU'),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return await process_voice_input(file, language, current_user, db)
+
+
+
 def recognize_speech(file_path, language_code='ru-RU'):
     client = speech.SpeechClient.from_service_account_file('path/to/credentials.json')
     
