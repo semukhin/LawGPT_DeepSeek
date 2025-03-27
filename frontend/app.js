@@ -1026,7 +1026,7 @@ async function handleLogin(e) {
     
     try {
         // Соответствует схеме UserLogin в app/schemas.py
-        const response = await apiRequest('/login', 'POST', {
+        const response = await apiRequest('/api/login', 'POST', {
             email: email,
             password: password
         });
@@ -1082,7 +1082,7 @@ async function handleRegister(e) {
     
     try {
         // Соответствует UserCreate схеме в app/schemas.py
-        const response = await apiRequest('/register', 'POST', {
+        const response = await apiRequest('/api/register', 'POST', {
             email: email,
             password: password,
             first_name: firstName,
@@ -1142,7 +1142,7 @@ async function handleVerify(e) {
     
     try {
         // Соответствует схеме VerifyRequest в app/schemas.py
-        const response = await apiRequest('/verify', 'POST', {
+        const response = await apiRequest('/api/verify', 'POST', {
             code: parseInt(code)
         }, token);
         
@@ -1184,7 +1184,7 @@ async function handleResendCode(e) {
     
     try {
         // Используем существующий метод register
-        const response = await apiRequest('/register', 'POST', {
+        const response = await apiRequest('/api/register', 'POST', {
             email: email,
             password: "temporary", // Это будет заменено при верификации
             first_name: "Временное",
@@ -1228,7 +1228,7 @@ async function handleForgotPassword(e) {
     
     try {
         // Соответствует схеме PasswordResetRequest в app/schemas.py
-        const response = await apiRequest('/forgot-password', 'POST', {
+        const response = await apiRequest('/api/forgot-password', 'POST', {
             email: email
         });
         
@@ -1279,7 +1279,7 @@ async function handleResetPassword(e) {
     
     try {
         // Соответствует схеме PasswordResetConfirm в app/schemas.py
-        const response = await apiRequest('/reset-password', 'POST', {
+        const response = await apiRequest('/api/reset-password', 'POST', {
             email: email,
             code: parseInt(code),
             new_password: newPassword
@@ -3803,3 +3803,9 @@ const voiceInputStats = {
         this.recordingLanguage = null;
     }
 };
+
+// Инициализация приложения при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    initApp();
+    initEventListeners();
+});
