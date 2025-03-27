@@ -13,6 +13,28 @@ from vexa.vexa_integration_models import (
 )
 
 
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, index=True)
+    hashed_password = Column(String(255))
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    is_active = Column(Boolean, default=False)
+    is_verified = Column(Boolean, default=False)
+    
+    verification_code = relationship("VerificationCode", back_populates="user", uselist=False)
+    threads = relationship("Thread", back_populates="user")
+    documents = relationship("Document", back_populates="user")
+    prompt_logs = relationship("PromptLog", back_populates="user")
+    
+    # Пустые заглушки для отношений с Vexa, которые будут определены позже
+    # Не используйте их до вызова extend_user_model()
+    vexa_meetings = None
+    vexa_settings = None
+
+
 class VerificationCode(Base):
     __tablename__ = "verification_codes"
 
@@ -22,23 +44,6 @@ class VerificationCode(Base):
     is_used = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="verification_code")
-
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, index=True)
-    hashed_password = Column(String(255))
-    first_name = Column(String(100))
-    last_name = Column(String(100))
-    is_active = Column(Boolean, default=False)
-    is_verified = Column(Boolean, default=False)
-
-    verification_code = relationship("VerificationCode", back_populates="user", uselist=False)
-    threads = relationship("Thread", back_populates="user")
-    documents = relationship("Document", back_populates="user")  # Добавляем связь
-    prompt_logs = relationship("PromptLog", back_populates="user")
-
 
 
 class TempUser(Base):
@@ -112,6 +117,26 @@ class PromptLog(Base):
     thread = relationship("Thread", back_populates="prompt_logs")
     message = relationship("Message", back_populates="prompt_log", uselist=False)
     user = relationship("User", back_populates="prompt_logs")
+
+
+
+
+try:
+    from vexa.vexa_integration_models import (
+        VexaMeeting, 
+        VexaTranscript, 
+        VexaMeetingSummary, 
+        VexaIntegrationSettings, 
+        VexaAudioStream,
+        extend_user_model
+    )
+    
+    # Вызовите функцию расширения User ПОСЛЕ определения всех моделей
+    extend_user_model()
+    
+except ImportError:
+    # Определите заглушки или просто пропустите, если модули Vexa не нужны
+    pass
 
 
 # Импорт и инициализацию моделей Vexa
