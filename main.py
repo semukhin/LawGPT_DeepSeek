@@ -28,6 +28,8 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.exceptions import RequestValidationError
 
+from scripts.es_init import get_indexing_status
+
 # Загрузка переменных окружения
 load_dotenv()
 
@@ -50,13 +52,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Импорт компонентов для Vexa
+# Подключение роутера Vexa, если интеграция включена
 if VEXA_INTEGRATION_ENABLED:
     try:
-        from vexa.vexa_handlers import router as vexa_router
-        from vexa.vexa_api_client import VexaApiClient
-        from vexa.vexa_integration_models import VexaMeeting, VexaTranscript, VexaIntegrationSettings
-    except ImportError as e:
-        logger.warning(f"Не удалось импортировать модули Vexa: {e}")
+        # Проверяем существование таблиц для Vexa
+        from sqlalchemy import inspect
+        inspector = inspect(database.engine)
+        vexa_tables = ['vexa_meetings', 'vexa_transcripts', 'vexa_integration_settings']
+        missing_tables = [table for table in vexa_tables if table not in inspector.get_table_names()]
+        
+        if missing_tables:
+            logger.warning(f"Таблицы Vexa отсутствуют: {', '.join(missing_tables)}. Автоматическое создание...")
+            from alembic import command
+            from alembic.config import Config
+            alembic_cfg = Config("alembic.ini")
+            command.upgrade(alembic_cfg, "head")
+            
+        app.include_router(vexa_router)
+        logger.info("Роутер Vexa успешно подключен")
+    except Exception as e:
+        logger.error(f"Ошибка при подключении роутера Vexa: {e}")
         VEXA_INTEGRATION_ENABLED = False
 
 # Настройка жизненного цикла приложения
@@ -239,18 +254,6 @@ async def health_check():
         health_data["components"]["elasticsearch"] = {"status": "unhealthy", "error": str(e)}
         health_data["status"] = "degraded"
     
-    # Проверка Vexa API (если интеграция включена)
-    if VEXA_INTEGRATION_ENABLED:
-        try:
-            vexa_client = VexaApiClient()
-            connection_ok = await vexa_client.check_connection()
-            health_data["components"]["vexa_api"] = {
-                "status": "healthy" if connection_ok else "degraded"
-            }
-        except Exception as e:
-            health_data["components"]["vexa_api"] = {"status": "unhealthy", "error": str(e)}
-            health_data["status"] = "degraded"
-    
     return health_data
 
 @app.get("/api/stats", dependencies=[Depends(auth.get_current_user)])
@@ -264,30 +267,13 @@ async def get_usage_statistics(db: Session = Depends(get_db)):
     
     # Статистика по голосовому вводу
     voice_input_count = db.query(func.count(VoiceInputLog.id)).scalar()
-    
-    # Статистика по Vexa (если включено)
-    vexa_stats = {}
-    if VEXA_INTEGRATION_ENABLED:
-        try:
-            vexa_meeting_count = db.query(func.count(VexaMeeting.id)).scalar()
-            vexa_transcript_count = db.query(func.count(VexaTranscript.id)).scalar()
-            vexa_settings_count = db.query(func.count(VexaIntegrationSettings.id)).scalar()
-            
-            vexa_stats = {
-                "meetings": vexa_meeting_count,
-                "transcripts": vexa_transcript_count,
-                "users_with_settings": vexa_settings_count
-            }
-        except Exception as e:
-            vexa_stats = {"error": str(e)}
-    
+       
     return {
         "users": user_count,
         "threads": thread_count,
         "messages": message_count,
         "documents": document_count,
         "voice_inputs": voice_input_count,
-        "vexa": vexa_stats
     }
 
 @app.get("/api/indexing-status")
@@ -309,7 +295,7 @@ async def read_root():
 async def read_item(item_id: int):
     logger.info(f"Получен запрос для item_id: {item_id}")
     return {"item_id": item_id}
-
+get_indexing_status
 @app.post("/deep-research/")
 async def deep_research(query: str):
     """Эндпоинт для глубокого исследования."""
@@ -328,13 +314,6 @@ app.include_router(deepresearch_router)
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
 
-# Подключение роутера Vexa, если интеграция включена
-if VEXA_INTEGRATION_ENABLED:
-    try:
-        app.include_router(vexa_router)
-        logger.info("Роутер Vexa успешно подключен")
-    except NameError:
-        logger.warning("Роутер Vexa не найден")
 
 # ==================== ЗАПУСК ПРИЛОЖЕНИЯ ====================
 

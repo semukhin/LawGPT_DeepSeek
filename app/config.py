@@ -53,27 +53,31 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 дней
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# PostgreSQL (БД приложения)
-DB_USER_V = os.getenv("DB_USER_V", "gen_user")
-DB_PASSWORD_V = os.getenv("DB_PASSWORD_V", "Grisha1977!")
-DB_HOST_V = os.getenv("DB_HOST_V", "147.45.232.224")  
-DB_PORT_V = os.getenv("DB_PORT_V", "5432")
-DB_NAME_V = os.getenv("DB_NAME_V", "default_db")
 
-# Construct database URL
-DATABASE_URL = "postgresql://gen_user:Grisha1977!@147.45.232.224:5432/default_db"
+# Основное подключение для приложения
+DATABASE_CONFIG = {
+    "host": os.getenv('DB_HOST_V', '147.45.232.224'),
+    "port": int(os.getenv('DB_PORT_V', 5432)),
+    "database": os.getenv('DB_NAME_V', 'default_db'),
+    "user": os.getenv('DB_USER_V', 'gen_user'),
+    "password": os.getenv('DB_PASSWORD_V', 'Grisha1977!')
+}
+
+# Подключение к PostgreSQL для индексации Elasticsearch
+POSTGRES_INDEXING_CONFIG = {
+    "host": os.getenv('PG_DB_HOST', '82.97.242.92'),
+    "port": int(os.getenv('PG_DB_PORT', 5432)),
+    "database": os.getenv('PG_DB_NAME', 'ruslaw_db'),
+    "user": os.getenv('PG_DB_USER', 'gen_user'),
+    "password": os.getenv('PG_DB_PASSWORD', 'P?!ri#ag5%G1Si')
+}
+
+# Построение строки подключения
+DATABASE_URL = f"postgresql://{DATABASE_CONFIG['user']}:{DATABASE_CONFIG['password']}@{DATABASE_CONFIG['host']}:{DATABASE_CONFIG['port']}/{DATABASE_CONFIG['database']}"
 
 # PostgreSQL Configuration
 POSTGRES_DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# PostgreSQL конфигурация
-DB_CONFIG = {
-    "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
-    "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))), 
-    "database": os.getenv('PG_DB_NAME', os.getenv('DB_NAME')),
-    "user": os.getenv('PG_DB_USER', os.getenv('DB_USER')),
-    "password": os.getenv('PG_DB_PASSWORD', os.getenv('DB_PASSWORD'))
-}
 
 # Конфигурация безопасности
 SECRET_KEY = os.environ.get("SECRET_KEY", "Grisha1977!")
