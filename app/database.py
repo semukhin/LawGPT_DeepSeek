@@ -26,11 +26,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-# Для Elasticsearch/RAG (если нужно)
-es_engine = create_engine(
-    POSTGRES_DATABASE_URL,
-    pool_pre_ping=True,
-    pool_recycle=3600
-)

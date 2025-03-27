@@ -19,7 +19,7 @@ THIRD_PARTY_DIR = os.path.join(BASE_DIR, "third_party")
 if THIRD_PARTY_DIR not in sys.path:
    sys.path.insert(0, THIRD_PARTY_DIR)
 
-from app.utils import get_url_content
+from app.utilities import get_url_content
 from third_party.shandu.scraper import WebScraper, ScrapedContent
 
 # Отключаем предупреждения SSL для совместимости

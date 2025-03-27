@@ -9,7 +9,7 @@ import logging
 import json
 import asyncio
 from app.handlers.parallel_search import run_parallel_search
-from app.utils import measure_time
+from app.utilities import measure_time
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.web_search import google_search, search_and_scrape, run_multiple_searches
 from app.services.deepresearch_service import DeepResearchService

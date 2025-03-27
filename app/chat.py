@@ -27,7 +27,7 @@ from app.handlers.web_search import google_search
 from app.handlers.ai_request import send_custom_request
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.user_doc_request import extract_text_from_any_document
-from app.utils import measure_time
+from app.utilities import measure_time, get_url_content
 from transliterate import translit
 
 import speech_recognition as sr
@@ -35,8 +35,7 @@ from fastapi import File, UploadFile, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import speech_recognition as sr
-from app.speech_recognition_ml import LegalSpeechRecognitionModel
-from app.speech_content_filter import SpeechContentFilter
+from app.utilities import get_speech_recognition_model, get_speech_content_filter
 from google.cloud import speech_v1p1beta1 as speech
 
 # Проверка и безопасный импорт Google Cloud Speech
@@ -57,8 +56,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 # Инициализация моделей
-legal_speech_model = LegalSpeechRecognitionModel(language='ru')
-speech_filter = SpeechContentFilter(language='ru')
+legal_speech_model = get_speech_recognition_model()
+speech_filter = get_speech_content_filter()
 
 # Папки для хранения файлов
 UPLOAD_FOLDER = "uploads"
@@ -481,26 +480,6 @@ async def handle_voice_input(
     return await process_voice_input(file, language, current_user, db)
 
 
-
-def recognize_speech(file_path, language_code='ru-RU'):
-    client = speech.SpeechClient.from_service_account_file('path/to/credentials.json')
-    
-    with open(file_path, 'rb') as audio_file:
-        content = audio_file.read()
-    
-    audio = speech.RecognitionAudio(content=content)
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=16000,
-        language_code=language_code,
-        alternative_language_codes=['en-US']
-    )
-    
-    response = client.recognize(config=config, audio=audio)
-    
-    return response.results[0].alternatives[0].transcript
-
-
 # Функция для инициализации клиента
 def get_speech_client():
     if not GOOGLE_SPEECH_AVAILABLE:
@@ -518,13 +497,11 @@ def get_speech_client():
         logging.error(f"Ошибка при создании клиента Google Cloud Speech: {e}")
         return None
 
-
 # Заглушка для функции распознавания, если библиотека недоступна
 def recognize_speech_fallback(file_path, language_code='ru-RU'):
     logging.warning("Используется базовое распознавание без Google Cloud")
     # Реализуйте базовное распознавание или верните пустой результат
     return "Распознавание недоступно"
-
 
 # Основная функция распознавания
 def recognize_speech(file_path, language_code='ru-RU'):

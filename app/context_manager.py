@@ -133,6 +133,29 @@ class VertexAIProvider:
 
 # Пример использования
 class ThreadService:
+
+    async def summarize_context(self, messages: List[Dict[str, str]], ai_provider: AIProvider) -> str:
+        """
+        Суммаризирует контекст беседы для уменьшения токенов.
+        
+        Args:
+            messages: Список сообщений
+            ai_provider: Провайдер ИИ для генерации суммаризации
+            
+        Returns:
+            Строка с суммаризированным контекстом
+        """
+        # Объединяем содержимое сообщений
+        combined_text = "\n".join([f"{msg.get('role', 'user')}: {msg.get('content', '')}" for msg in messages])
+        
+        # Создаем промпт для суммаризации
+        prompt = f"Суммаризируй следующий диалог, сохраняя ключевые моменты и контекст:\n\n{combined_text}"
+        
+        # Получаем суммаризацию от провайдера ИИ
+        summary = ai_provider.generate_text(prompt)
+        
+        return f"Контекст предыдущего разговора: {summary}"
+
     def prepare_ai_context(
         self, 
         thread_id: str, 

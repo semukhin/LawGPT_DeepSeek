@@ -13,5 +13,5 @@ def get_vexa_client():
 @lru_cache(maxsize=1)
 def get_speech_recognition_model():
     """Ленивая инициализация модели распознавания речи"""
-    from app.speech_recognition_ml import LegalSpeechRecognitionModel
+    from app.utilities import LegalSpeechRecognitionModel
     return LegalSpeechRecognitionModel(language='ru')

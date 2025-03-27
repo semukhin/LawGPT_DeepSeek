@@ -245,339 +245,6 @@ function isLowPowerDevice() {
 }
 
 /**
- * Инициализация свайп-жестов для мобильных устройств
- */
-function initSwipeGestures() {
-    // Если это не мобильное устройство, пропускаем
-    if (!isMobile()) return;
-    
-    // Получаем элементы, для которых нужно добавить свайп
-    const chatItems = document.querySelectorAll('.chat-item:not(.empty):not(.new-chat-item)');
-    
-    chatItems.forEach(item => {
-        // Добавляем класс для свайпа
-        item.classList.add('swipeable');
-        
-        // Создаем элементы действий
-        const actionsEl = document.createElement('div');
-        actionsEl.className = 'swipe-actions';
-        
-        // Действие удаления
-        const deleteAction = document.createElement('div');
-        deleteAction.className = 'swipe-action delete';
-        deleteAction.innerHTML = '<i class="fas fa-trash"></i>';
-        deleteAction.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (confirm('Удалить этот чат?')) {
-                // TODO: добавить реальное удаление чата
-                item.style.height = '0';
-                item.style.opacity = '0';
-                item.style.margin = '0';
-                item.style.padding = '0';
-                
-                setTimeout(() => {
-                    item.remove();
-                }, 300);
-            }
-        });
-        
-        // Добавляем действия
-        actionsEl.appendChild(deleteAction);
-        item.appendChild(actionsEl);
-        
-        // Добавляем обработчики событий для свайпа
-        let startX, moveX, isDragging = false;
-        
-        item.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            isDragging = false;
-            
-            // Сбрасываем трансформацию других элементов
-            chatItems.forEach(otherItem => {
-                if (otherItem !== item) {
-                    otherItem.style.transform = 'translateX(0)';
-                    const otherActions = otherItem.querySelector('.swipe-actions');
-                    if (otherActions) {
-                        otherActions.style.opacity = '0';
-                    }
-                }
-            });
-        });
-        
-        item.addEventListener('touchmove', (e) => {
-            if (!startX) return;
-            
-            moveX = e.touches[0].clientX;
-            const diff = moveX - startX;
-            
-            // Если свайп влево
-            if (diff < 0) {
-                isDragging = true;
-                item.style.transform = `translateX(${diff}px)`;
-                
-                // Показываем действия с прозрачностью
-                const normalizedOpacity = Math.min(Math.abs(diff) / 100, 1);
-                actionsEl.style.opacity = normalizedOpacity;
-            }
-        });
-        
-        item.addEventListener('touchend', () => {
-            if (!isDragging) return;
-            
-            const diff = moveX - startX;
-            
-            // Если свайп достаточно большой
-            if (diff < -80) {
-                // Открываем действия
-                item.style.transform = 'translateX(-80px)';
-                actionsEl.style.opacity = '1';
-            } else {
-                // Возвращаем элемент в исходное положение
-                item.style.transform = 'translateX(0)';
-                actionsEl.style.opacity = '0';
-            }
-            
-            startX = null;
-            moveX = null;
-            isDragging = false;
-        });
-    });
-    
-    console.log('Свайп-жесты инициализированы для', chatItems.length, 'элементов');
-}
-
-/**
- * Инициализация pull-to-refresh для обновления списка чатов
- */
-function initPullToRefresh() {
-    if (!isMobile()) return;
-    
-    const chatList = document.getElementById('chat-list');
-    if (!chatList) return;
-    
-    // Создаем элемент индикатора
-    const pullIndicator = document.createElement('div');
-    pullIndicator.className = 'pull-indicator';
-    pullIndicator.innerHTML = `
-        <div class="pull-icon">
-            <i class="fas fa-arrow-down"></i>
-        </div>
-        <div class="pull-text">Потяните вниз для обновления</div>
-    `;
-    
-    chatList.parentNode.insertBefore(pullIndicator, chatList);
-    
-    // Переменные для отслеживания жеста
-    let startY, moveY;
-    let isPulling = false;
-    let isRefreshing = false;
-    
-    // Обработчик начала касания
-    chatList.addEventListener('touchstart', (e) => {
-        // Проверяем, находится ли скролл в начале
-        if (chatList.scrollTop === 0) {
-            startY = e.touches[0].clientY;
-            isPulling = true;
-        }
-    });
-    
-    // Обработчик движения пальца
-    chatList.addEventListener('touchmove', (e) => {
-        if (!isPulling || isRefreshing) return;
-        
-        moveY = e.touches[0].clientY;
-        const diff = moveY - startY;
-        
-        if (diff > 0) {
-            // Показываем индикатор с анимацией
-            pullIndicator.style.transform = `translateY(${Math.min(diff / 2, 60)}px)`;
-            pullIndicator.querySelector('.pull-icon').style.transform = `rotate(${diff / 3}deg)`;
-            
-            // Предотвращаем прокрутку, если тянем вниз
-            e.preventDefault();
-        }
-    });
-    
-    // Обработчик окончания касания
-    chatList.addEventListener('touchend', () => {
-        if (!isPulling || isRefreshing) return;
-        
-        const diff = moveY - startY;
-        
-        if (diff > 60) {
-            // Достаточно большое смещение - запускаем обновление
-            isRefreshing = true;
-            pullIndicator.style.transform = 'translateY(60px)';
-            pullIndicator.querySelector('.pull-text').textContent = 'Обновление...';
-            
-            // Обновляем список чатов
-            loadChatThreads().finally(() => {
-                // Возвращаем индикатор на место
-                setTimeout(() => {
-                    pullIndicator.style.transform = 'translateY(0)';
-                    pullIndicator.querySelector('.pull-text').textContent = 'Потяните вниз для обновления';
-                    isRefreshing = false;
-                }, 1000);
-            });
-        } else {
-            // Возвращаем индикатор на место
-            pullIndicator.style.transform = 'translateY(0)';
-        }
-        
-        isPulling = false;
-    });
-    
-    console.log('Pull-to-refresh инициализирован');
-}
-
-/**
- * Оптимизация клавиатуры для мобильных устройств
- */
-function initKeyboardOptimization() {
-    if (!isMobile()) return;
-    
-    const messageInput = document.getElementById('message-input');
-    if (!messageInput) return;
-    
-    // Запрещаем масштабирование при фокусе на мобильных устройствах
-    const viewportMeta = document.querySelector('meta[name="viewport"]');
-    if (viewportMeta) {
-        viewportMeta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
-    } else {
-        // Создаем метатег, если его нет
-        const meta = document.createElement('meta');
-        meta.name = 'viewport';
-        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
-        document.head.appendChild(meta);
-    }
-    
-    // Обработчик фокуса для автоскролла на мобильных
-    messageInput.addEventListener('focus', () => {
-        // Скроллим к полю ввода с задержкой
-        setTimeout(() => {
-            window.scrollTo(0, document.body.scrollHeight);
-            scrollToBottom();
-        }, 300);
-    });
-    
-    // Фикс для iOS: предотвращаем зум на двойном тапе
-    document.addEventListener('gesturestart', (e) => {
-        e.preventDefault();
-    });
-    
-    console.log('Оптимизация клавиатуры инициализирована');
-}
-
-/**
- * Инициализация ленивой загрузки сообщений
- */
-function initLazyMessageLoading() {
-    const messagesContainer = document.getElementById('messages-container');
-    if (!messagesContainer) return;
-    
-    // Состояние загрузки
-    let isLoading = false;
-    let hasMoreMessages = true;
-    let loadedMessageCount = 0;
-    let threadId = localStorage.getItem(config.storageThreadKey);
-    
-    // При прокрутке вверх загружаем больше сообщений
-    messagesContainer.addEventListener('scroll', () => {
-        // Если уже загружаем или нет больше сообщений, пропускаем
-        if (isLoading || !hasMoreMessages) return;
-        
-        // Если прокрутили достаточно вверх, загружаем больше сообщений
-        if (messagesContainer.scrollTop < 100) {
-            loadMoreMessages();
-        }
-    });
-    
-    // Функция загрузки дополнительных сообщений
-    async function loadMoreMessages() {
-        isLoading = true;
-        
-        // Показываем индикатор загрузки
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'message-loading';
-        loadingIndicator.innerHTML = '<div class="message-loading-spinner"></div>';
-        messagesContainer.prepend(loadingIndicator);
-        
-        // Запоминаем текущую высоту прокрутки
-        const scrollHeight = messagesContainer.scrollHeight;
-        
-        try {
-            // Загружаем еще сообщения с пагинацией
-            const offset = loadedMessageCount;
-            const limit = 20; // Количество сообщений на страницу
-            
-            const response = await apiRequest(`/messages/${threadId}?offset=${offset}&limit=${limit}`, 'GET');
-            
-            if (response.messages && Array.isArray(response.messages)) {
-                // Если нет больше сообщений, отмечаем это
-                if (response.messages.length === 0) {
-                    hasMoreMessages = false;
-                } else {
-                    // Обрабатываем полученные сообщения
-                    response.messages.forEach(message => {
-                        // Добавляем сообщения в начало, а не в конец
-                        const timestamp = message.created_at ? new Date(message.created_at) : new Date();
-                        
-                        const messageElement = document.createElement('div');
-                        messageElement.className = `message message-${message.role}`;
-                        
-                        const contentElement = document.createElement('div');
-                        contentElement.className = 'message-content';
-                        
-                        if (message.role === 'assistant' && config.markdownEnabled && window.markdown) {
-                            contentElement.innerHTML = window.markdown.parse(message.content);
-                        } else {
-                            contentElement.textContent = message.content;
-                        }
-                        
-                        const timeElement = document.createElement('div');
-                        timeElement.className = 'message-time';
-                        
-                        const dateStr = timestamp.toLocaleDateString('ru-RU');
-                        const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
-                        
-                        const dateSpan = document.createElement('span');
-                        dateSpan.className = 'message-date';
-                        dateSpan.textContent = dateStr;
-                        
-                        timeElement.appendChild(dateSpan);
-                        timeElement.appendChild(document.createTextNode(timeStr));
-                        
-                        messageElement.dataset.timestamp = timestamp.getTime();
-                        
-                        messageElement.appendChild(contentElement);
-                        messageElement.appendChild(timeElement);
-                        
-                        // Вставляем после индикатора загрузки
-                        messagesContainer.insertBefore(messageElement, loadingIndicator.nextSibling);
-                    });
-                    
-                    // Увеличиваем счетчик загруженных сообщений
-                    loadedMessageCount += response.messages.length;
-                }
-            }
-        } catch (error) {
-            console.error('Ошибка при загрузке дополнительных сообщений:', error);
-            showNotification('Не удалось загрузить больше сообщений', 'error');
-        } finally {
-            // Удаляем индикатор загрузки
-            loadingIndicator.remove();
-            
-            // Восстанавливаем позицию прокрутки, чтобы не было скачка
-            messagesContainer.scrollTop = messagesContainer.scrollHeight - scrollHeight;
-            
-            isLoading = false;
-        }
-    }
-    
-    console.log('Ленивая загрузка сообщений инициализирована');
-}
-
-/**
  * Оптимизация для маломощных устройств
  */
 function optimizeForLowPowerDevices() {
@@ -695,14 +362,314 @@ function initMobileMenu() {
  * Инициализация мобильных улучшений
  * Централизованный метод для настройки мобильного интерфейса
  */
+/**
+ * Инициализация мобильных улучшений
+ * Централизованный метод для настройки мобильного интерфейса
+ */
 function initMobileEnhancements() {
     if (isMobile()) {
         console.log('🚀 Инициализация мобильных улучшений');
         
-        initSwipeGestures();
-        initPullToRefresh();
-        initKeyboardOptimization();
-        initLazyMessageLoading();
+        // Функционал из initSwipeGestures
+        const chatItems = document.querySelectorAll('.chat-item:not(.empty):not(.new-chat-item)');
+        
+        chatItems.forEach(item => {
+            // Добавляем класс для свайпа
+            item.classList.add('swipeable');
+            
+            // Создаем элементы действий
+            const actionsEl = document.createElement('div');
+            actionsEl.className = 'swipe-actions';
+            
+            // Действие удаления
+            const deleteAction = document.createElement('div');
+            deleteAction.className = 'swipe-action delete';
+            deleteAction.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteAction.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('Удалить этот чат?')) {
+                    // Код удаления чата
+                    item.style.height = '0';
+                    item.style.opacity = '0';
+                    item.style.margin = '0';
+                    item.style.padding = '0';
+                    
+                    setTimeout(() => {
+                        item.remove();
+                    }, 300);
+                }
+            });
+            
+            // Добавляем действия
+            actionsEl.appendChild(deleteAction);
+            item.appendChild(actionsEl);
+            
+            // Код обработки свайпа
+            let startX, moveX, isDragging = false;
+            
+            item.addEventListener('touchstart', (e) => {
+                startX = e.touches[0].clientX;
+                isDragging = false;
+                
+                // Сбрасываем трансформацию других элементов
+                chatItems.forEach(otherItem => {
+                    if (otherItem !== item) {
+                        otherItem.style.transform = 'translateX(0)';
+                        const otherActions = otherItem.querySelector('.swipe-actions');
+                        if (otherActions) {
+                            otherActions.style.opacity = '0';
+                        }
+                    }
+                });
+            });
+            
+            item.addEventListener('touchmove', (e) => {
+                if (!startX) return;
+                
+                moveX = e.touches[0].clientX;
+                const diff = moveX - startX;
+                
+                // Если свайп влево
+                if (diff < 0) {
+                    isDragging = true;
+                    item.style.transform = `translateX(${diff}px)`;
+                    
+                    // Показываем действия с прозрачностью
+                    const normalizedOpacity = Math.min(Math.abs(diff) / 100, 1);
+                    actionsEl.style.opacity = normalizedOpacity;
+                }
+            });
+            
+            item.addEventListener('touchend', () => {
+                if (!isDragging) return;
+                
+                const diff = moveX - startX;
+                
+                // Если свайп достаточно большой
+                if (diff < -80) {
+                    // Открываем действия
+                    item.style.transform = 'translateX(-80px)';
+                    actionsEl.style.opacity = '1';
+                } else {
+                    // Возвращаем элемент в исходное положение
+                    item.style.transform = 'translateX(0)';
+                    actionsEl.style.opacity = '0';
+                }
+                
+                startX = null;
+                moveX = null;
+                isDragging = false;
+            });
+        });
+        
+        // Функционал из initPullToRefresh
+        const chatList = document.getElementById('chat-list');
+        if (chatList) {
+            // Создаем элемент индикатора
+            const pullIndicator = document.createElement('div');
+            pullIndicator.className = 'pull-indicator';
+            pullIndicator.innerHTML = `
+                <div class="pull-icon">
+                    <i class="fas fa-arrow-down"></i>
+                </div>
+                <div class="pull-text">Потяните вниз для обновления</div>
+            `;
+            
+            chatList.parentNode.insertBefore(pullIndicator, chatList);
+            
+            // Переменные для отслеживания жеста
+            let startY, moveY;
+            let isPulling = false;
+            let isRefreshing = false;
+            
+            // Обработчик начала касания
+            chatList.addEventListener('touchstart', (e) => {
+                // Проверяем, находится ли скролл в начале
+                if (chatList.scrollTop === 0) {
+                    startY = e.touches[0].clientY;
+                    isPulling = true;
+                }
+            });
+            
+            // Обработчик движения пальца
+            chatList.addEventListener('touchmove', (e) => {
+                if (!isPulling || isRefreshing) return;
+                
+                moveY = e.touches[0].clientY;
+                const diff = moveY - startY;
+                
+                if (diff > 0) {
+                    // Показываем индикатор с анимацией
+                    pullIndicator.style.transform = `translateY(${Math.min(diff / 2, 60)}px)`;
+                    pullIndicator.querySelector('.pull-icon').style.transform = `rotate(${diff / 3}deg)`;
+                    
+                    // Предотвращаем прокрутку, если тянем вниз
+                    e.preventDefault();
+                }
+            });
+            
+            // Обработчик окончания касания
+            chatList.addEventListener('touchend', () => {
+                if (!isPulling || isRefreshing) return;
+                
+                const diff = moveY - startY;
+                
+                if (diff > 60) {
+                    // Достаточно большое смещение - запускаем обновление
+                    isRefreshing = true;
+                    pullIndicator.style.transform = 'translateY(60px)';
+                    pullIndicator.querySelector('.pull-text').textContent = 'Обновление...';
+                    
+                    // Обновляем список чатов
+                    loadChatThreads().finally(() => {
+                        // Возвращаем индикатор на место
+                        setTimeout(() => {
+                            pullIndicator.style.transform = 'translateY(0)';
+                            pullIndicator.querySelector('.pull-text').textContent = 'Потяните вниз для обновления';
+                            isRefreshing = false;
+                        }, 1000);
+                    });
+                } else {
+                    // Возвращаем индикатор на место
+                    pullIndicator.style.transform = 'translateY(0)';
+                }
+                
+                isPulling = false;
+            });
+        }
+        
+        // Функционал из initKeyboardOptimization
+        const messageInput = document.getElementById('message-input');
+        if (messageInput) {
+            // Запрещаем масштабирование при фокусе на мобильных устройствах
+            const viewportMeta = document.querySelector('meta[name="viewport"]');
+            if (viewportMeta) {
+                viewportMeta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
+            } else {
+                // Создаем метатег, если его нет
+                const meta = document.createElement('meta');
+                meta.name = 'viewport';
+                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0';
+                document.head.appendChild(meta);
+            }
+            
+            // Обработчик фокуса для автоскролла на мобильных
+            messageInput.addEventListener('focus', () => {
+                // Скроллим к полю ввода с задержкой
+                setTimeout(() => {
+                    window.scrollTo(0, document.body.scrollHeight);
+                    scrollToBottom();
+                }, 300);
+            });
+            
+            // Фикс для iOS: предотвращаем зум на двойном тапе
+            document.addEventListener('gesturestart', (e) => {
+                e.preventDefault();
+            });
+        }
+        
+        // Функционал из initLazyMessageLoading
+        const messagesContainer = document.getElementById('messages-container');
+        if (messagesContainer) {
+            // Состояние загрузки
+            let isLoading = false;
+            let hasMoreMessages = true;
+            let loadedMessageCount = 0;
+            let threadId = localStorage.getItem(config.storageThreadKey);
+            
+            // При прокрутке вверх загружаем больше сообщений
+            messagesContainer.addEventListener('scroll', () => {
+                // Если уже загружаем или нет больше сообщений, пропускаем
+                if (isLoading || !hasMoreMessages) return;
+                
+                // Если прокрутили достаточно вверх, загружаем больше сообщений
+                if (messagesContainer.scrollTop < 100) {
+                    loadMoreMessages();
+                }
+            });
+            
+            // Функция загрузки дополнительных сообщений
+            async function loadMoreMessages() {
+                isLoading = true;
+                
+                // Показываем индикатор загрузки
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.className = 'message-loading';
+                loadingIndicator.innerHTML = '<div class="message-loading-spinner"></div>';
+                messagesContainer.prepend(loadingIndicator);
+                
+                // Запоминаем текущую высоту прокрутки
+                const scrollHeight = messagesContainer.scrollHeight;
+                
+                try {
+                    // Загружаем еще сообщения с пагинацией
+                    const offset = loadedMessageCount;
+                    const limit = 20; // Количество сообщений на страницу
+                    
+                    const response = await apiRequest(`/messages/${threadId}?offset=${offset}&limit=${limit}`, 'GET');
+                    
+                    if (response.messages && Array.isArray(response.messages)) {
+                        // Если нет больше сообщений, отмечаем это
+                        if (response.messages.length === 0) {
+                            hasMoreMessages = false;
+                        } else {
+                            // Обрабатываем полученные сообщения
+                            response.messages.forEach(message => {
+                                // Добавляем сообщения в начало, а не в конец
+                                const timestamp = message.created_at ? new Date(message.created_at) : new Date();
+                                
+                                const messageElement = document.createElement('div');
+                                messageElement.className = `message message-${message.role}`;
+                                
+                                const contentElement = document.createElement('div');
+                                contentElement.className = 'message-content';
+                                
+                                if (message.role === 'assistant' && config.markdownEnabled && window.markdown) {
+                                    contentElement.innerHTML = window.markdown.parse(message.content);
+                                } else {
+                                    contentElement.textContent = message.content;
+                                }
+                                
+                                const timeElement = document.createElement('div');
+                                timeElement.className = 'message-time';
+                                
+                                const dateStr = timestamp.toLocaleDateString('ru-RU');
+                                const timeStr = timestamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+                                
+                                const dateSpan = document.createElement('span');
+                                dateSpan.className = 'message-date';
+                                dateSpan.textContent = dateStr;
+                                
+                                timeElement.appendChild(dateSpan);
+                                timeElement.appendChild(document.createTextNode(timeStr));
+                                
+                                messageElement.dataset.timestamp = timestamp.getTime();
+                                
+                                messageElement.appendChild(contentElement);
+                                messageElement.appendChild(timeElement);
+                                
+                                // Вставляем после индикатора загрузки
+                                messagesContainer.insertBefore(messageElement, loadingIndicator.nextSibling);
+                            });
+                            
+                            // Увеличиваем счетчик загруженных сообщений
+                            loadedMessageCount += response.messages.length;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка при загрузке дополнительных сообщений:', error);
+                    showNotification('Не удалось загрузить больше сообщений', 'error');
+                } finally {
+                    // Удаляем индикатор загрузки
+                    loadingIndicator.remove();
+                    
+                    // Восстанавливаем позицию прокрутки, чтобы не было скачка
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight - scrollHeight;
+                    
+                    isLoading = false;
+                }
+            }
+        }
         
         // Добавляем класс на body для мобильных устройств
         document.body.classList.add('mobile-device');

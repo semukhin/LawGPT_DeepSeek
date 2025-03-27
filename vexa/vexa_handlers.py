@@ -111,11 +111,23 @@ cipher_suite = Fernet(get_valid_fernet_key(ENCRYPTION_KEY))
 
 def encrypt_token(token: str) -> str:
     """Шифрует токен для безопасного хранения"""
-    return cipher_suite.encrypt(token.encode()).decode()
-
+    if not token:
+        return ""
+    try:
+        return cipher_suite.encrypt(token.encode()).decode()
+    except Exception as e:
+        logging.error(f"Ошибка шифрования: {e}")
+        return token
+        
 def decrypt_token(encrypted_token: str) -> str:
     """Дешифрует токен для использования"""
-    return cipher_suite.decrypt(encrypted_token.encode()).decode()
+    if not encrypted_token:
+        return ""
+    try:
+        return cipher_suite.decrypt(encrypted_token.encode()).decode()
+    except Exception as e:
+        logging.error(f"Ошибка дешифровки: {e}")
+        return encrypted_token
 
 
 
@@ -176,15 +188,6 @@ def get_vexa_client():
     else:
         return VexaApiClientStub()
 
-
-
-def encrypt_token(token: str) -> str:
-    """Шифрует токен для безопасного хранения"""
-    return cipher_suite.encrypt(token.encode()).decode()
-
-def decrypt_token(encrypted_token: str) -> str:
-    """Дешифрует токен для использования"""
-    return cipher_suite.decrypt(encrypted_token.encode()).decode()
 
 # Получение настроек интеграции с Vexa для текущего пользователя
 async def get_user_vexa_settings(user: models.User, db: Session):
@@ -369,7 +372,7 @@ async def create_meeting(
         start_time=db_meeting.start_time,
         source_type=source_type,
         connection_id=connection_id,
-        metadata={
+        meeting_metadata={
             "user_id": str(current_user.id),
             "user_email": current_user.email
         }
@@ -667,7 +670,7 @@ async def get_meeting_details(
         "status": db_meeting.status,
         "source_type": db_meeting.source_type,
         "connection_id": db_meeting.connection_id,
-        "metadata": json.loads(db_meeting.meeting_metadata) if db_meeting.meeting_metadata else None,
+        "meeting_metadata": json.loads(db_meeting.meeting_metadata) if db_meeting.meeting_metadata else None,
         "summary": {
             "available": summary is not None,
             "summary_text": summary.summary_text if summary else None,
@@ -1181,51 +1184,3 @@ except Exception as e:
     # Если ключ некорректный - используем сгенерированный
     logging.warning(f"Ошибка инициализации ключа: {e}. Используется сгенерированный ключ.")
     cipher_suite = Fernet(generate_safe_fernet_key())
-
-def encrypt_token(token: str) -> str:
-    """
-    Безопасное шифрование токена
-    """
-    try:
-        return cipher_suite.encrypt(token.encode()).decode()
-    except Exception as e:
-        logging.error(f"Ошибка шифрования: {e}")
-        return token  # Возвращаем оригинальный токен в случае ошибки
-
-def decrypt_token(encrypted_token: str) -> str:
-    """
-    Безопасная дешифровка токена
-    """
-    try:
-        return cipher_suite.decrypt(encrypted_token.encode()).decode()
-    except Exception as e:
-        logging.error(f"Ошибка дешифровки: {e}")
-        return encrypted_token  # Возвращаем оригинальный токен в случае ошибки
-    
-
-# Файл vexa/vexa_handlers.py - улучшенная обработка ошибок
-def safe_encrypt_token(token: str) -> str:
-    """
-    Безопасное шифрование токена с обработкой ошибок
-    """
-    if not token:
-        return ""
-        
-    try:
-        return cipher_suite.encrypt(token.encode()).decode()
-    except Exception as e:
-        logging.error(f"Ошибка шифрования: {e}")
-        # Создаем новый шифровщик с корректным ключом
-        new_key = Fernet.generate_key()
-        new_cipher = Fernet(new_key)
-        
-        # Сохраняем новый ключ в переменную окружения
-        os.environ["VEXA_ENCRYPTION_KEY"] = new_key.decode()
-        logging.info(f"Создан новый ключ шифрования: {new_key.decode()}")
-        
-        # Пробуем зашифровать с новым ключом
-        try:
-            return new_cipher.encrypt(token.encode()).decode()
-        except Exception as e2:
-            logging.error(f"Повторная ошибка шифрования: {e2}")
-            return token  # В крайнем случае возвращаем токен без шифрования
