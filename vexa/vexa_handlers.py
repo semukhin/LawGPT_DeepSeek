@@ -90,14 +90,20 @@ if not ENCRYPTION_KEY:
     print("ВАЖНО: Сохраните этот ключ в переменных окружения VEXA_ENCRYPTION_KEY")
 
 # Функция для корректного форматирования ключа
-def get_valid_fernet_key(key):
+def get_valid_fernet_key(key_str):
+    """Преобразует строку ключа в корректный формат для Fernet"""
+    if not key_str:
+        # Генерируем новый ключ, если не задан
+        return Fernet.generate_key()
+    
     try:
-        # Пытаемся декодировать и проверить ключ
-        base64.urlsafe_b64decode(key)
-        return key.encode() if isinstance(key, str) else key
-    except Exception:
-        # Если ключ некорректный, генерируем новый
-        print("⚠️ Некорректный ключ шифрования. Генерация нового.")
+        # Проверяем длину и формат ключа
+        key_bytes = key_str.encode() if isinstance(key_str, str) else key_str
+        if len(base64.urlsafe_b64decode(key_bytes)) != 32:
+            raise ValueError("Неверная длина ключа")
+        return key_bytes
+    except Exception as e:
+        logging.warning(f"Некорректный ключ: {e}. Генерируем новый.")
         return Fernet.generate_key()
 
 # Создаем корректный объект Fernet
@@ -1195,3 +1201,31 @@ def decrypt_token(encrypted_token: str) -> str:
     except Exception as e:
         logging.error(f"Ошибка дешифровки: {e}")
         return encrypted_token  # Возвращаем оригинальный токен в случае ошибки
+    
+
+# Файл vexa/vexa_handlers.py - улучшенная обработка ошибок
+def safe_encrypt_token(token: str) -> str:
+    """
+    Безопасное шифрование токена с обработкой ошибок
+    """
+    if not token:
+        return ""
+        
+    try:
+        return cipher_suite.encrypt(token.encode()).decode()
+    except Exception as e:
+        logging.error(f"Ошибка шифрования: {e}")
+        # Создаем новый шифровщик с корректным ключом
+        new_key = Fernet.generate_key()
+        new_cipher = Fernet(new_key)
+        
+        # Сохраняем новый ключ в переменную окружения
+        os.environ["VEXA_ENCRYPTION_KEY"] = new_key.decode()
+        logging.info(f"Создан новый ключ шифрования: {new_key.decode()}")
+        
+        # Пробуем зашифровать с новым ключом
+        try:
+            return new_cipher.encrypt(token.encode()).decode()
+        except Exception as e2:
+            logging.error(f"Повторная ошибка шифрования: {e2}")
+            return token  # В крайнем случае возвращаем токен без шифрования

@@ -563,35 +563,40 @@ class VexaApiClient:
             return ""  # В случае ошибки возвращаем пустую строку, а не исключение
 
 
+    # Улучшенная версия _make_request в vexa_api_client.py
     async def _make_request(self, method, url, **kwargs):
-        """
-        Универсальный метод для выполнения запросов с повторными попытками
-        """
+        """Универсальный метод для выполнения запросов с повторными попытками"""
         max_retries = 3
         retry_delay = 1.0
         
         for attempt in range(max_retries):
             try:
-                session = await self._get_session()
-                async with getattr(session, method.lower())(url, **kwargs) as response:
-                    if response.status == 429:  # Too Many Requests
-                        retry_after = int(response.headers.get('Retry-After', retry_delay))
-                        logger.warning(f"Rate limit hit. Retrying after {retry_after}s")
-                        await asyncio.sleep(retry_after)
-                        continue
+                async with aiohttp.ClientSession() as session:
+                    async with getattr(session, method.lower())(url, **kwargs) as response:
+                        if response.status == 429:  # Too Many Requests
+                            retry_after = int(response.headers.get('Retry-After', retry_delay))
+                            logger.warning(f"Rate limit hit. Retrying after {retry_after}s")
+                            await asyncio.sleep(retry_after)
+                            continue
+                            
+                        if response.status >= 500:  # Server error
+                            logger.warning(f"Server error {response.status}. Attempt {attempt+1}/{max_retries}")
+                            await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                            continue
+                            
+                        # Проверка на ошибки аутентификации
+                        if response.status == 401:
+                            logger.error("Authentication error: Invalid API key")
+                            return {"success": False, "status": response.status, "error": "Invalid API key"}
+                            
+                        if not response.ok:
+                            error_text = await response.text()
+                            logger.error(f"API Error ({response.status}): {error_text}")
+                            return {"success": False, "status": response.status, "error": error_text}
                         
-                    if response.status >= 500:  # Server error
-                        logger.warning(f"Server error {response.status}. Attempt {attempt+1}/{max_retries}")
-                        await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                        continue
+                        data = await response.json() if response.headers.get('Content-Type', '').startswith('application/json') else await response.text()
+                        return {"success": True, "data": data, "status": response.status}
                         
-                    if not response.ok:
-                        error_text = await response.text()
-                        logger.error(f"API Error ({response.status}): {error_text}")
-                        return {"success": False, "status": response.status, "error": error_text}
-                    
-                    return {"success": True, "data": await response.json(), "status": response.status}
-                    
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Failed after {max_retries} attempts: {str(e)}")
