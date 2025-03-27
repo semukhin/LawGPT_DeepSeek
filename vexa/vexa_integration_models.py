@@ -28,7 +28,7 @@ class VexaMeeting(Base):
     status = Column(String(50), nullable=False, default="active")
     source_type = Column(String(50), nullable=False)  # google_meet, zoom, etc.
     connection_id = Column(String(100), nullable=False)
-    meeting_metadata = Column(JSON, nullable=True)  # Изменено с metadata на meeting_metadata
+    meeting_metadata = Column(JSON, nullable=True)
 
     user = relationship("User", back_populates="vexa_meetings")
     transcripts = relationship("VexaTranscript", back_populates="meeting", cascade="all, delete-orphan")

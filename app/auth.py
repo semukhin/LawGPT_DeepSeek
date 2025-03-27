@@ -4,7 +4,6 @@ from passlib.context import CryptContext
 from datetime import timedelta, datetime
 from jose import jwt, JWTError
 from app import mail_utils, models, schemas, database, config
-from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
 from app.mail_utils import send_verification_email, send_recovery_email
 from app.models import TempUser

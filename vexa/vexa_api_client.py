@@ -84,23 +84,24 @@ class VexaApiClient:
         """Инициализация сессии для использования с context manager"""
         self.session = aiohttp.ClientSession()
         return self
-        
+
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Закрытие сессии при выходе из context manager"""
         if self.session:
             await self.session.close()
             self.session = None
-            
+
+
     async def _get_session(self):
         """Получение существующей или создание новой сессии"""
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    # Модифицировать существующие методы для использования общей сессии
+
     async def check_connection(self):
         session = await self._get_session()
-        # Использовать session вместо создания новой в async with
         try:
             async with session.get(
                 f"{self.stream_url}/api/v1/extension/check-token", 
