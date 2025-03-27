@@ -23,7 +23,7 @@ deep_research_service = DeepResearchService()
 deepseek_service = DeepSeekService(
     api_key=DEEPSEEK_API_KEY, 
     model=DEEPSEEK_MODEL,
-    temperature=1.0
+    temperature=1.2
 )
 
 # Инициализация менеджера контекста

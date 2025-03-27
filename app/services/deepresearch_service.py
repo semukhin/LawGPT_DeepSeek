@@ -172,7 +172,7 @@ class DeepResearchService:
         self.deepseek_service = DeepSeekService(
             api_key=DEEPSEEK_API_KEY,
             model=DEEPSEEK_MODEL,
-            temperature=1.0, 
+            temperature=1.2, 
             max_tokens=8192,
             timeout=180
         )

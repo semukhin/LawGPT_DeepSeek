@@ -1124,6 +1124,17 @@ html, body {
     display: none;
 }
 
+.voice-record-btn {
+    background-color: #3498db;
+    color: white;
+}
+
+.voice-stop-btn {
+    background-color: #e74c3c;
+    color: white;
+}
+
+
 /* ============================================================
    МЕДИА-ЗАПРОСЫ ДЛЯ РАЗЛИЧНЫХ УСТРОЙСТВ
    ============================================================ */
@@ -1520,3 +1531,44 @@ newStyles.textContent = `
     }
 `;
 document.head.appendChild(newStyles);
+
+.action-btn:disabled {
+    background-color: rgba(52, 152, 219, 0.5);
+    cursor: not-allowed;
+}
+
+/* Стили для голосового ввода */
+.voice-input-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.voice-language-select {
+    background-color: var(--gray-medium);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-light);
+    border-radius: var(--border-radius);
+    padding: 0.25rem;
+    max-width: 120px;
+    font-size: 0.9rem;
+}
+
+.voice-language-select:focus {
+    border-color: var(--accent-color);
+    outline: none;
+}
+
+.voice-record-btn {
+    color: var(--text-light);
+    background-color: var(--accent-color);
+}
+
+.voice-record-btn:hover {
+    background-color: var(--accent-dark);
+}
+
+.voice-stop-btn {
+    background-color: var(--error-color);
+    color: white;
+}
