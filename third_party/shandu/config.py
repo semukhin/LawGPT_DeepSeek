@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
         "base_url": "https://api.deepseek.com/v1",
         "api_key": "",
         "model": "deepseek-reasoner",
-        "temperature": 1.0
+        "temperature": 1.2
     },
     "search": {
         "engines": ["duckduckgo", "google"],
@@ -30,7 +30,7 @@ DEFAULT_CONFIG = {
         "max_urls_per_query": 3
     },
     "scraper": {
-        "timeout": 30,
+        "timeout": 10,
         "max_retries": 3,
         "chunk_size": 1000,
         "chunk_overlap": 200,

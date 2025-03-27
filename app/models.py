@@ -132,3 +132,34 @@ extend_user_model = vexa_models.extend_user_model
 
 # Расширяем модель User для связи с Vexa
 extend_user_model()
+
+
+from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from app.database import Base
+
+class VoiceInputLog(Base):
+    """
+    Модель для логирования использования голосового ввода
+    """
+    __tablename__ = "voice_input_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    thread_id = Column(String(50), ForeignKey('threads.id'), nullable=False)
+    language = Column(String(10), nullable=False)  # Код языка
+    audio_duration = Column(Float, nullable=False)  # Длительность аудио в секундах
+    audio_size = Column(Integer, nullable=False)  # Размер аудиофайла в байтах
+    recognition_success = Column(Boolean, nullable=False)
+    recognition_confidence = Column(Float, nullable=True)
+    recognition_error = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи с другими моделями
+    user = relationship("User")
+    thread = relationship("Thread")
+
+# Обновляем модель User для связи с логами голосового ввода
+def extend_user_model(Base):
+    Base.voice_input_logs = relationship("VoiceInputLog", back_populates="user")

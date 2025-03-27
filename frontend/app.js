@@ -1089,6 +1089,8 @@ function initChatInterface() {
     if (navAboutBtn) {
         navAboutBtn.addEventListener('click', showAboutModal);
     }
+
+    addVoiceInputButtons();
 }
 
 /**
@@ -1935,3 +1937,636 @@ document.addEventListener('DOMContentLoaded', () => {
     
     console.log('Инициализация приложения завершена');
 });
+
+
+
+// Функции для голосового ввода
+
+// Проверка поддержки браузером Web Speech API
+function isSpeechRecognitionSupported() {
+    return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+}
+
+// Функция для начала записи голоса
+function startVoiceRecording() {
+    const messageInput = document.getElementById('message-input');
+    const voiceRecordBtn = document.getElementById('voice-record-btn');
+    const voiceStopBtn = document.getElementById('voice-stop-btn');
+    
+    if (!isSpeechRecognitionSupported()) {
+        showNotification('Голосовой ввод не поддерживается в вашем браузере', 'error');
+        return;
+    }
+    
+    // Создаем объект распознавания речи
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    // Настройки распознавания
+    recognition.lang = 'ru-RU'; // Русский язык по умолчанию
+    recognition.interimResults = false; // Только финальный результат
+    recognition.maxAlternatives = 1; // Один вариант распознавания
+    
+    // Обработчики событий
+    recognition.onstart = () => {
+        voiceRecordBtn.style.display = 'none';
+        voiceStopBtn.style.display = 'inline-block';
+        messageInput.placeholder = 'Говорите...';
+    };
+    
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        messageInput.value = transcript;
+        
+        // Восстанавливаем кнопки
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+        
+        // Активируем кнопку отправки
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) {
+            sendBtn.disabled = false;
+        }
+    };
+    
+    recognition.onerror = (event) => {
+        console.error('Ошибка распознавания:', event.error);
+        
+        // Восстанавливаем кнопки
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+        
+        switch(event.error) {
+            case 'no-speech':
+                showNotification('Речь не распознана', 'error');
+                break;
+            case 'audio-capture':
+                showNotification('Не удалось захватить аудио', 'error');
+                break;
+            case 'not-allowed':
+                showNotification('Нет разрешения на использование микрофона', 'error');
+                break;
+            default:
+                showNotification('Ошибка при распознавании речи', 'error');
+        }
+    };
+    
+    recognition.onend = () => {
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+    };
+    
+    // Начинаем распознавание
+    recognition.start();
+}
+
+// Функция для альтернативного метода - серверное распознавание
+// Получаем текущий выбранный язык распознавания
+function getSelectedVoiceLanguage() {
+    const languageSelect = document.getElementById('voice-language-select');
+    return languageSelect ? languageSelect.value : 'ru-RU';
+}
+
+async function startServerVoiceRecording() {
+    const messageInput = document.getElementById('message-input');
+    const voiceRecordBtn = document.getElementById('voice-record-btn');
+    const voiceStopBtn = document.getElementById('voice-stop-btn');
+    
+    // Проверяем поддержку getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showNotification('Запись голоса не поддерживается в вашем браузере', 'error');
+        return;
+    }
+    
+    try {
+        // Получаем доступ к микрофону
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        
+        const audioChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            // Восстанавливаем кнопки
+            voiceRecordBtn.style.display = 'inline-block';
+            voiceStopBtn.style.display = 'none';
+            messageInput.placeholder = 'Введите сообщение...';
+            
+            // Создаем Blob из записанных чанков
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            
+            // Отправляем на сервер для распознавания
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'voice_message.wav');
+            
+            // Получаем выбранный язык
+            const selectedLanguage = getSelectedVoiceLanguage();
+            formData.append('language', selectedLanguage);
+            
+            try {
+                showLoading(); // Показываем индикатор загрузки
+                const threadId = localStorage.getItem(config.storageThreadKey);
+                const response = await apiRequestFormData(`/chat/${threadId}/voice-input`, formData);
+                
+                if (response.text) {
+                    messageInput.value = response.text;
+                    messageInput.focus();
+                    
+                    // Активируем кнопку отправки
+                    const sendBtn = document.getElementById('send-btn');
+                    if (sendBtn) {
+                        sendBtn.disabled = false;
+                    }
+                    
+                    showNotification('Голосовое сообщение распознано', 'success');
+                }
+            } catch (error) {
+                showNotification(`Ошибка распознавания: ${error.message}`, 'error');
+            } finally {
+                hideLoading(); // Скрываем индикатор загрузки
+            }
+            
+            // Закрываем медиапотоки
+            stream.getTracks().forEach(track => track.stop());
+        };
+        
+        // Начинаем запись
+        mediaRecorder.start();
+        
+        // Обновляем UI
+        voiceRecordBtn.style.display = 'none';
+        voiceStopBtn.style.display = 'inline-block';
+        messageInput.placeholder = 'Говорите...';
+        
+        // Останавливаем запись через 10 секунд или по нажатию стоп-кнопки
+        const stopRecording = () => {
+            mediaRecorder.stop();
+            voiceStopBtn.removeEventListener('click', stopRecording);
+        };
+        
+        voiceStopBtn.addEventListener('click', stopRecording);
+        
+        // Автоматическая остановка через 10 секунд
+        setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        }, 10000);
+    } catch (error) {
+        console.error('Ошибка при записи голоса:', error);
+        showNotification('Не удалось получить доступ к микрофону', 'error');
+    }
+}
+
+// Добавляем кнопки голосового ввода в интерфейс
+function addVoiceInputButtons() {
+    const inputWrapper = document.querySelector('.input-wrapper');
+    
+    if (inputWrapper && !document.getElementById('voice-record-btn')) {
+        // Создаем контейнер для голосовых элементов
+        const voiceContainer = document.createElement('div');
+        voiceContainer.className = 'voice-input-container';
+        
+        // Язык распознавания
+        const languageSelect = document.createElement('select');
+        languageSelect.id = 'voice-language-select';
+        languageSelect.className = 'voice-language-select';
+        
+        // Список языков
+        const languages = [
+            { code: 'ru-RU', name: 'Русский' },
+            { code: 'en-US', name: 'English' },
+            { code: 'uk-UA', name: 'Українська' },
+            { code: 'de-DE', name: 'Deutsch' },
+            { code: 'fr-FR', name: 'Français' },
+            { code: 'es-ES', name: 'Español' },
+            { code: 'it-IT', name: 'Italiano' },
+            { code: 'zh-CN', name: '中文' },
+            { code: 'ja-JP', name: '日本語' }
+        ];
+        
+        languages.forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang.code;
+            option.textContent = lang.name;
+            if (lang.code === 'ru-RU') option.selected = true;
+            languageSelect.appendChild(option);
+        });
+        
+        // Кнопка начала записи
+        const voiceRecordBtn = document.createElement('button');
+        voiceRecordBtn.id = 'voice-record-btn';
+        voiceRecordBtn.className = 'action-btn voice-record-btn';
+        voiceRecordBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+        voiceRecordBtn.title = 'Начать голосовой ввод';
+        
+        // Кнопка остановки записи (по умолчанию скрыта)
+        const voiceStopBtn = document.createElement('button');
+        voiceStopBtn.id = 'voice-stop-btn';
+        voiceStopBtn.className = 'action-btn voice-stop-btn';
+        voiceStopBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        voiceStopBtn.title = 'Остановить запись';
+        voiceStopBtn.style.display = 'none';
+        
+        // Добавляем обработчики событий
+        voiceRecordBtn.addEventListener('click', () => {
+            // Если есть Web Speech API - используем его, иначе серверное распознавание
+            if (isSpeechRecognitionSupported()) {
+                startVoiceRecording();
+            } else {
+                startServerVoiceRecording();
+            }
+        });
+        
+        voiceStopBtn.addEventListener('click', () => {
+            // Логика остановки уже встроена в методы распознавания
+        });
+        
+        // Добавляем элементы в контейнер и в обертку ввода
+        voiceContainer.appendChild(languageSelect);
+        voiceContainer.appendChild(voiceRecordBtn);
+        voiceContainer.appendChild(voiceStopBtn);
+        
+        inputWrapper.appendChild(voiceContainer);
+    }
+}
+
+// Статистика использования голосового ввода
+const voiceInputStats = {
+    startRecording: function() {
+        this.recordingStartTime = Date.now();
+        this.recordingLanguage = getSelectedVoiceLanguage();
+        
+        // Отправка события в аналитику
+        try {
+            if (window.analytics) {
+                window.analytics.track('Voice Input Started', {
+                    language: this.recordingLanguage
+                });
+            }
+        } catch (error) {
+            console.error('Ошибка при логировании события голосового ввода', error);
+        }
+    },
+    
+    stopRecording: function(success, recognizedText = null) {
+        const recordingDuration = (Date.now() - this.recordingStartTime) / 1000;
+        
+        // Отправка события в аналитику
+        try {
+            if (window.analytics) {
+                window.analytics.track('Voice Input Completed', {
+                    language: this.recordingLanguage,
+                    duration: recordingDuration,
+                    success: success,
+                    textLength: recognizedText ? recognizedText.length : 0
+                });
+            }
+        } catch (error) {
+            console.error('Ошибка при логировании события голосового ввода', error);
+        }
+        
+        // Сброс статистики
+        this.recordingStartTime = null;
+        this.recordingLanguage = null;
+    }
+};
+
+// Функции для голосового ввода
+
+// Проверка поддержки браузером Web Speech API
+function isSpeechRecognitionSupported() {
+    return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+}
+
+// Функция для начала записи голоса
+function startVoiceRecording() {
+    const messageInput = document.getElementById('message-input');
+    const voiceRecordBtn = document.getElementById('voice-record-btn');
+    const voiceStopBtn = document.getElementById('voice-stop-btn');
+    
+    if (!isSpeechRecognitionSupported()) {
+        showNotification('Голосовой ввод не поддерживается в вашем браузере', 'error');
+        return;
+    }
+    
+    // Создаем объект распознавания речи
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    // Настройки распознавания
+    recognition.lang = 'ru-RU'; // Русский язык по умолчанию
+    recognition.interimResults = false; // Только финальный результат
+    recognition.maxAlternatives = 1; // Один вариант распознавания
+    
+    // Обработчики событий
+    recognition.onstart = () => {
+        voiceRecordBtn.style.display = 'none';
+        voiceStopBtn.style.display = 'inline-block';
+        messageInput.placeholder = 'Говорите...';
+    };
+    
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        messageInput.value = transcript;
+        
+        // Восстанавливаем кнопки
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+        
+        // Активируем кнопку отправки
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) {
+            sendBtn.disabled = false;
+        }
+    };
+    
+    recognition.onerror = (event) => {
+        console.error('Ошибка распознавания:', event.error);
+        
+        // Восстанавливаем кнопки
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+        
+        switch(event.error) {
+            case 'no-speech':
+                showNotification('Речь не распознана', 'error');
+                break;
+            case 'audio-capture':
+                showNotification('Не удалось захватить аудио', 'error');
+                break;
+            case 'not-allowed':
+                showNotification('Нет разрешения на использование микрофона', 'error');
+                break;
+            default:
+                showNotification('Ошибка при распознавании речи', 'error');
+        }
+    };
+    
+    recognition.onend = () => {
+        voiceRecordBtn.style.display = 'inline-block';
+        voiceStopBtn.style.display = 'none';
+        messageInput.placeholder = 'Введите сообщение...';
+    };
+    
+    // Начинаем распознавание
+    recognition.start();
+}
+
+// Функция для альтернативного метода - серверное распознавание
+// Получаем текущий выбранный язык распознавания
+function getSelectedVoiceLanguage() {
+    const languageSelect = document.getElementById('voice-language-select');
+    return languageSelect ? languageSelect.value : 'ru-RU';
+}
+
+async function startServerVoiceRecording() {
+    const messageInput = document.getElementById('message-input');
+    const voiceRecordBtn = document.getElementById('voice-record-btn');
+    const voiceStopBtn = document.getElementById('voice-stop-btn');
+    
+    // Проверяем поддержку getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showNotification('Запись голоса не поддерживается в вашем браузере', 'error');
+        return;
+    }
+    
+    try {
+        // Получаем доступ к микрофону
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        
+        const audioChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            // Восстанавливаем кнопки
+            voiceRecordBtn.style.display = 'inline-block';
+            voiceStopBtn.style.display = 'none';
+            messageInput.placeholder = 'Введите сообщение...';
+            
+            // Создаем Blob из записанных чанков
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            
+            // Отправляем на сервер для распознавания
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'voice_message.wav');
+            
+            // Получаем выбранный язык
+            const selectedLanguage = getSelectedVoiceLanguage();
+            formData.append('language', selectedLanguage);
+            
+            try {
+                showLoading(); // Показываем индикатор загрузки
+                const threadId = localStorage.getItem(config.storageThreadKey);
+                const response = await apiRequestFormData(`/chat/${threadId}/voice-input`, formData);
+                
+                if (response.text) {
+                    messageInput.value = response.text;
+                    messageInput.focus();
+                    
+                    // Активируем кнопку отправки
+                    const sendBtn = document.getElementById('send-btn');
+                    if (sendBtn) {
+                        sendBtn.disabled = false;
+                    }
+                    
+                    showNotification('Голосовое сообщение распознано', 'success');
+                }
+            } catch (error) {
+                showNotification(`Ошибка распознавания: ${error.message}`, 'error');
+            } finally {
+                hideLoading(); // Скрываем индикатор загрузки
+            }
+            
+            // Закрываем медиапотоки
+            stream.getTracks().forEach(track => track.stop());
+        };
+        
+        // Начинаем запись
+        mediaRecorder.start();
+        
+        // Обновляем UI
+        voiceRecordBtn.style.display = 'none';
+        voiceStopBtn.style.display = 'inline-block';
+        messageInput.placeholder = 'Говорите...';
+        
+        // Останавливаем запись через 10 секунд или по нажатию стоп-кнопки
+        const stopRecording = () => {
+            mediaRecorder.stop();
+            voiceStopBtn.removeEventListener('click', stopRecording);
+        };
+        
+        voiceStopBtn.addEventListener('click', stopRecording);
+        
+        // Автоматическая остановка через 10 секунд
+        setTimeout(() => {
+            if (mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+        }, 10000);
+    } catch (error) {
+        console.error('Ошибка при записи голоса:', error);
+        showNotification('Не удалось получить доступ к микрофону', 'error');
+    }
+}
+
+// Добавляем кнопки голосового ввода в интерфейс
+function addVoiceInputButtons() {
+    const inputWrapper = document.querySelector('.input-wrapper');
+    
+    if (inputWrapper && !document.getElementById('voice-record-btn')) {
+        // Создаем контейнер для голосовых элементов
+        const voiceContainer = document.createElement('div');
+        voiceContainer.className = 'voice-input-container';
+        
+        // Язык распознавания
+        const languageSelect = document.createElement('select');
+        languageSelect.id = 'voice-language-select';
+        languageSelect.className = 'voice-language-select';
+        
+        // Список языков
+        const languages = [
+            { code: 'ru-RU', name: 'Русский' },
+            { code: 'en-US', name: 'English' },
+            { code: 'uk-UA', name: 'Українська' },
+            { code: 'de-DE', name: 'Deutsch' },
+            { code: 'fr-FR', name: 'Français' },
+            { code: 'es-ES', name: 'Español' },
+            { code: 'it-IT', name: 'Italiano' },
+            { code: 'zh-CN', name: '中文' },
+            { code: 'ja-JP', name: '日本語' }
+        ];
+        
+        languages.forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang.code;
+            option.textContent = lang.name;
+            if (lang.code === 'ru-RU') option.selected = true;
+            languageSelect.appendChild(option);
+        });
+        
+        // Кнопка начала записи
+        const voiceRecordBtn = document.createElement('button');
+        voiceRecordBtn.id = 'voice-record-btn';
+        voiceRecordBtn.className = 'action-btn voice-record-btn';
+        voiceRecordBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+        voiceRecordBtn.title = 'Начать голосовой ввод';
+        
+        // Кнопка остановки записи (по умолчанию скрыта)
+        const voiceStopBtn = document.createElement('button');
+        voiceStopBtn.id = 'voice-stop-btn';
+        voiceStopBtn.className = 'action-btn voice-stop-btn';
+        voiceStopBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        voiceStopBtn.title = 'Остановить запись';
+        voiceStopBtn.style.display = 'none';
+        
+        // Добавляем обработчики событий
+        voiceRecordBtn.addEventListener('click', () => {
+            // Если есть Web Speech API - используем его, иначе серверное распознавание
+            if (isSpeechRecognitionSupported()) {
+                startVoiceRecording();
+            } else {
+                startServerVoiceRecording();
+            }
+        });
+        
+        voiceStopBtn.addEventListener('click', () => {
+            // Логика остановки уже встроена в методы распознавания
+        });
+        
+        // Добавляем элементы в контейнер и в обертку ввода
+        voiceContainer.appendChild(languageSelect);
+        voiceContainer.appendChild(voiceRecordBtn);
+        voiceContainer.appendChild(voiceStopBtn);
+        
+        inputWrapper.appendChild(voiceContainer);
+    }
+}
+
+// Добавляем функцию в инициализацию интерфейса
+function initChatInterface() {
+    // Существующий код инициализации интерфейса...
+    
+    // Добавляем кнопки голосового ввода
+    addVoiceInputButtons();
+}
+
+async function startVoiceRecording() {
+    // Проверка поддержки getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showNotification('Запись голоса не поддерживается', 'error');
+        return;
+    }
+    
+    try {
+        // Получаем доступ к микрофону
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        
+        const audioChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            // Создаем Blob из записанных чанков
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            
+            // Отправляем на сервер для распознавания
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'voice_message.wav');
+            
+            try {
+                showLoading();
+                const threadId = localStorage.getItem(config.storageThreadKey);
+                const response = await apiRequestFormData(`/chat/${threadId}/voice-input`, formData);
+                
+                if (response.text) {
+                    // Вставляем распознанный текст в поле ввода
+                    const messageInput = document.getElementById('message-input');
+                    messageInput.value = response.text;
+                    
+                    // Активируем кнопку отправки
+                    const sendBtn = document.getElementById('send-btn');
+                    sendBtn.disabled = false;
+                    
+                    showNotification('Голосовое сообщение распознано', 'success');
+                }
+            } catch (error) {
+                showNotification(`Ошибка распознавания: ${error.message}`, 'error');
+            } finally {
+                hideLoading();
+            }
+            
+            // Закрываем медиапотоки
+            stream.getTracks().forEach(track => track.stop());
+        };
+        
+        // Начинаем запись
+        mediaRecorder.start();
+        
+        // Показываем кнопку остановки
+        const voiceStopBtn = document.getElementById('voice-stop-btn');
+        voiceStopBtn.style.display = 'inline-block';
+        
+        // Останавливаем запись через 10 секунд или по нажатию
+        setTimeout(() => {
+            mediaRecorder.stop();
+        }, 10000);
+    } catch (error) {
+        showNotification('Не удалось получить доступ к микрофону', 'error');
+    }
+}
