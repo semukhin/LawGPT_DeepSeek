@@ -1,19 +1,8 @@
-# app/models_vexa.py
-"""
-Модели данных для интеграции с Vexa.ai
-"""
-from app.database import Base
+# vexa/vexa_integration_models.py
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.sql import func
-import uuid
-from sqlalchemy.dialects.postgresql import JSONB, JSON
-from sqlalchemy import Index
-
-# Определяем Base здесь же, если он не импортирован
-Base = declarative_base()
+from app.database import Base
 
 class VexaMeeting(Base):
     __tablename__ = "vexa_meetings"
@@ -28,8 +17,9 @@ class VexaMeeting(Base):
     status = Column(String(50), nullable=False, default="active")
     source_type = Column(String(50), nullable=False)  # google_meet, zoom, etc.
     connection_id = Column(String(100), nullable=False)
-    meeting_metadata = Column(JSON, nullable=True)
-
+    meeting_metadata = Column(Text, nullable=True)  # JSON с дополнительными метаданными
+    
+    # Определения отношений
     user = relationship("User", back_populates="vexa_meetings")
     transcripts = relationship("VexaTranscript", back_populates="meeting", cascade="all, delete-orphan")
     summary = relationship("VexaMeetingSummary", back_populates="meeting", uselist=False, cascade="all, delete-orphan")
@@ -38,7 +28,6 @@ class VexaMeeting(Base):
 class VexaTranscript(Base):
     __tablename__ = "vexa_transcripts"
     __table_args__ = {'extend_existing': True}
-    Index('idx_transcript_meeting_starttime', 'meeting_id', 'start_time')
     
     id = Column(Integer, primary_key=True, index=True)
     meeting_id = Column(Integer, ForeignKey("vexa_meetings.id"), nullable=False)
@@ -52,11 +41,11 @@ class VexaTranscript(Base):
     # Отношения
     meeting = relationship("VexaMeeting", back_populates="transcripts")
 
+
 class VexaMeetingSummary(Base):
     """Модель для хранения саммари встречи"""
     __tablename__ = "vexa_meeting_summaries"
     __table_args__ = {'extend_existing': True}
-
     
     id = Column(Integer, primary_key=True, index=True)
     meeting_id = Column(Integer, ForeignKey("vexa_meetings.id"), nullable=False, unique=True)
@@ -86,17 +75,6 @@ class VexaIntegrationSettings(Base):
     user = relationship("User", back_populates="vexa_settings")
 
 
-# Расширение существующей модели User для связи с Vexa
-def extend_user_model():
-    """
-    Расширяет модель User для добавления связей с Vexa.
-    """
-    from app.models import User
-    User.vexa_meetings = relationship("VexaMeeting", back_populates="user")
-    User.vexa_settings = relationship("VexaIntegrationSettings", back_populates="user", uselist=False)
-
-
-# Модель для хранения временных данных аудиопотока
 class VexaAudioStream(Base):
     """Модель для временного хранения данных аудиопотока"""
     __tablename__ = "vexa_audio_streams"
@@ -113,3 +91,33 @@ class VexaAudioStream(Base):
     # Отношения
     user = relationship("User")
     meeting = relationship("VexaMeeting", foreign_keys=[meeting_id])
+
+
+def extend_user_model():
+    """
+    Расширяет модель User для добавления связей с Vexa.
+    """
+    from sqlalchemy import inspect
+    from app.database import engine
+    
+    try:
+        # Импортируем User здесь, чтобы избежать циклических импортов
+        from app.models import User
+        
+        # Проверяем существование таблиц
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
+        
+        vexa_tables_exist = ('vexa_meetings' in tables and 'vexa_integration_settings' in tables)
+        
+        if vexa_tables_exist:
+            User.vexa_meetings = relationship("VexaMeeting", back_populates="user", foreign_keys="VexaMeeting.user_id")
+            User.vexa_settings = relationship("VexaIntegrationSettings", back_populates="user", uselist=False)
+            print("✅ Модель User успешно расширена для интеграции с Vexa")
+            return True
+        else:
+            print("Внимание: таблицы Vexa не существуют, расширение модели User отложено")
+            return False
+    except Exception as e:
+        print(f"❌ Ошибка при расширении модели User: {e}")
+        return False

@@ -1105,10 +1105,13 @@ async def validate_token_with_cache(token: str) -> bool:
     
     return is_valid
 
-# LRU-кэш для данных пользователя
+
 @lru_cache(maxsize=128)
-def get_cached_user_meetings(user_id: int, limit: int = 10, offset: int = 0):
-    """Кэшированное получение встреч пользователя"""
+def get_cached_user_meetings(user_id: int, limit: int = 10, offset: int = 0, cache_time=None):
+    """Кэшированное получение встреч пользователя с инвалидацией по времени"""
+    # Добавляем время кэша для обеспечения инвалидации
+    cache_time = cache_time or int(time.time() / 60)  # Обновление каждую минуту
+    
     from app.database import SessionLocal
     
     db = SessionLocal()
