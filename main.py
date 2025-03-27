@@ -4,6 +4,18 @@ from dotenv import load_dotenv
 import logging
 import time
 import asyncio
+
+# Импорт из модулей приложения
+from app import models, database, auth
+from app.chat import router as chat_router
+from app.database import get_db
+from app.models import User, Thread, Message, Document, VoiceInputLog
+        
+from app.handlers.deepresearch import router as deepresearch_router
+from app.errors import universal_exception_handler, http_exception_handler_custom
+
+from app.config import VEXA_INTEGRATION_ENABLED
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException, APIRouter
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
@@ -29,15 +41,6 @@ if THIRD_PARTY_DIR not in sys.path:
 if VEXA_DIR not in sys.path:
     sys.path.insert(0, VEXA_DIR)
 
-# Импорт из модулей приложения
-from app import models, database, auth
-from app.chat import router as chat_router
-from app.database import get_db
-from app.models import User, Thread, Message, Document, VoiceInputLog
-from app.config import VEXA_INTEGRATION_ENABLED
-from app.handlers.deepresearch import router as deepresearch_router
-from app.errors import universal_exception_handler, http_exception_handler_custom
-from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
 
 # Настройка логирования
 logging.basicConfig(
@@ -66,22 +69,24 @@ async def lifespan(app: FastAPI):
     # Проверка соединения с БД
     async def check_db_connection():
         try:
+            # Вместо прямого выполнения SQL запроса
+            # with database.engine.connect() as conn:
+            #     result = conn.execute("SELECT 1")
+            
+            # Используйте правильный асинхронный подход:
+            from sqlalchemy import text
             with database.engine.connect() as conn:
-                result = conn.execute("SELECT 1")
-                logger.info("Соединение с PostgreSQL успешно установлено")
+                result = conn.execute(text("SELECT 1"))
+                conn.commit()  # Если нужно
+            
+            logger.info("Соединение с PostgreSQL успешно установлено")
         except Exception as e:
             logger.error(f"Ошибка соединения с PostgreSQL: {str(e)}")
     
-    # Инициализация Elasticsearch
-    async def init_es():
-        if init_elasticsearch_async():
-            logger.info("Запущена асинхронная инициализация Elasticsearch")
-        else:
-            logger.error("Ошибка при запуске инициализации Elasticsearch")
-    
+
+        
     # Создаем задачи инициализации
     startup_tasks.append(asyncio.create_task(check_db_connection()))
-    startup_tasks.append(asyncio.create_task(init_es()))
     
     # Ожидаем завершения задач инициализации
     await asyncio.gather(*startup_tasks)

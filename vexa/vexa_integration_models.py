@@ -68,6 +68,7 @@ class VexaMeetingSummary(Base):
     # Отношения
     meeting = relationship("VexaMeeting", back_populates="summary")
 
+
 class VexaIntegrationSettings(Base):
     """Модель для хранения настроек интеграции с Vexa для пользователя"""
     __tablename__ = "vexa_integration_settings"
@@ -84,15 +85,16 @@ class VexaIntegrationSettings(Base):
     # Отношения
     user = relationship("User", back_populates="vexa_settings")
 
+
 # Расширение существующей модели User для связи с Vexa
 def extend_user_model():
     """
     Расширяет модель User для добавления связей с Vexa.
-    Вызывать эту функцию после определения модели User.
     """
     from app.models import User
     User.vexa_meetings = relationship("VexaMeeting", back_populates="user")
     User.vexa_settings = relationship("VexaIntegrationSettings", back_populates="user", uselist=False)
+
 
 # Модель для хранения временных данных аудиопотока
 class VexaAudioStream(Base):
