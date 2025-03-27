@@ -3,6 +3,7 @@
 API роутеры для работы с Vexa.ai
 Обработка запросов для транскрибации, управления встречами и поиска
 """
+import base64
 import os
 import json
 import logging
@@ -10,24 +11,45 @@ import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+from fastapi import (
+    APIRouter, 
+    Depends, 
+    HTTPException, 
+    WebSocket, 
+    status,
+    Request, 
+    File, 
+    Form, 
+    Query, 
+    UploadFile
+)
+from fastapi.responses import JSONResponse
+from fastapi.websockets import WebSocketDisconnect  # Добавлен импорт WebSocketDisconnect
+from sqlalchemy.orm import Session
+
+from app import models
+from app.models import User
+from app.database import get_db
+from app.auth import get_current_user
+from cryptography.fernet import Fernet
+
+# Импорт VexaApiClient из вашего клиента
+from vexa.vexa_api_client import VexaApiClient 
+
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form, Query, WebSocket, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app import models
-from app.models_vexa import VexaMeeting, VexaTranscript, VexaMeetingSummary, VexaIntegrationSettings, VexaAudioStream, extend_user_model
-from app.database import get_db
-from app.auth import get_current_user
-from app.services.vexa_client import VexaApiClient, MeetingInfo, TranscriptSegment, MeetingSummary
-from cryptography.fernet import Fernet
+from app.config import VEXA_INTEGRATION_ENABLED
+from vexa.vexa_api_client import VexaApiClient, MeetingInfo, TranscriptSegment, MeetingSummary
+from vexa.vexa_integration_models import VexaMeeting, VexaTranscript, VexaMeetingSummary, VexaIntegrationSettings, VexaAudioStream, extend_user_model
 
 from fastapi.security import OAuth2PasswordBearer
-from starlette.requests import Request
 import time
 from datetime import datetime, timedelta
 
 from functools import lru_cache
-from datetime import datetime, timedelta
 
 # Кэш для проверки токенов
 token_cache = {}
@@ -48,7 +70,6 @@ if not ENCRYPTION_KEY:
     print(f"Generated new encryption key: {ENCRYPTION_KEY}")
     print("Save this key in your environment variables as VEXA_ENCRYPTION_KEY")
 
-cipher_suite = Fernet(ENCRYPTION_KEY.encode() if isinstance(ENCRYPTION_KEY, str) else ENCRYPTION_KEY)
 
 # Создание роутера
 router = APIRouter(
@@ -57,16 +78,99 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
+# Проверяем наличие ключа в переменных окружения
+ENCRYPTION_KEY = os.getenv("VEXA_ENCRYPTION_KEY")
+
+# Если ключ не задан, генерируем новый
+if not ENCRYPTION_KEY:
+    print("🔑 Генерация нового ключа шифрования для Vexa")
+    ENCRYPTION_KEY = Fernet.generate_key().decode()
+    print(f"Сгенерирован новый ключ: {ENCRYPTION_KEY}")
+    print("ВАЖНО: Сохраните этот ключ в переменных окружения VEXA_ENCRYPTION_KEY")
+
+# Функция для корректного форматирования ключа
+def get_valid_fernet_key(key):
+    try:
+        # Пытаемся декодировать и проверить ключ
+        base64.urlsafe_b64decode(key)
+        return key.encode() if isinstance(key, str) else key
+    except Exception:
+        # Если ключ некорректный, генерируем новый
+        print("⚠️ Некорректный ключ шифрования. Генерация нового.")
+        return Fernet.generate_key()
+
+# Создаем корректный объект Fernet
+cipher_suite = Fernet(get_valid_fernet_key(ENCRYPTION_KEY))
+
+def encrypt_token(token: str) -> str:
+    """Шифрует токен для безопасного хранения"""
+    return cipher_suite.encrypt(token.encode()).decode()
+
+def decrypt_token(encrypted_token: str) -> str:
+    """Дешифрует токен для использования"""
+    return cipher_suite.decrypt(encrypted_token.encode()).decode()
+
+
+
+class VexaApiClientStub:
+    """
+    Заглушка для VexaApiClient, 
+    которая будет работать, если интеграция не настроена
+    """
+    def __init__(self, *args, **kwargs):
+        logger.warning("Vexa API не настроен. Используется режим заглушки.")
+    
+    async def check_connection(self) -> bool:
+        return False
+    
+    async def register_user(self, user_id: str, user_email: Optional[str] = None) -> Dict[str, Any]:
+        logger.info(f"Имитация регистрации пользователя {user_id}")
+        return {
+            "user_id": user_id,
+            "token": "mock_token",
+            "registered_at": "2024-01-01T00:00:00"
+        }
+    
+    async def start_meeting(self, meeting_info) -> Dict[str, Any]:
+        logger.info(f"Имитация создания встречи {meeting_info.meeting_id}")
+        return {"status": "mock_meeting_created"}
+    
+    async def end_meeting(self, meeting_id: str) -> Dict[str, Any]:
+        logger.info(f"Имитация завершения встречи {meeting_id}")
+        return {"status": "mock_meeting_ended"}
+    
+    async def get_meeting_transcripts(self, meeting_id: str) -> list:
+        logger.info(f"Имитация получения транскриптов для встречи {meeting_id}")
+        return []
+    
+    async def search_transcripts(self, query: str, user_id: Optional[str] = None, limit: int = 10) -> list:
+        logger.info(f"Имитация поиска в транскриптах: {query}")
+        return []
+    
 # Кэшированная функция для получения клиента Vexa
 @lru_cache(maxsize=1)
 def get_vexa_client():
-    """Возвращает экземпляр VexaApiClient с кэшированием"""
-    return VexaApiClient(
-        api_key=VEXA_API_KEY,
-        stream_url=VEXA_STREAM_URL,
-        engine_url=VEXA_ENGINE_URL,
-        transcription_url=VEXA_TRANSCRIPTION_URL
-    )
+    """
+    Фабрика для получения клиента Vexa
+    Возвращает реальный клиент или заглушку
+    """
+    if VEXA_INTEGRATION_ENABLED:
+        try:
+            from vexa.vexa_api_client import VexaApiClient
+            return VexaApiClient(
+                api_key=VEXA_API_KEY,
+                stream_url=os.getenv("VEXA_STREAM_URL"),
+                engine_url=os.getenv("VEXA_ENGINE_URL"),
+                transcription_url=os.getenv("VEXA_TRANSCRIPTION_URL")
+            )
+        except ImportError:
+            logger.warning("Не удалось импортировать VexaApiClient. Используется заглушка.")
+            return VexaApiClientStub()
+    else:
+        return VexaApiClientStub()
+
+
 
 def encrypt_token(token: str) -> str:
     """Шифрует токен для безопасного хранения"""
@@ -221,7 +325,7 @@ async def create_meeting(
     vexa_client: VexaApiClient = Depends(get_vexa_client)
 ):
     """
-    Создает новую встречу
+    Создает новую встречу с поддержкой интеграции с Vexa
     """
     # Проверяем настройки пользователя
     settings = await get_user_vexa_settings(current_user, db)
@@ -242,7 +346,7 @@ async def create_meeting(
         status="active",
         source_type=source_type,
         connection_id=connection_id,
-        metadata=json.dumps({
+        meeting_metadata=json.dumps({
             "created_by": "lawgpt",
             "user_id": str(current_user.id),
             "user_email": current_user.email
@@ -266,7 +370,14 @@ async def create_meeting(
     )
     
     try:
-        vexa_response = await vexa_client.start_meeting(meeting_info)
+        # Если клиент - заглушка, используем mock-ответ
+        if isinstance(vexa_client, VexaApiClientStub):
+            vexa_response = {
+                "status": "mock_meeting_created",
+                "meeting_id": meeting_id
+            }
+        else:
+            vexa_response = await vexa_client.start_meeting(meeting_info)
         
         return {
             "id": db_meeting.id,
@@ -283,7 +394,8 @@ async def create_meeting(
         db.delete(db_meeting)
         db.commit()
         
-        raise HTTPException(status_code=500, detail=f"Ошибка при создании встречи в Vexa: {str(e)}")
+        logger.error(f"Ошибка при создании встречи: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании встречи: {str(e)}")
 
 @router.post("/meetings/{meeting_id}/end")
 async def end_meeting(
@@ -549,7 +661,7 @@ async def get_meeting_details(
         "status": db_meeting.status,
         "source_type": db_meeting.source_type,
         "connection_id": db_meeting.connection_id,
-        "metadata": json.loads(db_meeting.metadata) if db_meeting.metadata else None,
+        "metadata": json.loads(db_meeting.meeting_metadata) if db_meeting.meeting_metadata else None,
         "summary": {
             "available": summary is not None,
             "summary_text": summary.summary_text if summary else None,
@@ -1036,3 +1148,50 @@ async def get_cached_meetings(
         "cached": True,
         "timestamp": datetime.now().isoformat()
     }
+
+
+
+# Безопасная генерация ключа
+def generate_safe_fernet_key():
+    """Генерирует корректный Fernet-ключ"""
+    return Fernet.generate_key()
+
+# Проверка и генерация ключа
+ENCRYPTION_KEY = os.getenv("VEXA_ENCRYPTION_KEY")
+
+try:
+    # Пытаемся создать корректный ключ
+    if not ENCRYPTION_KEY:
+        ENCRYPTION_KEY = generate_safe_fernet_key().decode()
+        print(f"🔑 Сгенерирован новый ключ: {ENCRYPTION_KEY}")
+        print("ВАЖНО: Сохраните этот ключ в переменных окружения VEXA_ENCRYPTION_KEY")
+    
+    # Проверяем и кодируем ключ
+    cipher_suite = Fernet(
+        ENCRYPTION_KEY.encode('utf-8') if isinstance(ENCRYPTION_KEY, str) 
+        else ENCRYPTION_KEY
+    )
+except Exception as e:
+    # Если ключ некорректный - используем сгенерированный
+    logging.warning(f"Ошибка инициализации ключа: {e}. Используется сгенерированный ключ.")
+    cipher_suite = Fernet(generate_safe_fernet_key())
+
+def encrypt_token(token: str) -> str:
+    """
+    Безопасное шифрование токена
+    """
+    try:
+        return cipher_suite.encrypt(token.encode()).decode()
+    except Exception as e:
+        logging.error(f"Ошибка шифрования: {e}")
+        return token  # Возвращаем оригинальный токен в случае ошибки
+
+def decrypt_token(encrypted_token: str) -> str:
+    """
+    Безопасная дешифровка токена
+    """
+    try:
+        return cipher_suite.decrypt(encrypted_token.encode()).decode()
+    except Exception as e:
+        logging.error(f"Ошибка дешифровки: {e}")
+        return encrypted_token  # Возвращаем оригинальный токен в случае ошибки

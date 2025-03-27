@@ -2,15 +2,22 @@
 """
 Модели данных для интеграции с Vexa.ai
 """
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, func, JSON
 from app.database import Base
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, JSON, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
 import uuid
+from sqlalchemy.dialects.postgresql import JSONB, JSON
+from sqlalchemy import Index
+
+# Определяем Base здесь же, если он не импортирован
+Base = declarative_base()
 
 class VexaMeeting(Base):
-    """Модель для хранения информации о встречах"""
     __tablename__ = "vexa_meetings"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     vexa_meeting_id = Column(String(100), nullable=False, unique=True, index=True)
@@ -21,39 +28,17 @@ class VexaMeeting(Base):
     status = Column(String(50), nullable=False, default="active")
     source_type = Column(String(50), nullable=False)  # google_meet, zoom, etc.
     connection_id = Column(String(100), nullable=False)
-    metadata = Column(JSONB, nullable=True)
-
-    __table_args__ = (
-            Index('idx_meeting_metadata_user_id', 
-                metadata, 
-                postgresql_using='gin', 
-                postgresql_ops={'metadata': 'jsonb_path_ops'}),
-        )
+    meeting_metadata = Column(JSON, nullable=True)  # Изменено с metadata на meeting_metadata
 
     user = relationship("User", back_populates="vexa_meetings")
-
-    transcripts = relationship(
-        "VexaTranscript", 
-        back_populates="meeting", 
-        cascade="all, delete-orphan", 
-        passive_deletes=True
-    )
-    summary = relationship(
-        "VexaMeetingSummary", 
-        back_populates="meeting", 
-        uselist=False, 
-        cascade="all, delete-orphan", 
-        passive_deletes=True
-    )
+    transcripts = relationship("VexaTranscript", back_populates="meeting", cascade="all, delete-orphan")
+    summary = relationship("VexaMeetingSummary", back_populates="meeting", uselist=False, cascade="all, delete-orphan")
 
 
 class VexaTranscript(Base):
-    """Модель для хранения сегментов транскрипта встречи"""
     __tablename__ = "vexa_transcripts"
-    __table_args__ = (
-        Index('idx_transcript_meeting_starttime', meeting_id, start_time),
-        Index('idx_transcript_text', text, postgresql_using='gin'),
-    )
+    __table_args__ = {'extend_existing': True}
+    Index('idx_transcript_meeting_starttime', 'meeting_id', 'start_time')
     
     id = Column(Integer, primary_key=True, index=True)
     meeting_id = Column(Integer, ForeignKey("vexa_meetings.id"), nullable=False)
@@ -70,6 +55,8 @@ class VexaTranscript(Base):
 class VexaMeetingSummary(Base):
     """Модель для хранения саммари встречи"""
     __tablename__ = "vexa_meeting_summaries"
+    __table_args__ = {'extend_existing': True}
+
     
     id = Column(Integer, primary_key=True, index=True)
     meeting_id = Column(Integer, ForeignKey("vexa_meetings.id"), nullable=False, unique=True)

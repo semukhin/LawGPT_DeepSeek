@@ -7,8 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from app.handlers import deepresearch
-from app.handlers import vexa_handlers
-app.include_router(vexa_handlers.router)
 from app.services.research_factory import ResearchAdapter
 from app.handlers.es_init import init_elasticsearch_async, get_indexing_status
 deep_research_service = ResearchAdapter()
@@ -28,6 +26,7 @@ THIRD_PARTY_DIR = os.path.join(BASE_DIR, "third_party")
 if THIRD_PARTY_DIR not in sys.path:
     sys.path.insert(0, THIRD_PARTY_DIR)
 
+
 from app import models, database, auth
 from app.chat import router as chat_router
 
@@ -40,6 +39,7 @@ app = FastAPI(
 
 # Подключение папки frontend для раздачи статических файлов
 app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -64,6 +64,7 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
+
 # Middleware для установки правильной кодировки в HTTP заголовках
 @app.middleware("http")
 async def add_charset_middleware(request: Request, call_next):
@@ -79,11 +80,13 @@ async def add_charset_middleware(request: Request, call_next):
     
     return response
 
+
 @app.get("/items/{item_id}")
 async def read_item(item_id: int):
     logger.info(f"Получен запрос для item_id: {item_id}")
     # Ваш код обработки запроса
     return {"item_id": item_id}
+
 
 @app.post("/deep-research/")
 async def deep_research(query: str):
@@ -91,14 +94,17 @@ async def deep_research(query: str):
     results = await deep_research_service.research(query)
     return {"results": results}
 
+
 # Подключение роутеров
 app.include_router(chat_router)
 app.include_router(auth.router)
 # Подключаем роутер для глубокого исследования
 app.include_router(deepresearch.router)
 
+
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
+
 
 # Настройка CORS с указанием кодировки
 app.add_middleware(
@@ -109,6 +115,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"]
 )
+
 
 # Главная страница
 @app.get("/", response_class=FileResponse)
@@ -127,14 +134,17 @@ async def read_root():
     """
     return FileResponse("frontend/index.html")
 
+
 @app.get("/ping")
 async def ping():
     return {"message": "pong"}
+
 
 @app.get("/indexing-status")
 async def indexing_status():
     """Возвращает текущий статус индексации"""
     return get_indexing_status()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -159,6 +169,15 @@ async def lifespan(app: FastAPI):
     logger.info("Приложение завершает работу")
 
 app.lifespan = lifespan
+
+
+# Добавляем роутер Vexa
+try:
+    from vexa.vexa_handlers import router as vexa_router
+    app.include_router(vexa_router)  # Используйте router, а не include_router
+except ImportError:
+    print("⚠️ Vexa handlers не загружены. Продолжаем без интеграции.")
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

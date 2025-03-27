@@ -34,16 +34,3 @@ es_engine = create_engine(
     pool_pre_ping=True,
     pool_recycle=3600
 )
-
-# Создайте объект SessionLocal
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-# Dependency to get database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()

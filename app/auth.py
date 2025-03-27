@@ -3,17 +3,13 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import timedelta, datetime
 from jose import jwt, JWTError
-from random import randint
 from app import mail_utils, models, schemas, database, config
-from app.schemas import CodeVerificationRequest
 from app.config import SECRET_KEY, ALGORITHM
 from pydantic import BaseModel, EmailStr
 from app.mail_utils import send_verification_email, send_recovery_email
 from app.models import TempUser
-from sqlalchemy.orm import Session
 from random import randint
-from app import models, database, mail_utils
-from app.schemas import PasswordResetRequest, PasswordResetConfirm
+from app.schemas import PasswordResetRequest, PasswordResetConfirm, CodeVerificationRequest
 from fastapi.security import OAuth2PasswordBearer
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

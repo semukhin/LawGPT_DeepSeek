@@ -1,3 +1,4 @@
+import tempfile
 from openai import OpenAI
 import uuid
 import os
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User, Message, Thread, Document
+from app.models import User, VoiceInputLog
+
 from app.auth import get_current_user
 from app.handlers.web_search import google_search
 from app.handlers.ai_request import send_custom_request
@@ -32,9 +35,18 @@ from fastapi import File, UploadFile, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import speech_recognition as sr
-from .speech_recognition_ml import LegalSpeechRecognitionModel
+from app.speech_recognition_ml import LegalSpeechRecognitionModel
+from app.speech_content_filter import SpeechContentFilter
 from google.cloud import speech_v1p1beta1 as speech
 
+# Проверка и безопасный импорт Google Cloud Speech
+try:
+    from google.cloud import speech_v1p1beta1 as speech
+    GOOGLE_SPEECH_AVAILABLE = True
+except ImportError:
+    logging.warning("Google Cloud Speech библиотека не установлена. Функции распознавания речи будут ограничены.")
+    GOOGLE_SPEECH_AVAILABLE = False
+    speech = None
 
 
 # Загрузка переменных окружения
@@ -42,6 +54,11 @@ load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+# Инициализация моделей
+legal_speech_model = LegalSpeechRecognitionModel(language='ru')
+speech_filter = SpeechContentFilter(language='ru')
 
 # Папки для хранения файлов
 UPLOAD_FOLDER = "uploads"
@@ -345,14 +362,10 @@ async def download_document(filename: str):
     )
 
 
-# Загрузка предобученной модели
-legal_speech_model = LegalSpeechRecognitionModel(language='ru')
-legal_speech_model.load_weights('/path/to/pretrained/weights.h5')
 
-@router.post("/api/voice-input")
 async def process_voice_input(
     file: UploadFile = File(...),
-    language: str = Form('ru-RU'),  # Язык по умолчанию - русский
+    language: str = Form('ru-RU'),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -365,74 +378,96 @@ async def process_voice_input(
         'en-US': 'Английский',
         'uk-UA': 'Украинский',
         'de-DE': 'Немецкий',
-        'fr-FR': 'Французский',
-        'es-ES': 'Испанский',
+        'fr-FR': 'Французский', 
+        'es-ES': 'Испанский'
     }
     
+    # Проверка корректности языка
+    if language not in SUPPORTED_LANGUAGES:
+        language = 'ru-RU'  # По умолчанию русский
+    
     try:
+        # Создаем временный файл для аудио
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+            temp_filepath = temp_file.name
+            temp_file.write(await file.read())
+        
         # Предобработка аудио с помощью ML-модели
         ml_prediction = legal_speech_model.predict(temp_filepath)
         
-        # Основное распознавание
+        # Инициализируем распознаватель
+        recognizer = sr.Recognizer()
+        
+        # Список попыток распознавания
+        recognition_attempts = [
+            ('ru-RU', recognizer.recognize_google),
+            ('en-US', recognizer.recognize_google)
+        ]
+        
         recognized_text = None
         recognition_confidence = 0.0
         
-        recognition_attempts = [
-            (language, sr.Recognizer().recognize_google),
-            ('en-US', sr.Recognizer().recognize_google),
-            ('ru-RU', sr.Recognizer().recognize_google)
-        ]
-        
+        # Пытаемся распознать речь
         with sr.AudioFile(temp_filepath) as source:
             audio_data = recognizer.record(source)
         
-        # Попытки распознавания
         for attempt_lang, recognition_method in recognition_attempts:
             try:
                 recognized_text = recognition_method(audio_data, language=attempt_lang)
                 recognition_confidence = 0.9  # Базовая уверенность
                 
-                # Если ML-модель предсказала юридический контекст
+                # Повышаем уверенность для юридических терминов
                 if ml_prediction:
-                    # Повышаем уверенность для юридических терминов
                     recognition_confidence *= 1.2
                 
                 break
-            except (sr.UnknownValueError, sr.RequestError) as e:
-                # Логирование попыток распознавания
+            except (sr.UnknownValueError, sr.RequestError):
                 continue
         
+        # Если распознавание не удалось
         if not recognized_text:
             raise HTTPException(
                 status_code=400, 
-                detail="Не удалось распознать речь ни на одном из языков"
+                detail="Не удалось распознать речь"
             )
         
-        # Дополнительная обработка с учетом ML-предсказания
-        if ml_prediction:
-            recognized_text = f"[{ml_prediction.upper()}] {recognized_text}"
+        # Анонимизация и цензура текста
+        censored_text = speech_filter.censor_text(recognized_text)
+        anonymized_text = speech_filter.anonymize_text(censored_text)
+        
+        # Определение намерения
+        intent = speech_filter.detect_intent(anonymized_text)
+        
+        # Логирование голосового ввода
+        voice_input_log = VoiceInputLog(
+            user_id=current_user.id,
+            language=language,
+            audio_duration=len(audio_data.get_wav_data()) / 16000,  # примерная длительность
+            audio_size=os.path.getsize(temp_filepath),
+            recognition_success=True,
+            recognition_confidence=recognition_confidence
+        )
+        db.add(voice_input_log)
+        db.commit()
+        
+        # Очищаем временный файл
+        os.unlink(temp_filepath)
         
         return {
-            "text": recognized_text,
+            "text": anonymized_text,
             "language": language,
             "confidence": recognition_confidence,
-            "legal_context": ml_prediction
+            "legal_context": ml_prediction,
+            "intent": intent
         }
     
     except Exception as e:
         # В случае ошибки удаляем временный файл
-        if os.path.exists(temp_filepath):
-            os.remove(temp_filepath)
-        
-        # Сохраняем лог с ошибкой
-        voice_input_log.recognition_success = False
-        voice_input_log.recognition_error = str(e)
-        db.add(voice_input_log)
-        db.commit()
+        if 'temp_filepath' in locals() and os.path.exists(temp_filepath):
+            os.unlink(temp_filepath)
         
         logging.error(f"Ошибка при распознавании речи: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при распознавании речи: {str(e)}")
-
 
 
 def recognize_speech(file_path, language_code='ru-RU'):
@@ -452,6 +487,61 @@ def recognize_speech(file_path, language_code='ru-RU'):
     response = client.recognize(config=config, audio=audio)
     
     return response.results[0].alternatives[0].transcript
+
+
+# Функция для инициализации клиента
+def get_speech_client():
+    if not GOOGLE_SPEECH_AVAILABLE:
+        logging.error("Невозможно создать клиент Google Cloud Speech. Библиотека не установлена.")
+        return None
+    
+    credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+    if not credentials_path or not os.path.exists(credentials_path):
+        logging.error(f"Ключ credentials не найден: {credentials_path}")
+        return None
+    
+    try:
+        return speech.SpeechClient()
+    except Exception as e:
+        logging.error(f"Ошибка при создании клиента Google Cloud Speech: {e}")
+        return None
+
+
+# Заглушка для функции распознавания, если библиотека недоступна
+def recognize_speech_fallback(file_path, language_code='ru-RU'):
+    logging.warning("Используется базовое распознавание без Google Cloud")
+    # Реализуйте базовное распознавание или верните пустой результат
+    return "Распознавание недоступно"
+
+
+# Основная функция распознавания
+def recognize_speech(file_path, language_code='ru-RU'):
+    if not GOOGLE_SPEECH_AVAILABLE:
+        return recognize_speech_fallback(file_path, language_code)
+    
+    client = get_speech_client()
+    if not client:
+        return recognize_speech_fallback(file_path, language_code)
+    
+    # Существующая логика распознавания
+    try:
+        with open(file_path, 'rb') as audio_file:
+            content = audio_file.read()
+        
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=16000,
+            language_code=language_code,
+            alternative_language_codes=['en-US']
+        )
+        
+        response = client.recognize(config=config, audio=audio)
+        
+        return response.results[0].alternatives[0].transcript
+    except Exception as e:
+        logging.error(f"Ошибка при распознавании речи: {e}")
+        return recognize_speech_fallback(file_path, language_code)
 
 
 # ===================== Подключение роутера =====================

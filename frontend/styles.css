@@ -1572,3 +1572,167 @@ document.head.appendChild(newStyles);
     background-color: var(--error-color);
     color: white;
 }
+
+/* Стили для новых элементов чата и анимаций */
+.new-chat-item {
+    background-color: var(--secondary-color);
+    color: var(--gray-dark);
+    font-weight: bold;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.new-chat-item:hover {
+    background-color: var(--secondary-hover);
+    transform: scale(1.02);
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+}
+
+.pulse-animation {
+    animation: pulse 1s infinite;
+}
+
+/* Стили для голосового ввода */
+.voice-input-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-right: 0.5rem;
+}
+
+.voice-language-select {
+    background-color: var(--gray-medium);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-light);
+    border-radius: var(--border-radius);
+    padding: 0.25rem;
+    max-width: 120px;
+    font-size: 0.9rem;
+}
+
+.voice-language-select:focus {
+    border-color: var(--accent-color);
+    outline: none;
+}
+
+.voice-record-btn {
+    color: var(--text-light);
+    background-color: var(--accent-color);
+}
+
+.voice-record-btn:hover {
+    background-color: var(--accent-dark);
+}
+
+.voice-stop-btn {
+    background-color: var(--error-color);
+    color: white;
+}
+
+/* Стили для пустых состояний и оффлайн-режима */
+.empty-state-message {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-light);
+    opacity: 0.7;
+}
+
+.network-status {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    padding: 8px;
+    text-align: center;
+    background-color: var(--error-color);
+    color: white;
+    z-index: 1000;
+    font-size: 14px;
+    transition: transform 0.3s ease;
+    transform: translateY(-100%);
+}
+
+.network-status.visible {
+    transform: translateY(0);
+}
+
+.network-status.reconnecting {
+    background-color: var(--gray-medium);
+}
+
+.network-status.online {
+    background-color: var(--success-color);
+}
+
+/* Улучшения для мобильных устройств */
+@media (max-width: 768px) {
+    .message-input {
+        font-size: 16px; /* Предотвращает масштабирование на iOS */
+    }
+    
+    .voice-input-container {
+        margin-right: 0;
+    }
+    
+    .voice-language-select {
+        display: none; /* Скрываем селектор языка на мобильных */
+    }
+    
+    .action-buttons {
+        position: absolute;
+        right: 8px;
+        gap: 4px;
+    }
+    
+    .action-btn {
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+    }
+    
+    /* Увеличенные области касания */
+    .chat-item, .nav-link, .form-button {
+        min-height: 44px; /* Рекомендуемый Apple минимум */
+    }
+    
+    /* Стили для жестов свайпа */
+    .swipeable {
+        position: relative;
+        transition: transform 0.3s ease;
+    }
+    
+    .swipe-actions {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    
+    .swipe-action {
+        padding: 0 16px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+    }
+    
+    .swipe-action.delete {
+        background-color: var(--error-color);
+    }
+    
+    .swipe-action.archive {
+        background-color: var(--gray-medium);
+    }
+}

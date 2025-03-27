@@ -134,3 +134,6 @@ ES_INDICES = {
     "court_reviews": "court_reviews_index", 
     "legal_articles": "legal_articles_index"
 }
+
+
+VEXA_INTEGRATION_ENABLED = bool(os.getenv("VEXA_API_KEY") and os.getenv("VEXA_API_KEY") != 'sk-vexa-1234567890')

@@ -149,7 +149,7 @@ def setup_database():
             updated_at = Column(DateTime, nullable=False)
         
         # Создание таблиц
-        Base.metadata.create_all(engine)
+        Base.meeting_metadata.create_all(engine)
         print("✅ Таблицы базы данных успешно созданы")
         
         # Сохранение настроек Vexa API в таблицу конфигурации
@@ -194,7 +194,7 @@ def setup_database():
                     key = Column(String(255), nullable=False, unique=True)
                     value = Column(Text, nullable=False)
                     
-                Base.metadata.create_all(engine, tables=[AppConfig.__table__])
+                Base.meeting_metadata.create_all(engine, tables=[AppConfig.__table__])
                 
                 # Добавляем настройки
                 for key, value in settings.items():
