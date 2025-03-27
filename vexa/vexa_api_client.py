@@ -139,46 +139,6 @@ class VexaApiClient:
 
 
 
-    async def check_connection(self) -> bool:
-        """Проверяет соединение с API Vexa"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                # Проверка StreamQueue API
-                async with session.get(
-                    f"{self.stream_url}/api/v1/extension/check-token", 
-                    headers=self.headers,
-                    timeout=10
-                ) as response:
-                    if response.status != 200:
-                        logger.error(f"Ошибка соединения с StreamQueue API: {response.status}")
-                        return False
-                
-                # Проверка Engine API
-                async with session.get(
-                    f"{self.engine_url}/api/health",
-                    headers=self.headers,
-                    timeout=10
-                ) as response:
-                    if response.status != 200:
-                        logger.error(f"Ошибка соединения с Engine API: {response.status}")
-                        return False
-                
-                # Проверка Transcription API
-                async with session.get(
-                    f"{self.transcription_url}/health",
-                    headers=self.headers,
-                    timeout=10
-                ) as response:
-                    if response.status != 200:
-                        logger.error(f"Ошибка соединения с Transcription API: {response.status}")
-                        return False
-                
-            logger.info("Успешная проверка соединения с API Vexa")
-            return True
-        except Exception as e:
-            logger.error(f"Ошибка при проверке соединения с API Vexa: {str(e)}")
-            return False
-
     async def register_user(self, user_id: str, user_email: Optional[str] = None) -> Dict[str, Any]:
         """
         Регистрирует пользователя в Vexa и возвращает токен для расширения браузера
@@ -259,7 +219,7 @@ class VexaApiClient:
             # Создаем встречу в Engine API
             payload = {
                 "meeting_id": meeting_info.meeting_id,
-                "user_id": meeting_info.metadata.get("user_id") if meeting_info.metadata else None,
+                "user_id": meeting_info.meeting_metadata.get("user_id") if meeting_info.meeting_metadata else None,
                 "title": meeting_info.title or f"Meeting {meeting_info.meeting_id}",
                 "start_timestamp": int(meeting_info.start_time.timestamp()),
                 "source": meeting_info.source_type
@@ -603,41 +563,41 @@ class VexaApiClient:
             return ""  # В случае ошибки возвращаем пустую строку, а не исключение
 
 
-async def _make_request(self, method, url, **kwargs):
-    """
-    Универсальный метод для выполнения запросов с повторными попытками
-    """
-    max_retries = 3
-    retry_delay = 1.0
-    
-    for attempt in range(max_retries):
-        try:
-            session = await self._get_session()
-            async with getattr(session, method.lower())(url, **kwargs) as response:
-                if response.status == 429:  # Too Many Requests
-                    retry_after = int(response.headers.get('Retry-After', retry_delay))
-                    logger.warning(f"Rate limit hit. Retrying after {retry_after}s")
-                    await asyncio.sleep(retry_after)
-                    continue
+    async def _make_request(self, method, url, **kwargs):
+        """
+        Универсальный метод для выполнения запросов с повторными попытками
+        """
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                session = await self._get_session()
+                async with getattr(session, method.lower())(url, **kwargs) as response:
+                    if response.status == 429:  # Too Many Requests
+                        retry_after = int(response.headers.get('Retry-After', retry_delay))
+                        logger.warning(f"Rate limit hit. Retrying after {retry_after}s")
+                        await asyncio.sleep(retry_after)
+                        continue
+                        
+                    if response.status >= 500:  # Server error
+                        logger.warning(f"Server error {response.status}. Attempt {attempt+1}/{max_retries}")
+                        await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
+                        
+                    if not response.ok:
+                        error_text = await response.text()
+                        logger.error(f"API Error ({response.status}): {error_text}")
+                        return {"success": False, "status": response.status, "error": error_text}
                     
-                if response.status >= 500:  # Server error
-                    logger.warning(f"Server error {response.status}. Attempt {attempt+1}/{max_retries}")
-                    await asyncio.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
-                    continue
+                    return {"success": True, "data": await response.json(), "status": response.status}
                     
-                if not response.ok:
-                    error_text = await response.text()
-                    logger.error(f"API Error ({response.status}): {error_text}")
-                    return {"success": False, "status": response.status, "error": error_text}
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed after {max_retries} attempts: {str(e)}")
+                    return {"success": False, "error": str(e)}
                 
-                return {"success": True, "data": await response.json(), "status": response.status}
-                
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            if attempt == max_retries - 1:
-                logger.error(f"Failed after {max_retries} attempts: {str(e)}")
-                return {"success": False, "error": str(e)}
-            
-            logger.warning(f"Request failed. Attempt {attempt+1}/{max_retries}: {str(e)}")
-            await asyncio.sleep(retry_delay * (2 ** attempt))
-    
-    return {"success": False, "error": "Maximum retries exceeded"}
+                logger.warning(f"Request failed. Attempt {attempt+1}/{max_retries}: {str(e)}")
+                await asyncio.sleep(retry_delay * (2 ** attempt))
+        
+        return {"success": False, "error": "Maximum retries exceeded"}

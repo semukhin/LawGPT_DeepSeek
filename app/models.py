@@ -118,7 +118,7 @@ class PromptLog(Base):
 import importlib.util
 
 # Загружаем модуль динамически
-spec = importlib.util.spec_from_file_location("vexa_models", "vexa/vexa-integration-models.py")
+spec = importlib.util.spec_from_file_location("vexa_models", "vexa/vexa_integration_models.py")
 vexa_models = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vexa_models)
 
