@@ -28,7 +28,7 @@ class DeepSeekService:
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
         model: str = "deepseek-reasoner",
-        temperature: float = 1.0,
+        temperature: float = 1.2,
         max_tokens: int = 8192,
         timeout: int = 180
     ):
@@ -268,7 +268,7 @@ async def chat_with_functions(
     payload = {
         "model": self.model,
         "messages": messages,
-        "temperature": 1.0,
+        "temperature": 1.2,
         "max_tokens": self.max_tokens,
         "functions": functions,
         "function_call": function_call
