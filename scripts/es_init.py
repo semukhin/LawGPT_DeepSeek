@@ -18,21 +18,20 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import traceback
 
-# Жестко закодированные переменные
-ES_HOST = "http://localhost:9200"
-ES_USER = "elastic"
-ES_PASS = "GIkb8BKzkXK7i2blnG2O"
-ELASTICSEARCH_URL = ES_HOST
-
+# Глобальные переменные для конфигурации
+ELASTICSEARCH_URL = os.getenv('ES_HOST', 'http://localhost:9200')
+ES_HOST = ELASTICSEARCH_URL
+ES_USER = os.getenv('ES_USER', 'elastic')
+ES_PASS = os.getenv('ES_PASS', 'GIkb8BKzkXK7i2blnG2O')
 DB_CONFIG = {
-    "host": "82.97.242.92",
-    "port": 5432,
-    "database": "ruslaw_db",
-    "user": "gen_user",
-    "password": "P?!ri#ag5%G1Si"
+    "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
+    "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))),
+    "database": os.getenv('PG_DB_NAME', os.getenv('DB_NAME')),
+    "user": os.getenv('PG_DB_USER', os.getenv('DB_USER')),
+    "password": os.getenv('PG_DB_PASSWORD', os.getenv('DB_PASSWORD'))
 }
+INDEXING_INTERVAL = int(os.getenv('INDEXING_INTERVAL', '24'))
 
-INDEXING_INTERVAL = 48
 
 # Индексы
 ES_INDICES = {
@@ -54,7 +53,7 @@ except ImportError as e:
 
 # Настройка логирования - перенаправляем в stdout для работы в Docker
 logging.basicConfig(
-    level=logging.INFO, 
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -82,7 +81,7 @@ def wait_for_elasticsearch(max_retries=30, delay=5):
     """Ожидает доступности Elasticsearch с повторными попытками"""
     global ELASTICSEARCH_URL
     logging.info(f"Ожидание запуска Elasticsearch (до {max_retries} попыток с интервалом {delay} сек)...")
-    
+
     for attempt in range(max_retries):
         try:
             es = Elasticsearch(
@@ -96,11 +95,11 @@ def wait_for_elasticsearch(max_retries=30, delay=5):
             return es
         except Exception as e:
             logging.warning(f"Попытка {attempt+1}/{max_retries}: не удалось подключиться к {ELASTICSEARCH_URL}: {e}")
-            
+
             # Попробуем альтернативные адреса, если основной не работает
             if attempt == 5:
                 alt_urls = [
-                    "http://127.0.0.1:9200", 
+                    "http://127.0.0.1:9200",
                     "http://172.28.0.2:9200",  # IP из логов
                     "http://host.docker.internal:9200"
                 ]
@@ -114,9 +113,9 @@ def wait_for_elasticsearch(max_retries=30, delay=5):
                             return es_alt
                     except Exception:
                         logging.warning(f"Альтернативный URL {alt_url} недоступен")
-                        
+
             time.sleep(delay)
-    
+
     raise ConnectionError(f"Не удалось подключиться к Elasticsearch после {max_retries} попыток")
 
 
@@ -177,13 +176,13 @@ MAPPINGS = {
                 "instance": {"type": "keyword"},
                 "region": {"type": "keyword"},
                 "judges": {"type": "text", "analyzer": "simple_analyzer"},
-                "claimant": {"type": "text", "analyzer": "simple_analyzer", 
+                "claimant": {"type": "text", "analyzer": "simple_analyzer",
                              "fields": {"keyword": {"type": "keyword"}}},
-                "defendant": {"type": "text", "analyzer": "simple_analyzer", 
+                "defendant": {"type": "text", "analyzer": "simple_analyzer",
                               "fields": {"keyword": {"type": "keyword"}}},
                 "subject": {"type": "text", "analyzer": "simple_analyzer"},
                 "arguments": {"type": "text", "analyzer": "simple_analyzer"},
-                "conclusion": {"type": "text", "analyzer": "simple_analyzer"}, 
+                "conclusion": {"type": "text", "analyzer": "simple_analyzer"},
                 "full_text": {"type": "text", "analyzer": "simple_analyzer"},
                 "laws": {"type": "text", "analyzer": "simple_analyzer"},
                 "amount": {"type": "float"},
@@ -269,19 +268,19 @@ def update_stats(table=None, documents=0, error=None):
                     "end_time": None,
                     "status": "processing"
                 }
-            
+
             indexing_stats["table_stats"][table]["documents"] += documents
-            
+
             if documents > 0:
                 indexing_stats["documents_indexed"] += documents
-            
+
             if error:
                 if "errors" not in indexing_stats["table_stats"][table]:
                     indexing_stats["table_stats"][table]["errors"] = []
                 indexing_stats["table_stats"][table]["errors"].append(str(error))
                 indexing_stats["errors"].append({"table": table, "error": str(error)})
                 indexing_stats["table_stats"][table]["status"] = "error"
-            
+
             if documents < 0:  # Сигнал о завершении индексации таблицы
                 indexing_stats["tables_processed"] += 1
                 indexing_stats["table_stats"][table]["end_time"] = datetime.now()
@@ -311,7 +310,13 @@ def check_es_connection():
 def get_db_connection():
     """Создает подключение к PostgreSQL"""
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', '82.97.242.92'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'ruslaw_db'),
+            user=os.getenv('DB_USER', 'gen_user'),
+            password=os.getenv('DB_PASSWORD', 'P?!ri#ag5%G1Si')
+        )
         return conn
     except Exception as e:
         logging.error(f"Ошибка подключения к PostgreSQL: {e}")
@@ -352,31 +357,31 @@ def setup_es_index(es, index_name):
                     }
                 }
                 logging.info(f"Используется стандартный маппинг для индекса {index_name}")
-            
+
             # Создаем индекс
             es.indices.create(index=index_name, body=index_body)
             logging.info(f"Создан индекс {index_name}")
         else:
             logging.info(f"Индекс {index_name} уже существует")
-            
+
             # Обновляем маппинг для существующего индекса, если это court_decisions_index
             if index_name == 'court_decisions_index':
                 try:
                     # Обновляем поля для поддержки умного поиска
                     mapping_update = {
                         "properties": {
-                            "case_number": { 
+                            "case_number": {
                                 "type": "keyword"
                             },
-                            "defendant": { 
-                                "type": "text", 
+                            "defendant": {
+                                "type": "text",
                                 "analyzer": "simple_analyzer",
                                 "fields": {
                                     "keyword": { "type": "keyword" }
                                 }
                             },
-                            "claimant": { 
-                                "type": "text", 
+                            "claimant": {
+                                "type": "text",
                                 "analyzer": "simple_analyzer",
                                 "fields": {
                                     "keyword": { "type": "keyword" }
@@ -384,7 +389,7 @@ def setup_es_index(es, index_name):
                             }
                         }
                     }
-                    
+
                     es.indices.put_mapping(
                         index=index_name,
                         body=mapping_update
@@ -392,7 +397,7 @@ def setup_es_index(es, index_name):
                     logging.info(f"Обновлен маппинг для индекса {index_name} для поддержки умного поиска")
                 except Exception as e:
                     logging.warning(f"Не удалось обновить маппинг для индекса {index_name}: {e}")
-                    
+
     except Exception as e:
         logging.error(f"Ошибка при создании/проверке индекса {index_name}: {e}")
         raise
@@ -403,22 +408,22 @@ def get_last_indexed_time(es, index_name, id_field="id"):
         # Проверяем существование индекса
         if not es.indices.exists(index=index_name):
             return None
-        
+
         # Запрос для получения времени последней индексации
         query = {
             "size": 1,
             "sort": [{"indexed_at": {"order": "desc"}}],
             "query": {"match_all": {}}
         }
-        
+
         result = es.search(index=index_name, body=query)
-        
+
         if result["hits"]["total"]["value"] > 0:
             # Получаем время последней индексации
             last_indexed = result["hits"]["hits"][0]["_source"].get("indexed_at")
             if last_indexed:
                 return datetime.fromisoformat(last_indexed.replace('Z', '+00:00'))
-        
+
         return None
     except Exception as e:
         logging.error(f"Ошибка при получении времени последней индексации для {index_name}: {e}")
@@ -433,7 +438,7 @@ def get_table_schema(conn, table_name):
                 FROM information_schema.columns
                 WHERE table_name = %s
             """, (table_name,))
-            
+
             columns = {row[0]: row[1] for row in cursor.fetchall()}
             return columns
     except Exception as e:
@@ -445,7 +450,7 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
     try:
         # Получаем схему таблицы
         schema = get_table_schema(conn, table_name)
-        
+
         # Проверяем наличие поля id или table_id
         if id_field not in schema:
             # Пытаемся найти первичный ключ
@@ -456,76 +461,78 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                 logging.error(f"В таблице {table_name} не найдено поле {id_field} или {alternative_id}")
                 update_stats(table=table_name, error=f"Не найдено поле ID: {id_field} или {alternative_id}")
                 return 0
-        
+
         # Формируем SQL запрос с учетом последней индексации
         base_query = f"SELECT * FROM {table_name}"
         params = []
-        
+
         if last_indexed and "updated_at" in schema:
             base_query += " WHERE updated_at > %s"
             params.append(last_indexed)
         elif last_indexed and "created_at" in schema:
             base_query += " WHERE created_at > %s"
             params.append(last_indexed)
-        
+
         # Добавляем пагинацию для обработки данных батчами
         count_query = f"SELECT COUNT(*) FROM ({base_query}) AS count_query"
-        
+
         with conn.cursor() as cursor:
             cursor.execute(count_query, params)
             total_rows = cursor.fetchone()[0]
-            
+
             if total_rows == 0:
                 logging.info(f"В таблице {table_name} нет новых данных для индексации")
                 update_stats(table=table_name, documents=-1)  # Сигнал о завершении
                 return 0
-            
+
             logging.info(f"Начало индексации {total_rows} записей из таблицы {table_name}")
-            
+
             # Обрабатываем данные батчами
             offset = 0
             total_indexed = 0
-            
+
             while offset < total_rows:
                 batch_query = f"{base_query} LIMIT {batch_size} OFFSET {offset}"
                 cursor.execute(batch_query, params)
-                
+
                 rows = cursor.fetchall()
                 if not rows:
                     break
-                
-                # Подготавливаем батч для bulk индексации
+
+               # Подготавливаем батч для bulk индексации
                 batch_actions = []
                 column_names = [desc[0] for desc in cursor.description]
-                
+
                 for row in rows:
                     doc = dict(zip(column_names, row))
-                    
+
                     # Добавляем метку времени индексации
                     doc['indexed_at'] = datetime.now().isoformat()
-                    
+
                     # Специальная обработка для разных таблиц
                     if table_name == 'ruslawod_chunks' and 'text_chunk' in doc:
                         # Скопируем text_chunk в поля, которые ищет es_law_search.py
                         doc['text'] = doc['text_chunk']
                         doc['content'] = doc['text_chunk']
                         doc['full_text'] = doc['text_chunk']
-                    
+
                     # Преобразуем дату для elasticsearch
                     if table_name == 'court_decisions' and 'date' in doc and doc['date']:
                         doc['decision_date'] = doc['date']
-                    
+
                     if table_name == 'legal_articles' and 'summary' in doc:
                         doc['content'] = doc['summary']
-                    
+
                     # Обработка массива для referenced_cases
                     if table_name == 'court_reviews' and 'referenced_cases' in doc:
                         if isinstance(doc['referenced_cases'], list):
-                            # Преобразуем все элементы в строки перед объединением
-                            doc['referenced_cases'] = ','.join([str(item) for item in doc['referenced_cases']])
-                        elif doc['referenced_cases'] is None:
-                            doc['referenced_cases'] = ''
-                    
+                            if doc['referenced_cases'] and isinstance(doc['referenced_cases'][0], dict):
+                                # Для списка словарей извлекаем идентификаторы
+                                doc['referenced_cases'] = ','.join(str(case.get('id', '')) for case in doc['referenced_cases'])
+                            else:
+                                # Для простого списка строк или других типов
+                                doc['referenced_cases'] = ','.join(map(str, doc['referenced_cases']))
+
                     # Преобразуем datetime объекты в строки
                     for key, value in doc.items():
                         if isinstance(value, datetime):
@@ -539,27 +546,28 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                         "_source": doc
                     }
                     batch_actions.append(action)
-                
+
+
                 # Выполняем bulk индексацию
                 if batch_actions:
                     success, failed = helpers.bulk(
-                        es, 
-                        batch_actions, 
+                        es,
+                        batch_actions,
                         stats_only=True,
                         raise_on_error=False
                     )
-                    
+
                     if failed:
                         logging.warning(f"При индексации таблицы {table_name} не удалось индексировать {failed} документов")
                         update_stats(table=table_name, error=f"Не удалось индексировать {failed} документов")
-                    
+
                     total_indexed += success
                     update_stats(table=table_name, documents=success)
-                    
+
                     logging.info(f"Индексировано {total_indexed}/{total_rows} записей из таблицы {table_name}")
-                
+
                 offset += batch_size
-            
+
             update_stats(table=table_name, documents=-1)  # Сигнал о завершении
             logging.info(f"Завершена индексация таблицы {table_name}, всего индексировано {total_indexed} записей")
             return total_indexed
@@ -574,27 +582,27 @@ def index_table_async(table_name, index_name, batch_size=1000):
     try:
         es = get_es_client()
         conn = get_db_connection()
-        
+
         try:
             # Создаем или проверяем индекс
             setup_es_index(es, index_name)
-            
+
             # Получаем время последней индексации
             last_indexed = get_last_indexed_time(es, index_name)
-            
+
             # Логируем информацию о последней индексации
             if last_indexed:
                 logging.info(f"Последняя индексация таблицы {table_name}: {last_indexed}")
             else:
                 logging.info(f"Первая индексация таблицы {table_name}")
-            
+
             # Индексируем данные
             indexed_count = index_table_data(
-                es, conn, table_name, index_name, 
-                batch_size=batch_size, 
+                es, conn, table_name, index_name,
+                batch_size=batch_size,
                 last_indexed=last_indexed
             )
-            
+
             return indexed_count
         finally:
             conn.close()
@@ -610,7 +618,7 @@ async def index_all_tables_async(batch_size=1000, max_workers=4):
     if not check_es_connection():
         logging.error("Не удалось подключиться к Elasticsearch, индексация отменена")
         return False
-    
+
     # Инициализируем статистику
     global indexing_stats
     indexing_stats = {
@@ -621,9 +629,9 @@ async def index_all_tables_async(batch_size=1000, max_workers=4):
         "errors": [],
         "table_stats": {}
     }
-    
+
     logging.info(f"Начало индексации {len(ES_INDICES)} таблиц")
-    
+
     # Создаем пул потоков
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Запускаем задачи индексации в пуле потоков
@@ -631,7 +639,7 @@ async def index_all_tables_async(batch_size=1000, max_workers=4):
         for table_name, index_name in ES_INDICES.items():
             future = executor.submit(index_table_async, table_name, index_name, batch_size)
             futures[future] = table_name
-        
+
         # Ожидаем завершения всех задач
         for future in futures:
             table_name = futures[future]
@@ -640,44 +648,44 @@ async def index_all_tables_async(batch_size=1000, max_workers=4):
                 logging.info(f"Индексация таблицы {table_name} завершена, индексировано {indexed_count} записей")
             except Exception as e:
                 logging.error(f"Ошибка при индексации таблицы {table_name}: {e}")
-    
+
     # Записываем общую статистику
     indexing_stats["end_time"] = datetime.now()
     indexing_stats["duration"] = (indexing_stats["end_time"] - indexing_stats["start_time"]).total_seconds()
-    
+
     logging.info(f"Индексация всех таблиц завершена за {indexing_stats['duration']:.2f} секунд")
     logging.info(f"Всего индексировано {indexing_stats['documents_indexed']} документов")
-    
+
     if indexing_stats["errors"]:
         logging.warning(f"При индексации возникло {len(indexing_stats['errors'])} ошибок")
         for error in indexing_stats["errors"]:
             logging.warning(f"Ошибка в таблице {error['table']}: {error['error']}")
-    
+
     # Сохраняем статистику в файл
     stats_file = os.path.join(os.path.dirname(__file__), "indexing_stats.json")
     with open(stats_file, "w") as f:
         json.dump(indexing_stats, f, default=str, indent=2)
-    
+
     logging.info(f"Статистика индексации сохранена в {stats_file}")
-    
+
     return len(indexing_stats["errors"]) == 0
 
 async def schedule_indexing(interval_hours=None):
     """Планирование регулярной индексации"""
     if interval_hours is None:
         interval_hours = INDEXING_INTERVAL
-    
+
     logging.info(f"Запущено планирование индексации с интервалом {interval_hours} часов")
-    
+
     while True:
         logging.info("Запуск индексации всех таблиц")
         success = await index_all_tables_async()
-        
+
         if success:
             logging.info(f"Индексация успешно завершена. Следующая индексация через {interval_hours} часов")
         else:
             logging.error("Индексация завершена с ошибками. Проверьте логи")
-        
+
         # Ждем указанное время перед следующей индексацией
         next_run = datetime.now() + timedelta(hours=interval_hours)
         logging.info(f"Следующая индексация: {next_run}")
@@ -694,14 +702,14 @@ def init_elasticsearch_async():
         # Запускаем асинхронную индексацию через asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         try:
             loop.run_until_complete(index_all_tables_async())
             logging.info("Индексация запущена асинхронно")
             return True
         finally:
             loop.close()
-            
+
     except Exception as e:
         logging.error(f"Ошибка при инициализации Elasticsearch: {e}")
         return False
@@ -709,15 +717,15 @@ def init_elasticsearch_async():
 def start_scheduled_indexing():
     """Запуск потока для периодической индексации"""
     logging.info("Запуск сервиса периодической индексации")
-    
+
     # Создаем цикл событий для асинхронных функций
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     try:
         # Запускаем индексацию сразу при старте
         loop.run_until_complete(index_all_tables_async())
-        
+
         # Запускаем периодическую индексацию
         loop.run_until_complete(schedule_indexing())
     except KeyboardInterrupt:
@@ -731,14 +739,14 @@ def create_indices():
     """Создает все необходимые индексы в Elasticsearch"""
     try:
         es = get_es_client()
-        
+
         # Создаем индексы для всех определенных маппингов
         for index_name in MAPPINGS:
             setup_es_index(es, index_name)
-        
+
         logging.info("Все необходимые индексы проверены или созданы")
         return True
-        
+
     except Exception as e:
         logging.error(f"Ошибка при создании индексов: {e}")
         return False
@@ -747,26 +755,26 @@ def update_mappings():
     """Обновляет маппинги для всех индексов с учетом изменений для умного поиска"""
     try:
         es = get_es_client()
-        
+
         # Обновляем маппинг для индекса court_decisions_index
         court_decisions_index = ES_INDICES.get("court_decisions", "court_decisions_index")
-        
+
         if es.indices.exists(index=court_decisions_index):
             # Определяем обновление маппинга
             mapping_update = {
                 "properties": {
-                    "case_number": { 
+                    "case_number": {
                         "type": "keyword"
                     },
-                    "defendant": { 
-                        "type": "text", 
+                    "defendant": {
+                        "type": "text",
                         "analyzer": "simple_analyzer",
                         "fields": {
                             "keyword": { "type": "keyword" }
                         }
                     },
-                    "claimant": { 
-                        "type": "text", 
+                    "claimant": {
+                        "type": "text",
                         "analyzer": "simple_analyzer",
                         "fields": {
                             "keyword": { "type": "keyword" }
@@ -776,7 +784,7 @@ def update_mappings():
                     "chunk_id": { "type": "integer" }
                 }
             }
-            
+
             try:
                 es.indices.put_mapping(
                     index=court_decisions_index,
@@ -785,12 +793,12 @@ def update_mappings():
                 logging.info(f"✅ Маппинг для индекса {court_decisions_index} успешно обновлен.")
             except Exception as e:
                 logging.error(f"❌ Ошибка при обновлении маппинга для индекса {court_decisions_index}: {str(e)}")
-        
+
         # Обновляем маппинги для других индексов (если необходимо)
-        
+
         logging.info("✅ Все необходимые маппинги обновлены.")
         return True
-        
+
     except Exception as e:
         logging.error(f"❌ Ошибка при обновлении маппингов: {str(e)}")
         return False
@@ -798,37 +806,37 @@ def update_mappings():
 def parse_arguments():
     """Обработка аргументов командной строки"""
     parser = argparse.ArgumentParser(description='Инструмент для индексации таблиц в Elasticsearch')
-    
-    parser.add_argument('--run-once', action='store_true', 
+
+    parser.add_argument('--run-once', action='store_true',
                         help='Запустить индексацию один раз без планирования')
-    
-    parser.add_argument('--table', type=str, 
+
+    parser.add_argument('--table', type=str,
                         help='Индексировать только указанную таблицу')
-    
+
     parser.add_argument('--interval', type=int, default=INDEXING_INTERVAL,
                         help=f'Интервал индексации в часах (по умолчанию: {INDEXING_INTERVAL})')
-    
+
     parser.add_argument('--batch-size', type=int, default=1000,
                         help='Размер батча для индексации (по умолчанию: 1000)')
-    
+
     parser.add_argument('--max-workers', type=int, default=4,
                         help='Максимальное количество параллельных потоков (по умолчанию: 4)')
-    
+
     parser.add_argument('--create-indices', action='store_true',
                         help='Только создать индексы без индексации данных')
-    
+
     parser.add_argument('--update-mappings', action='store_true',
                         help='Обновить маппинги индексов для умного поиска')
-    
+
     parser.add_argument('--status', action='store_true',
                         help='Получить статус последней индексации')
-    
+
     return parser.parse_args()
 
 async def main_async():
     """Основная асинхронная функция"""
     args = parse_arguments()
-    
+
     logging.info("Запуск создания индексов...")
     connection_ok = check_es_connection()
     logging.info(f"Результат проверки подключения: {connection_ok}")
@@ -851,32 +859,32 @@ async def main_async():
         else:
             print("Индексация еще не запускалась")
         return 0
-    
+
     # Если запрошено только создание индексов
     if args.create_indices:
         success = create_indices()
         return 0 if success else 1
-    
+
     # Если запрошено только обновление маппингов
     if args.update_mappings:
         success = update_mappings()
         return 0 if success else 1
-    
+
     try:
         conn = get_db_connection()
         conn.close()
     except Exception as e:
         logging.error(f"Не удалось подключиться к PostgreSQL: {e}")
         return 1
-    
+
     # Если указана конкретная таблица, индексируем только её
     if args.table:
         if args.table not in ES_INDICES:
             logging.error(f"Таблица {args.table} не найдена в конфигурации индексов")
             return 1
-        
+
         logging.info(f"Запуск индексации только для таблицы {args.table}")
-        
+
         # Инициализируем статистику
         global indexing_stats
         indexing_stats = {
@@ -887,17 +895,17 @@ async def main_async():
             "errors": [],
             "table_stats": {}
         }
-        
+
         indexed_count = await asyncio.to_thread(
-            index_table_async, 
-            args.table, 
-            ES_INDICES[args.table], 
+            index_table_async,
+            args.table,
+            ES_INDICES[args.table],
             args.batch_size
         )
-        
+
         logging.info(f"Индексация таблицы {args.table} завершена, индексировано {indexed_count} документов")
         return 0
-    
+
     # Запускаем полную индексацию
     if args.run_once:
         # Запускаем разовую индексацию
@@ -923,4 +931,3 @@ if __name__ == "__main__":
         sys.exit(0)
     except Exception as e:
         logging.error(f"Необработанная ошибка: {e}")
-        sys.exit(1)

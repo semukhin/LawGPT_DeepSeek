@@ -158,7 +158,7 @@ class UnifiedSearcher:
         self.executor = UnifiedSearcher._executor
         
         # Add request timeout to prevent hanging
-        self.request_timeout = 10  # 10 second timeout for all requests
+        self.request_timeout = 20  # 20 second timeout for all requests
 
     async def _async_google_search(self, query: str, num_results: int) -> List[SearchResult]:
         """Perform Google search asynchronously with improved error handling and relevance filtering."""

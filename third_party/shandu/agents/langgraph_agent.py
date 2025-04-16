@@ -710,7 +710,7 @@ async def clarify_query(query: str, llm: Optional[ChatOpenAI] = None, date: Opti
         api_key = config.get("api", "api_key")
         model = config.get("api", "model")
         temperature = config.get("api", "temperature", 0.9)
-        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=1.2)
+        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=1.0)
     
     current_date = date or get_current_date()
     console.print(Panel(f"[bold blue]Initial Query:[/] {query}", title="Research Setup"))

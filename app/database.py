@@ -11,7 +11,7 @@ engine = create_engine(
     "mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db",
     pool_pre_ping=True,
     pool_recycle=3600
-),
+)
 
 
 # Для Elasticsearch/RAG (если нужно)

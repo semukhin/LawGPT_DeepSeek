@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 GOOGLE_CX = os.environ.get("GOOGLE_CX", "")
 
+# Константы для ограничения количества ссылок
+MAX_SEARCH_RESULTS = 10  # Максимальное количество ссылок для поиска
+MAX_SCRAPE_RESULTS = 5   # Максимальное количество ссылок для скрейпинга (ТОП-5)
 
 # В начале файла
 logging.info(f"Google API Key настроен: {'Да' if len(GOOGLE_API_KEY) > 0 else 'Нет'}")
@@ -62,7 +65,7 @@ def get_scraper() -> WebScraper:
    return _scraper
 
 
-def google_search(query: str, logs: list, max_results: int = 10) -> list:
+def google_search(query: str, logs: list, max_results: int = MAX_SEARCH_RESULTS) -> list:
    """
    Выполняет поиск по запросу через Google Custom Search API и возвращает список найденных веб-ссылок.
    
@@ -82,7 +85,7 @@ def google_search(query: str, logs: list, max_results: int = 10) -> list:
        "key": GOOGLE_API_KEY,
        "cx": GOOGLE_CX,
        "q": clean_query,  # Используем очищенный запрос
-       "num": min(max_results, 5),  # Google API ограничивает до 5 результатов
+       "num": min(max_results, 10),  # Google API ограничивает результаты
        "safe": "active"
    }
    
@@ -166,7 +169,7 @@ def prioritize_links(links: List[str], query: str) -> List[str]:
     high_quality_domains = [
         "consultant.ru", "garant.ru", "sudact.ru", "pravo.gov.ru", 
         "zakon.ru", "ksrf.ru", "vsrf.ru", "arbitr.ru", "rg.ru", "supcourt.ru",
-        "advgazeta.ru", "kodeks.ru", "pravoved.ru", "legal.ru", "rostrud.gov.ru"
+        "advgazeta.ru", "kodeks.ru", "pravoved.ru", "pravorub.ru", "rostrud.gov.ru"
     ]
     
     # Информационные порталы
@@ -199,7 +202,7 @@ def prioritize_links(links: List[str], query: str) -> List[str]:
             score += 8
         
         # Повышаем приоритет для правовых доменов
-        if any(term in domain for term in ["garant", "consultant", "pravorub", "pravo", "sudact", "zakon"]):
+        if any(term in domain for term in ["garant", "consultant", "pravorub", "pravo", "sudact", "zakon", "advgazeta", "kodeks", "pravoved"]):
             score += 10
             
         # Проверяем пути URL на релевантность юридической тематике
@@ -241,15 +244,15 @@ def prioritize_links(links: List[str], query: str) -> List[str]:
     return [url for url, _ in scored_links]
 
 
-async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_refresh: bool = False) -> list:
+async def search_and_scrape(query: str, logs: list, max_results: int = MAX_SCRAPE_RESULTS, force_refresh: bool = False) -> list:
     """
     Выполняет поиск в Google, получает список веб-ссылок и передаёт их в модуль скрейпера 
-    для извлечения содержимого страниц. Ограничивает количество результатов.
+    для извлечения содержимого страниц. Ограничивает количество результатов до MAX_SCRAPE_RESULTS (ТОП-5).
     
     Args:
         query (str): поисковый запрос.
         logs (list): список для логирования.
-        max_results (int): максимальное количество результатов (по умолчанию 3).
+        max_results (int): максимальное количество результатов (по умолчанию 5).
         force_refresh (bool): флаг принудительного обновления кэша.
         
     Returns:
@@ -258,8 +261,11 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
     start_time = time.time()
     logs.append(f"🔍 Начало поиска и извлечения данных по запросу: '{query}'")
     
-    # Выполняем поиск и получаем ссылки (не более чем нам нужно * 3, чтобы иметь запас)
-    links = google_search(query, logs, max_results=max_results * 3) 
+    # Убеждаемся, что max_results не превышает MAX_SCRAPE_RESULTS (5)
+    max_results = min(max_results, MAX_SCRAPE_RESULTS)
+    
+    # Выполняем поиск и получаем ссылки (получаем больше, чтобы потом приоритизировать)
+    links = google_search(query, logs, max_results=max_results * 2) 
     
     if not links:
         logs.append("⚠️ Не найдено ссылок для скрейпинга")
@@ -269,9 +275,12 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
         # Приоритизируем ссылки
         prioritized_links = prioritize_links(links, query)
         
-        # Берем только необходимое количество ссылок
+        # Берем только необходимое количество ссылок (ТОП-5 или меньше)
         links_to_scrape = prioritized_links[:max_results]
-        logs.append(f"📥 Извлечение содержимого из {len(links_to_scrape)} ссылок...")
+        
+        # Логируем информацию о количестве ссылок для скрейпинга
+        logs.append(f"📥 Отправка на скрейпинг ТОП-{len(links_to_scrape)} ссылок из {len(links)} найденных")
+        logging.info(f"📥 Отправка на скрейпинг ТОП-{len(links_to_scrape)} ссылок из {len(links)} найденных")
 
         if not links_to_scrape:
             logging.warning(f"⚠️ search_and_scrape: Ссылки не найдены для '{query}'")
@@ -340,7 +349,10 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
                 successful_results.append(result)
                 logs.append(f"✅ Successfully scraped: {result.url}")
         
-        logging.info(f"✅ search_and_scrape: Получено {len(successful_results)} успешных результатов из {len(links_to_scrape)} ссылок")
+        elapsed_time = time.time() - start_time
+        logging.info(f"✅ search_and_scrape: Получено {len(successful_results)} успешных результатов из {len(links_to_scrape)} ссылок за {elapsed_time:.2f} сек")
+        logs.append(f"✅ Получено {len(successful_results)} успешных результатов из {len(links_to_scrape)} ссылок за {elapsed_time:.2f} секунд")
+        
         return successful_results
         
     except Exception as e:
@@ -351,13 +363,13 @@ async def search_and_scrape(query: str, logs: list, max_results: int = 3, force_
 
 async def run_multiple_searches(query: str, logs: list, force_refresh: bool = False) -> Dict[str, List]:
     """
-    Выполняет только один поиск вместо нескольких, ограничивая количество результатов до 3.
+    Выполняет только один поиск вместо нескольких, ограничивая количество результатов до MAX_SCRAPE_RESULTS (ТОП-5).
     """
     logs.append(f"🔄 Запуск поиска для запроса: '{query}'")
     
-    # Выполняем только один поиск
+    # Выполняем только один поиск с ограничением до MAX_SCRAPE_RESULTS (5) ссылок
     try:
-        general_results = await search_and_scrape(query, logs, max_results=3, force_refresh=force_refresh)
+        general_results = await search_and_scrape(query, logs, max_results=MAX_SCRAPE_RESULTS, force_refresh=force_refresh)
         
         # Объединяем результаты в словарь 
         results = {
@@ -368,7 +380,7 @@ async def run_multiple_searches(query: str, logs: list, force_refresh: bool = Fa
         }
         
         total_results = len(general_results)
-        logs.append(f"📊 Получено всего {total_results} результатов из поиска")
+        logs.append(f"📊 Получено всего {total_results} результатов из поиска (максимум {MAX_SCRAPE_RESULTS})")
         
         return results
     
