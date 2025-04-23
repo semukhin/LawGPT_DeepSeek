@@ -21,8 +21,8 @@ import traceback
 # Глобальные переменные для конфигурации
 ELASTICSEARCH_URL = os.getenv('ES_HOST', 'http://localhost:9200')
 ES_HOST = ELASTICSEARCH_URL
-ES_USER = os.getenv('ES_USER', 'elastic')
-ES_PASS = os.getenv('ES_PASS', 'GIkb8BKzkXK7i2blnG2O')
+ES_USER = os.getenv('ES_USER', None)
+ES_PASS = os.getenv('ES_PASS', None)
 DB_CONFIG = {
     "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
     "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))),
@@ -38,7 +38,8 @@ ES_INDICES = {
     'court_decisions': 'court_decisions_index',
     'court_reviews': 'court_reviews_index',
     'legal_articles': 'legal_articles_index',
-    'ruslawod_chunks': 'ruslawod_chunks_index'
+    'ruslawod_chunks': 'ruslawod_chunks_index',
+    'procedural_forms': 'procedural_forms_index'
 }
 
 # Проверка наличия необходимых модулей
@@ -53,7 +54,7 @@ except ImportError as e:
 
 # Настройка логирования - перенаправляем в stdout для работы в Docker
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
@@ -82,37 +83,54 @@ def wait_for_elasticsearch(max_retries=30, delay=5):
     global ELASTICSEARCH_URL
     logging.info(f"Ожидание запуска Elasticsearch (до {max_retries} попыток с интервалом {delay} сек)...")
 
+    # Проверяем, нужна ли авторизация
+    auth = None
+    if ES_USER and ES_PASS and ES_USER.lower() != 'none' and ES_PASS.lower() != 'none':
+        auth = (ES_USER, ES_PASS)
+        logging.info("Будет использована авторизация для подключения к Elasticsearch")
+    else:
+        logging.info("Подключение к Elasticsearch без авторизации")
+
+    # Основной URL должен содержать схему
+    main_url = "http://elasticsearch:9200"
+
     for attempt in range(max_retries):
         try:
-            es = Elasticsearch(
-                [ELASTICSEARCH_URL],
-                basic_auth=(ES_USER, ES_PASS) if ES_USER and ES_PASS else None,
+            # Используем основной URL
+            es_client = Elasticsearch(
+                hosts=main_url,
+                basic_auth=auth,
                 verify_certs=False,
-                timeout=10
+                request_timeout=30
             )
-            info = es.info()
+            info = es_client.info()
             logging.info(f"Успешное подключение к Elasticsearch {info['version']['number']} (попытка {attempt+1})")
-            return es
+            return es_client
         except Exception as e:
-            logging.warning(f"Попытка {attempt+1}/{max_retries}: не удалось подключиться к {ELASTICSEARCH_URL}: {e}")
+            logging.warning(f"Попытка {attempt+1}/{max_retries}: не удалось подключиться к {main_url}: {e}")
 
             # Попробуем альтернативные адреса, если основной не работает
             if attempt == 5:
                 alt_urls = [
                     "http://127.0.0.1:9200",
-                    "http://172.28.0.2:9200",  # IP из логов
-                    "http://host.docker.internal:9200"
+                    "http://172.28.0.2:9200",
+                    "http://elasticsearch:9200"  # Повторяем основной URL
                 ]
                 for alt_url in alt_urls:
                     try:
                         logging.info(f"Пробуем альтернативный URL: {alt_url}")
-                        es_alt = Elasticsearch([alt_url], timeout=5, verify_certs=False)
+                        es_alt = Elasticsearch(
+                            hosts=alt_url,
+                            basic_auth=auth,
+                            request_timeout=5,
+                            verify_certs=False
+                        )
                         if es_alt.ping():
                             logging.info(f"Успешное подключение к альтернативному URL {alt_url}")
                             ELASTICSEARCH_URL = alt_url
                             return es_alt
-                    except Exception:
-                        logging.warning(f"Альтернативный URL {alt_url} недоступен")
+                    except Exception as alt_e:
+                        logging.warning(f"Альтернативный URL {alt_url} недоступен: {alt_e}")
 
             time.sleep(delay)
 
@@ -251,6 +269,68 @@ MAPPINGS = {
                 "content": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
                 "text": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
                 "body": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
+                "indexed_at": {"type": "date"}
+            }
+        }
+    },
+
+    "procedural_forms_index": {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "index.mapping.total_fields.limit": 5000,  # Увеличенный лимит полей
+            "analysis": {
+                "analyzer": {
+                    "russian_analyzer": {
+                        "tokenizer": "standard",
+                        "filter": ["lowercase", "russian_stop", "russian_stemmer"]
+                    },
+                    "simple_analyzer": {
+                        "tokenizer": "standard",
+                        "filter": ["lowercase"]
+                    }
+                },
+                "filter": {
+                    "russian_stop": {
+                        "type": "stop",
+                        "stopwords": "_russian_"
+                    },
+                    "russian_stemmer": {
+                        "type": "stemmer",
+                        "language": "russian"
+                    }
+                }
+            }
+        },
+        "mappings": {
+            "properties": {
+                "id": {"type": "integer"},
+                "doc_id": {"type": "keyword"},
+                "title": {"type": "text", "analyzer": "russian_analyzer", 
+                        "fields": {"keyword": {"type": "keyword"}}},
+                "doc_type": {"type": "keyword"},
+                "court_type": {"type": "keyword"},
+                "target_court": {"type": "text", "analyzer": "simple_analyzer"},
+                "jurisdiction": {"type": "keyword"},
+                "category": {"type": "keyword"},
+                "subcategory": {"type": "keyword"},
+                "applicant_type": {"type": "keyword"},
+                "respondent_type": {"type": "keyword"},
+                "third_parties": {"type": "keyword"},
+                "stage": {"type": "keyword"},
+                "subject_matter": {"type": "text", "analyzer": "russian_analyzer"},
+                "keywords": {"type": "keyword"},
+                "legal_basis": {"type": "keyword"},
+                "full_text": {"type": "text", "analyzer": "russian_analyzer"},
+                "template_variables": {
+                    "type": "object",
+                    "enabled": False  # Отключаем строгое маппинг для этого поля
+                },
+                "source_file": {"type": "keyword"},
+                "creation_date": {"type": "date"},
+                "last_updated": {"type": "date"},
+                "content": {"type": "text", "analyzer": "russian_analyzer", "copy_to": "full_text"},
+                "text": {"type": "text", "analyzer": "russian_analyzer", "copy_to": "full_text"},
                 "indexed_at": {"type": "date"}
             }
         }
@@ -466,12 +546,17 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
         base_query = f"SELECT * FROM {table_name}"
         params = []
 
-        if last_indexed and "updated_at" in schema:
-            base_query += " WHERE updated_at > %s"
-            params.append(last_indexed)
-        elif last_indexed and "created_at" in schema:
-            base_query += " WHERE created_at > %s"
-            params.append(last_indexed)
+        # Проверяем поля для инкрементальной индексации
+        if last_indexed:
+            if table_name == 'procedural_forms' and 'last_updated' in schema:
+                base_query += " WHERE last_updated > %s"
+                params.append(last_indexed)
+            elif "updated_at" in schema:
+                base_query += " WHERE updated_at > %s"
+                params.append(last_indexed)
+            elif "created_at" in schema:
+                base_query += " WHERE created_at > %s"
+                params.append(last_indexed)
 
         # Добавляем пагинацию для обработки данных батчами
         count_query = f"SELECT COUNT(*) FROM ({base_query}) AS count_query"
@@ -499,7 +584,7 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                 if not rows:
                     break
 
-               # Подготавливаем батч для bulk индексации
+                # Подготавливаем батч для bulk индексации
                 batch_actions = []
                 column_names = [desc[0] for desc in cursor.description]
 
@@ -523,21 +608,47 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                     if table_name == 'legal_articles' and 'summary' in doc:
                         doc['content'] = doc['summary']
 
+                    # Специальная обработка для procedural_forms
+                    if table_name == 'procedural_forms':
+                        # Копируем full_text в content и text для обратной совместимости
+                        if 'full_text' in doc and doc['full_text']:
+                            doc['content'] = doc['full_text']
+                            doc['text'] = doc['full_text']
+                        
+                        # Преобразуем массивы PostgreSQL в списки Python
+                        for array_field in ['third_parties', 'keywords', 'legal_basis']:
+                            if array_field in doc and doc[array_field] is not None:
+                                # Если поле уже является списком, оставляем как есть
+                                if not isinstance(doc[array_field], list):
+                                    # Преобразуем строку массива PostgreSQL в список Python
+                                    try:
+                                        # Для массивов в формате {item1,item2,...}
+                                        if isinstance(doc[array_field], str) and doc[array_field].startswith('{') and doc[array_field].endswith('}'):
+                                            doc[array_field] = doc[array_field][1:-1].split(',') if doc[array_field] != '{}' else []
+                                    except Exception as e:
+                                        logging.warning(f"Ошибка при преобразовании массива {array_field} в таблице {table_name}: {e}")
+
+                        # Обработка поля template_variables
+                        if 'template_variables' in doc:
+                            if doc['template_variables'] is None:
+                                # Если template_variables равно None, заменяем его пустым объектом
+                                doc['template_variables'] = {}
+                            elif isinstance(doc['template_variables'], str):
+                                try:
+                                    doc['template_variables'] = json.loads(doc['template_variables'])
+                                except Exception as e:
+                                    logging.warning(f"Ошибка при преобразовании JSONB template_variables в таблице {table_name}: {e}")
+                                    doc['template_variables'] = {}
+                                    
                     # Обработка массива для referenced_cases
-                    if table_name == 'court_reviews' and 'referenced_cases' in doc:
-                        if isinstance(doc['referenced_cases'], list):
-                            if doc['referenced_cases'] and isinstance(doc['referenced_cases'][0], dict):
-                                # Для списка словарей извлекаем идентификаторы
-                                doc['referenced_cases'] = ','.join(str(case.get('id', '')) for case in doc['referenced_cases'])
-                            else:
-                                # Для простого списка строк или других типов
-                                doc['referenced_cases'] = ','.join(map(str, doc['referenced_cases']))
+                    if table_name == 'court_reviews' and 'referenced_cases' in doc and isinstance(doc['referenced_cases'], list):
+                        doc['referenced_cases'] = ','.join(doc['referenced_cases'])
 
                     # Преобразуем datetime объекты в строки
                     for key, value in doc.items():
                         if isinstance(value, datetime):
                             doc[key] = value.isoformat()
-                    
+
                     # Добавляем операцию в батч
                     doc_id = str(doc.get(id_field))
                     action = {
@@ -546,7 +657,6 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                         "_source": doc
                     }
                     batch_actions.append(action)
-
 
                 # Выполняем bulk индексацию
                 if batch_actions:
@@ -794,7 +904,39 @@ def update_mappings():
             except Exception as e:
                 logging.error(f"❌ Ошибка при обновлении маппинга для индекса {court_decisions_index}: {str(e)}")
 
-        # Обновляем маппинги для других индексов (если необходимо)
+        # Обновляем маппинг для индекса procedural_forms_index
+        procedural_forms_index = ES_INDICES.get("procedural_forms", "procedural_forms_index")
+        
+        if es.indices.exists(index=procedural_forms_index):
+            # Определяем обновление маппинга
+            mapping_update = {
+                "properties": {
+                    "title": {
+                        "type": "text",
+                        "analyzer": "russian_analyzer",
+                        "fields": {
+                            "keyword": { "type": "keyword" }
+                        }
+                    },
+                    "doc_type": { "type": "keyword" },
+                    "category": { "type": "keyword" },
+                    "subcategory": { "type": "keyword" },
+                    "doc_id": { "type": "keyword" },
+                    "full_text": { 
+                        "type": "text", 
+                        "analyzer": "russian_analyzer"
+                    }
+                }
+            }
+
+            try:
+                es.indices.put_mapping(
+                    index=procedural_forms_index,
+                    body=mapping_update
+                )
+                logging.info(f"✅ Маппинг для индекса {procedural_forms_index} успешно обновлен.")
+            except Exception as e:
+                logging.error(f"❌ Ошибка при обновлении маппинга для индекса {procedural_forms_index}: {str(e)}")
 
         logging.info("✅ Все необходимые маппинги обновлены.")
         return True

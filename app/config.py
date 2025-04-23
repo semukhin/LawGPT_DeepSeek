@@ -29,18 +29,29 @@ DATABASE_URL = "mysql+pymysql://gen_user:63%29%240oJ%5CWRP%5C%24J@194.87.243.188
 # Elasticsearch configuration
 ELASTICSEARCH_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 ES_HOST = os.environ.get("ES_HOST", ELASTICSEARCH_URL)  
-ES_USER = os.environ.get("ES_USER", "elastic")  
-ES_PASS = os.environ.get("ES_PASS", "GIkb8BKzkXK7i2blnG2O")
+ES_USER = os.environ.get("ES_USER", None)  # Безопасное получение, возвращает None если не задано
+ES_PASS = os.environ.get("ES_PASS", None)  # Безопасное получение, возвращает None если не задано
 
 # Инициализация Elasticsearch
 es = None
 try:
-    es = Elasticsearch(
-        [ELASTICSEARCH_URL],
-        basic_auth=(ES_USER, ES_PASS) if ES_USER and ES_PASS else None,
-        retry_on_timeout=True,
-        max_retries=3
-    )
+    # Создаем подключение с или без авторизации, в зависимости от наличия учетных данных
+    if ES_USER and ES_PASS and ES_USER.lower() != 'none' and ES_PASS.lower() != 'none':
+        # С авторизацией
+        es = Elasticsearch(
+            [ELASTICSEARCH_URL],
+            basic_auth=(ES_USER, ES_PASS),
+            retry_on_timeout=True,
+            max_retries=3
+        )
+    else:
+        # Без авторизации
+        es = Elasticsearch(
+            [ELASTICSEARCH_URL],
+            retry_on_timeout=True,
+            max_retries=3
+        )
+    
     health = es.cluster.health()
     print("Статус кластера:", health['status'])
 except Exception as e:
@@ -133,5 +144,6 @@ ES_INDICES = {
     "ruslawod_chunks": "ruslawod_chunks_index",
     "court_decisions": "court_decisions_index",
     "court_reviews": "court_reviews_index", 
-    "legal_articles": "legal_articles_index"
+    "legal_articles": "legal_articles_index",
+    "procedural_forms": "procedural_forms_index"
 }

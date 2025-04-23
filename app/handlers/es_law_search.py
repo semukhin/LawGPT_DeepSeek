@@ -1,5 +1,3 @@
-# app/handlers/es_law_search.py
-
 import logging
 from typing import List, Dict, Any, Optional
 from elasticsearch import Elasticsearch
@@ -14,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
-ES_USER = os.getenv("ES_USER", "elastic")
-ES_PASS = os.getenv("ES_PASS", "GIkb8BKzkXK7i2blnG2O")
+ES_USER = os.getenv("ES_USER", None)
+ES_PASS = os.getenv("ES_PASS", None)
 
 
 # Индексы в Elasticsearch с возможностью переопределения из конфигурации
@@ -23,7 +21,8 @@ DEFAULT_ES_INDICES = {
     "court_decisions": "court_decisions_index",
     "court_reviews": "court_reviews_index",
     "legal_articles": "legal_articles_index",
-    "ruslawod_chunks": "ruslawod_chunks_index"
+    "ruslawod_chunks": "ruslawod_chunks_index",
+    "procedural_forms": "procedural_forms_index"
 }
 
 # Используем индексы из конфигурации или значения по умолчанию
@@ -37,16 +36,29 @@ def get_es_client():
         Elasticsearch: Клиент Elasticsearch
     """
     try:
-        es = Elasticsearch(
-            ELASTICSEARCH_URL,
-            basic_auth=(ES_USER, ES_PASS),
-            retry_on_timeout=True,
-            max_retries=3
-        )
+        # Проверяем, нужна ли авторизация
+        if ES_USER and ES_PASS and ES_USER.lower() != 'none' and ES_PASS.lower() != 'none':
+            # С авторизацией
+            logger.info("Подключение к Elasticsearch с авторизацией")
+            es = Elasticsearch(
+                ELASTICSEARCH_URL,
+                basic_auth=(ES_USER, ES_PASS),
+                retry_on_timeout=True,
+                max_retries=3
+            )
+        else:
+            # Без авторизации
+            logger.info("Подключение к Elasticsearch без авторизации")
+            es = Elasticsearch(
+                ELASTICSEARCH_URL,
+                retry_on_timeout=True,
+                max_retries=3
+            )
         return es
     except Exception as e:
         logging.error(f"Ошибка подключения к Elasticsearch: {e}")
         raise
+
 
 # Умный поиск - новый класс для интеллектуального поиска
 class SmartSearchService:
@@ -58,6 +70,7 @@ class SmartSearchService:
         self.court_reviews_index = ES_INDICES.get("court_reviews", "court_reviews_index")
         self.legal_articles_index = ES_INDICES.get("legal_articles", "legal_articles_index")
         self.ruslawod_chunks_index = ES_INDICES.get("ruslawod_chunks", "ruslawod_chunks_index")
+        self.procedural_forms_index = ES_INDICES.get("procedural_forms", "procedural_forms_index")
     
 
     def extract_case_number(self, query: str) -> Optional[str]:
@@ -106,6 +119,25 @@ class SmartSearchService:
             match = re.search(pattern, query)
             if match:
                 return match.group(0)
+        return None
+    
+    def extract_document_type(self, query: str) -> Optional[str]:
+        """Извлекает тип документа из запроса"""
+        logger.info(f"🔎 [DEBUG] Проверка типа документа для запроса: '{query}'")
+        doc_types = [
+                "исковое заявление", "иск", "претензия", "отзыв", "отзыв на исковое заявление", 
+                "ходатайство", "апелляционная жалоба", "кассационная жалоба", 
+                "заявление", "возражение", "договор", "соглашение", "жалоба", "мировое соглашение",
+                "согласие", "административное исковое заявление", "замечаение", "ответ", "приложение к исковому заявлению",
+                "расписка", "расчет", "контррасчет", "ответ на претензию", "замечания на протокол", "независимая гарантия",
+                "ответ на определение суда", "расчет исковых требований", "расчет убытков"
+            ]
+        
+        for doc_type in doc_types:
+            if doc_type.lower() in query.lower():
+                logger.info(f"🔎 [DEBUG] Найден тип документа: '{doc_type}'")
+                return doc_type
+        logger.info(f"🔎 [DEBUG] Тип документа не найден")
         return None
     
     def search_by_case_number(self, case_number: str, limit: int = 10) -> List[Dict]:
@@ -336,6 +368,19 @@ class SmartSearchService:
                 "results": results
             }
         
+        # Проверяем наличие типа процессуального документа
+        doc_type = self.extract_document_type(query)
+        if doc_type:
+            logger.info(f"🧠 Определен поиск по типу документа: {doc_type}")
+            results = search_procedural_forms(query, min(limit, 5))  # Ограничиваем до 5 форм
+            
+            if results:
+                return {
+                    "type": "procedural_form",
+                    "query_entity": doc_type,
+                    "results": results
+                }
+        
         # По умолчанию ищем по тексту запроса
         logger.info(f"🧠 Определен поиск по тексту запроса")
         results = self.search_by_text_fragment(query, limit)
@@ -401,6 +446,136 @@ def extract_case_numbers_from_query(query: str) -> List[str]:
     logger.info(f"Сформированы варианты номера дела: {variants}")
     return variants
 
+
+def search_procedural_forms(query: str, limit: int = 5) -> List[str]:
+    """
+    Поиск в индексе procedural_forms_index (процессуальные формы документов).
+    
+    Args:
+        query: Текст запроса
+        limit: Максимальное количество результатов
+        
+    Returns:
+        List[str]: Форматированные результаты
+    """
+    try:
+        es = get_es_client()
+        # Используем индекс из глобальной переменной или по умолчанию
+        index_name = ES_INDICES.get("procedural_forms", "procedural_forms_index")
+        
+        # Проверяем существование индекса
+        if not es.indices.exists(index=index_name):
+            logger.warning(f"🔍 Индекс {index_name} не существует")
+            return []
+        
+        # Валидация параметра limit
+        size = max(1, limit)  # Гарантируем, что size будет положительным
+        
+        # Определяем тип документа из запроса
+        smart_search = get_smart_search_service()
+        doc_type = smart_search.extract_document_type(query)
+        
+        # Создаем поисковый запрос
+        should_clauses = [
+            {"match": {"full_text": {"query": query, "boost": 1.0}}},
+            {"match": {"title": {"query": query, "boost": 3.0}}},
+            {"match": {"subject_matter": {"query": query, "boost": 2.0}}},
+            {"match": {"category": {"query": query, "boost": 1.5}}},
+            {"match": {"subcategory": {"query": query, "boost": 1.5}}}
+        ]
+        
+        # Если нашли тип документа, добавляем его в запрос
+        if doc_type:
+            should_clauses.append({"match": {"doc_type": {"query": doc_type, "boost": 4.0}}})
+            logger.info(f"🔍 Определен тип документа: {doc_type}")
+        
+        body = {
+            "size": size,
+            "query": {
+                "bool": {
+                    "should": should_clauses,
+                    "minimum_should_match": 1
+                }
+            },
+            "highlight": {
+                "fields": {
+                    "full_text": {"pre_tags": ["<b>"], "post_tags": ["</b>"]},
+                    "title": {"pre_tags": ["<b>"], "post_tags": ["</b>"]}
+                }
+            }
+        }
+        
+        # Выполняем поиск
+        response = es.search(index=index_name, body=body)
+        hits = response["hits"]["hits"]
+        
+        results = []
+        for hit in hits:
+            source = hit["_source"]
+            
+            # Получаем основные поля
+            title = source.get("title", "")
+            doc_type = source.get("doc_type", "")
+            category = source.get("category", "")
+            subcategory = source.get("subcategory", "")
+            jurisdiction = source.get("jurisdiction", "")
+            stage = source.get("stage", "")
+            subject_matter = source.get("subject_matter", "")
+            full_text = source.get("full_text", "")
+            template_vars = source.get("template_variables", {})
+            
+            # Получаем подсвеченные фрагменты
+            highlights = []
+            for field in ["title", "full_text"]:
+                if hit.get("highlight", {}).get(field):
+                    highlights.extend(hit["highlight"][field])
+            
+            highlight_text = "...\n".join(highlights) if highlights else ""
+            
+            # Формируем результат
+            result = f"ПРОЦЕССУАЛЬНАЯ ФОРМА: {title}\n"
+            result += f"Тип документа: {doc_type}\n"
+            
+            if jurisdiction:
+                result += f"Юрисдикция: {jurisdiction}\n"
+            
+            if category:
+                result += f"Категория: {category}\n"
+            
+            if subcategory:
+                result += f"Подкатегория: {subcategory}\n"
+            
+            if stage:
+                result += f"Стадия: {stage}\n"
+            
+            if subject_matter:
+                result += f"Предмет: {subject_matter}\n"
+            
+            # Добавляем информацию о шаблонных переменных, если они есть
+            if template_vars and isinstance(template_vars, dict) and template_vars:
+                result += f"\nШаблонные переменные для заполнения:\n"
+                for key, value in template_vars.items():
+                    if isinstance(value, list):
+                        result += f"• {key}: [{', '.join(value)}]\n"
+                    else:
+                        result += f"• {key}: {value}\n"
+            
+            if highlight_text:
+                result += f"\nРелевантные фрагменты:\n{highlight_text}\n\n"
+            
+            result += f"\nПолный текст документа:\n{full_text[:2000]}"
+            if len(full_text) > 2000:
+                result += "...[текст сокращен]"
+            
+            results.append(result)
+        
+        logger.info(f"🔍 [ES] Найдено {len(results)} процессуальных форм документов")
+        return results
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка поиска в индексе procedural_forms_index: {str(e)}")
+        logger.exception("Подробная информация об ошибке:")
+        return []
 
 
 def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
@@ -530,6 +705,12 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
                         result_text += f"Полный текст решения:\n{full_text}"
                         formatted_results.append(result_text)
                     
+                    logger.info(f"🔍 [ES] Дополнительно ищем в процессуальных формах")
+                    procedural_forms_results = search_procedural_forms(query, min(3, top_n))
+                    if procedural_forms_results:
+                        formatted_results.extend(procedural_forms_results)
+                        logger.info(f"🔍 [ES] Добавлено {len(procedural_forms_results)} процессуальных форм")
+                    
                     logger.info(f"🔍 [ES] Возвращаем {len(formatted_results)} отформатированных документов")
                     return formatted_results
                 else:
@@ -543,7 +724,10 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
         smart_search = get_smart_search_service()
         case_number = smart_search.extract_case_number(query)
         company_name = smart_search.extract_company_name(query)
-        
+        doc_type = smart_search.extract_document_type(query)
+        logger.info(f"🔍 [ES DEBUG] Результаты анализа запроса: case_number={case_number}, company_name={company_name}, doc_type={doc_type}")
+
+
         if case_number:
             logger.info(f"🔍 [ES] SmartSearchService обнаружил номер дела: {case_number}")
             search_results = smart_search.smart_search(query, top_n)
@@ -590,16 +774,74 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
                 # Возвращаем отформатированные результаты
                 if formatted_results:
                     logger.info(f"🔍 [ES] SmartSearchService: успешно отформатировано {len(formatted_results)} результатов")
+                    
+                    logger.info(f"🔍 [ES] Дополнительно ищем в процессуальных формах")
+                    procedural_forms_results = search_procedural_forms(query, min(3, top_n))
+                    if procedural_forms_results:
+                        formatted_results.extend(procedural_forms_results)
+                        logger.info(f"🔍 [ES] Добавлено {len(procedural_forms_results)} процессуальных форм")
+                    
+                    return formatted_results
+        
+        # Если найден тип документа, проверяем процессуальные формы
+        if doc_type:
+            logger.info(f"🔍 [ES] Найден тип документа: {doc_type}. Ищем в процессуальных формах")
+            procedural_forms = search_procedural_forms(query, min(top_n, 3))
+            
+            if procedural_forms:
+                logger.info(f"🔍 [ES] Найдено {len(procedural_forms)} процессуальных форм")
+                
+                # Форматируем результаты процессуальных форм
+                formatted_results = []
+                
+                for form in procedural_forms:
+                    formatted_results.append(form)
+                
+                # Если нашли процессуальные формы, возвращаем их + дополняем результатами из других источников
+                if formatted_results:
+                    logger.info(f"🔍 [ES] Возвращаем {len(formatted_results)} процессуальных форм")
+                    
+                    # Оставляем место для результатов из других источников
+                    other_results_limit = top_n - len(formatted_results)
+                    
+                    # Если нужно, ищем еще и в других источниках
+                    if other_results_limit > 0:
+                        logger.info(f"🔍 [ES] Дополняем результаты из других источников (лимит: {other_results_limit})")
+                        # Добавим результаты стандартного поиска к процессуальным формам
+                        other_results = []
+                        
+                        # Разделим оставшееся количество между индексами
+                        per_index_limit = max(1, other_results_limit // 3)
+                        
+                        # Поиск в остальных индексах
+                        results1 = search_court_decisions(es, query, per_index_limit)
+                        if results1:
+                            other_results.extend(results1)
+                        
+                        results2 = search_ruslawod_chunks(es, query, per_index_limit)
+                        if results2:
+                            other_results.extend(results2)
+                        
+                        results3 = search_legal_articles(es, query, per_index_limit)
+                        if results3:
+                            other_results.extend(results3)
+                        
+                        # Объединяем результаты, сначала процессуальные формы
+                        if other_results:
+                            formatted_results.extend(other_results[:other_results_limit])
+                            logger.info(f"🔍 [ES] Добавлено {len(other_results[:other_results_limit])} результатов из других источников")
+                    
                     return formatted_results
         
         # Если все специальные методы не сработали, используем стандартный поиск
         logger.info(f"🔍 [ES] Используем стандартный поиск")
         
         # Распределяем количество результатов между разными индексами
-        court_decisions_limit = max(2, top_n // 4)
-        court_reviews_limit = max(1, top_n // 4)
-        legal_articles_limit = max(1, top_n // 4)
-        ruslawod_chunks_limit = top_n - court_decisions_limit - court_reviews_limit - legal_articles_limit
+        court_decisions_limit = max(2, top_n // 5)
+        court_reviews_limit = max(1, top_n // 5)
+        legal_articles_limit = max(1, top_n // 5)
+        ruslawod_chunks_limit = max(1, top_n // 5)
+        procedural_forms_limit = top_n - court_decisions_limit - court_reviews_limit - legal_articles_limit - ruslawod_chunks_limit
         
         # 1. Поиск в индексе court_decisions_index (судебные решения)
         logger.info(f"🔍 [ES] Выполняем стандартный поиск в court_decisions_index")
@@ -624,8 +866,14 @@ def search_law_chunks(query: str, top_n: int = 3) -> List[str]:
         if legal_articles_results:
             results.extend(legal_articles_results)
         
+        # 5. Поиск в индексе procedural_forms_index (процессуальные формы)
+        logger.info(f"🔍 [ES] Выполняем стандартный поиск в procedural_forms_index")
+        procedural_forms_results = search_procedural_forms(query, procedural_forms_limit)
+        if procedural_forms_results:
+            results.extend(procedural_forms_results)
+        
         # Ограничиваем результаты по длине текста
-        max_result_length = 1800  # максимальная длина одного фрагмента
+        max_result_length = 4000  # максимальная длина одного фрагмента
         truncated_results = []
         
         for result in results:
@@ -1054,7 +1302,6 @@ def search_legal_articles(es, query: str, limit: int) -> List[str]:
             publication_date = source.get("publication_date", source.get("date", ""))
             source_name = source.get("source", "")
             tags = source.get("tags", source.get("keywords", ""))
-            
             # Получаем подсвеченные фрагменты
             highlights = []
             for field in ["title", "content", "body", "text"]:
@@ -1194,6 +1441,73 @@ def create_ruslawod_chunks_index(es):
     else:
         logger.info(f"✅ Индекс {index_name} уже существует.")
 
+def create_procedural_forms_index(es):
+    """
+    Создает индекс procedural_forms_index в Elasticsearch, если он не существует.
+    
+    Args:
+        es: Клиент Elasticsearch
+    """
+    index_name = ES_INDICES.get("procedural_forms", "procedural_forms_index")
+    
+    # Проверяем, существует ли индекс
+    if not es.indices.exists(index=index_name):
+        # Определяем маппинг для индекса
+        mappings = {
+            "properties": {
+                "id": {"type": "integer"},
+                "doc_id": {"type": "keyword"},
+                "title": {"type": "text", "analyzer": "russian", 
+                        "fields": {"keyword": {"type": "keyword"}}},
+                "doc_type": {"type": "keyword"},
+                "court_type": {"type": "keyword"},
+                "target_court": {"type": "text", "analyzer": "russian"},
+                "jurisdiction": {"type": "keyword"},
+                "category": {"type": "keyword"},
+                "subcategory": {"type": "keyword"},
+                "applicant_type": {"type": "keyword"},
+                "respondent_type": {"type": "keyword"},
+                "third_parties": {"type": "keyword"},  # Массив строк
+                "stage": {"type": "keyword"},
+                "subject_matter": {"type": "text", "analyzer": "russian"},
+                "keywords": {"type": "keyword"},  # Массив строк
+                "legal_basis": {"type": "keyword"},  # Массив строк
+                "full_text": {"type": "text", "analyzer": "russian"},
+                "template_variables": {"type": "object"},  # JSONB
+                "source_file": {"type": "keyword"},
+                "creation_date": {"type": "date"},
+                "last_updated": {"type": "date"},
+                # Поля для обратной совместимости
+                "content": {"type": "text", "analyzer": "russian", "copy_to": "full_text"},
+                "text": {"type": "text", "analyzer": "russian", "copy_to": "full_text"},
+                "indexed_at": {"type": "date"}
+            }
+        }
+        
+        # Создаем индекс
+        es.indices.create(
+            index=index_name,
+            body={
+                "settings": {
+                    "number_of_shards": 1,
+                    "number_of_replicas": 0,
+                    "analysis": {
+                        "analyzer": {
+                            "russian": {
+                                "tokenizer": "standard",
+                                "filter": ["lowercase", "russian_morphology", "russian_stop"]
+                            }
+                        }
+                    }
+                },
+                "mappings": mappings
+            }
+        )
+        
+        logger.info(f"✅ Индекс {index_name} успешно создан.")
+    else:
+        logger.info(f"✅ Индекс {index_name} уже существует.")
+
 def create_indices():
     """
     Создает все необходимые индексы в Elasticsearch.
@@ -1204,6 +1518,7 @@ def create_indices():
         # Создаем индексы
         create_court_decisions_index(es)
         create_ruslawod_chunks_index(es)
+        create_procedural_forms_index(es)  # Добавлено создание индекса процессуальных форм
         
         # Также можно создать индексы для court_reviews_index и legal_articles_index
         # но пока оставим их без явного создания
@@ -1279,6 +1594,59 @@ def update_court_decisions_mapping(es=None):
         logger.error(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}")
         return False
 
+def update_procedural_forms_mapping(es=None):
+    """
+    Обновляет маппинг для индекса процессуальных форм, добавляя поддержку
+    для эффективного поиска.
+    
+    Args:
+        es: Клиент Elasticsearch (опционально)
+    """
+    if es is None:
+        es = get_es_client()
+    
+    try:
+        index_name = ES_INDICES.get("procedural_forms", "procedural_forms_index")
+        
+        # Проверяем, существует ли индекс
+        if not es.indices.exists(index=index_name):
+            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            return False
+        
+        # Обновляем маппинг для индекса
+        mapping_update = {
+            "properties": {
+                "title": { 
+                    "type": "text", 
+                    "analyzer": "russian",
+                    "fields": {
+                        "keyword": { "type": "keyword" }
+                    }
+                },
+                "doc_type": { "type": "keyword" },
+                "category": { "type": "keyword" },
+                "subcategory": { "type": "keyword" },
+                "subject_matter": { 
+                    "type": "text", 
+                    "analyzer": "russian" 
+                },
+                "keywords": { "type": "keyword" },
+                "doc_id": { "type": "keyword" }
+            }
+        }
+        
+        # Обновляем маппинг
+        es.indices.put_mapping(
+            index=index_name,
+            body=mapping_update
+        )
+        
+        logger.info(f"✅ Маппинг для индекса {index_name} успешно обновлен.")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}")
+        return False
+
 def update_all_mappings():
     """
     Обновляет маппинги для всех индексов для оптимизации умного поиска.
@@ -1287,11 +1655,12 @@ def update_all_mappings():
         es = get_es_client()
         
         # Обновляем маппинги для всех индексов
-        success = update_court_decisions_mapping(es)
+        success1 = update_court_decisions_mapping(es)
+        success2 = update_procedural_forms_mapping(es)
         
         # Добавьте обновление других индексов по мере необходимости
         
-        return success
+        return success1 and success2
     except Exception as e:
         logger.error(f"❌ Ошибка при обновлении маппингов: {str(e)}")
         return False
