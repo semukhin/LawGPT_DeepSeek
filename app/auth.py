@@ -26,7 +26,7 @@ ALGORITHM = config.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Схема OAuth2 для аутентификации
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
 
 temp_user_data = {}  # Временное хранилище для данных пользователей
 
@@ -65,7 +65,7 @@ async def get_current_user(
         raise credentials_exception
     return user
 
-@router.post("/register")
+@router.post("/api/register")
 async def register_user(
     user: schemas.UserCreate,
     background_tasks: BackgroundTasks,
@@ -76,7 +76,7 @@ async def register_user(
         raise HTTPException(status_code=400, detail="Пользователь уже проходит регистрацию")
 
     # Генерация кода верификации
-    code = randint(100000, 999999)
+    code = randint(1000, 9999)
 
     # Сохраняем данные пользователя в таблице TempUser
     temp_user = models.TempUser(
@@ -105,7 +105,7 @@ async def register_user(
 
 
 
-@router.post("/verify")
+@router.post("/api/verify")
 async def verify_code(
     request: schemas.VerifyRequest,  # Используйте схему для тела запроса
     token: str = Depends(config.oauth2_scheme),
@@ -155,26 +155,50 @@ async def verify_code(
 
 
 
-@router.post("/login")
+@router.post("/api/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     """Авторизация пользователя."""
-    db_user = db.query(models.User).filter(models.User.email == user.email).first()
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Неверный email или пароль")
-    
-    if not db_user.is_verified:
-        raise HTTPException(status_code=403, detail="Пользователь не верифицирован")
-    
-    # Обновляем is_active
-    db_user.is_active = True
-    db.commit()
-    db.refresh(db_user)
+    try:
+        db_user = db.query(models.User).filter(models.User.email == user.email).first()
+        if not db_user or not verify_password(user.password, db_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Неверный email или пароль"
+            )
+        
+        if not db_user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Пользователь не верифицирован"
+            )
+        
+        # Обновляем is_active
+        db_user.is_active = True
+        db.commit()
+        db.refresh(db_user)
 
-    access_token = create_access_token(data={"sub": db_user.email, "user_id": db_user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
+        access_token = create_access_token(
+            data={"sub": db_user.email, "user_id": db_user.id}
+        )
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": db_user.id,
+                "email": db_user.email,
+                "first_name": db_user.first_name,
+                "last_name": db_user.last_name
+            }
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
-@router.get("/profile", response_model=schemas.UserOut)
+@router.get("/api/profile", response_model=schemas.UserOut)
 async def get_profile(
     current_user: models.User = Depends(get_current_user)
 ):
@@ -182,7 +206,7 @@ async def get_profile(
     return current_user
 
 
-@router.post("/forgot-password")
+@router.post("/api/forgot-password")
 async def forgot_password(
     request: PasswordResetRequest,
     background_tasks: BackgroundTasks,
@@ -194,7 +218,7 @@ async def forgot_password(
         raise HTTPException(status_code=404, detail="Пользователь с таким email не найден")
 
     # Генерация кода восстановления
-    reset_code = randint(100000, 999999)
+    reset_code = randint(1000, 9999)
     password_reset = models.PasswordReset(email=request.email, code=reset_code)
     db.add(password_reset)
     db.commit()
@@ -205,7 +229,7 @@ async def forgot_password(
     return {"message": "Код восстановления отправлен на вашу почту"}
 
 
-@router.post("/reset-password")
+@router.post("/api/reset-password")
 async def reset_password(
     request: PasswordResetConfirm,
     db: Session = Depends(database.get_db)
@@ -236,7 +260,7 @@ async def reset_password(
     return {"message": "Пароль успешно изменён"}
 
 
-@router.post("/logout")
+@router.post("/api/logout")
 async def logout():
     """Выход из системы."""
     # В FastAPI токены хранятся на клиенте, так что для "выхода" можно просто уведомить клиента.

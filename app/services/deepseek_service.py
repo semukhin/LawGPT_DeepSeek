@@ -9,8 +9,17 @@ import json
 import aiohttp
 import asyncio
 from typing import List, Dict, Any, Optional, Union, Literal
+from fastapi import HTTPException
+from app.utils import ensure_correct_encoding, sanitize_search_results, validate_messages, validate_context
 
-from app.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE
+from app.config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
+
+def decode_unicode(text: str) -> str:
+    """Декодирует escape-последовательности Unicode в строке."""
+    try:
+        return text.encode('utf-8').decode('unicode-escape')
+    except:
+        return text
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -25,10 +34,10 @@ class DeepSeekService:
         self,
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
-        model: str = "deepseek-chat",
-        temperature: float = 0.7,
-        max_tokens: int = 4000,
-        timeout: int = 60
+        model: str = "deepseek-reasoner",
+        temperature: float = 1.2,
+        max_tokens: int = 8192,
+        timeout: int = 180
     ):
         """
         Инициализирует сервис с параметрами API DeepSeek.
@@ -61,24 +70,26 @@ class DeepSeekService:
         stream: bool = False,
         top_p: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None
+        frequency_penalty: Optional[float] = None,
+        model: Optional[str] = None
     ) -> Union[str, Dict[str, Any]]:
         """
-        Отправляет запрос к DeepSeek Chat API и возвращает ответ.
+        Отправляет запрос к API DeepSeek для генерации ответа.
         
         Args:
-            messages: Список сообщений в формате [{role: "user|system|assistant|function", content: "текст"}]
-            functions: Список доступных функций в формате JSON Schema
-            function_call: Настройка вызова функций ("auto", "none" или {"name": "имя_функции"})
-            temperature: Параметр температуры (переопределяет значение из конструктора)
-            max_tokens: Максимальное количество токенов (переопределяет значение из конструктора)
-            stream: Использовать потоковый режим ответа
-            top_p: Параметр top-p сэмплинга
-            presence_penalty: Штраф за повторение тем
-            frequency_penalty: Штраф за повторение токенов
+            messages: История диалога
+            functions: Описание доступных функций
+            function_call: Режим вызова функций
+            temperature: Температура генерации
+            max_tokens: Максимальное количество токенов
+            stream: Потоковая генерация
+            top_p: Параметр top_p
+            presence_penalty: Штраф за повторение
+            frequency_penalty: Штраф за частоту
+            model: Модель для использования
             
         Returns:
-            Текст ответа от API или полный ответ API
+            Union[str, Dict[str, Any]]: Ответ от API
         """
         if not self.api_key:
             return "Ошибка: API ключ DeepSeek не настроен"
@@ -90,9 +101,12 @@ class DeepSeekService:
             "Authorization": f"Bearer {self.api_key}"
         }
         
+        # Проверяем и исправляем кодировку во всех сообщениях
+        messages = validate_messages(messages)
+        
         # Формируем payload с обязательными параметрами
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
             "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
@@ -101,10 +115,11 @@ class DeepSeekService:
         
         # Добавляем опциональные параметры
         if functions:
-            payload["functions"] = functions
+            # Проверяем и исправляем кодировку в описаниях функций
+            payload["functions"] = [ensure_correct_encoding(func) for func in functions]
         
         if function_call:
-            payload["function_call"] = function_call
+            payload["function_call"] = ensure_correct_encoding(function_call)
             
         if top_p is not None:
             payload["top_p"] = top_p
@@ -114,209 +129,295 @@ class DeepSeekService:
             
         if frequency_penalty is not None:
             payload["frequency_penalty"] = frequency_penalty
-        
+
+        # Логируем отправляемый payload с проверкой кодировки
+        logging.info(f"Отправляемый payload: {json.dumps(ensure_correct_encoding(payload), ensure_ascii=False)[:200]}...")
+
         try:
+            # Устанавливаем фиксированный таймаут в 180 секунд (3 минуты)
+            fixed_timeout = 180
+            
             logging.info(f"Отправка запроса к DeepSeek API: {url}")
-            logging.debug(f"Payload: {json.dumps(payload)}")
+            logging.info(f"Payload: {json.dumps(payload, ensure_ascii=False)}")
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, 
-                    headers=headers, 
-                    json=payload,
-                    timeout=self.timeout
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
-                        return f"Ошибка API: {response.status} - {error_text}"
-                    
-                    if stream:
-                        # Обработка потокового ответа
-                        full_response = ""
-                        async for line in response.content:
-                            line = line.decode('utf-8').strip()
-                            if line.startswith('data: ') and line != 'data: [DONE]':
-                                json_str = line[6:]  # Убираем 'data: '
-                                try:
-                                    chunk = json.loads(json_str)
-                                    content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
-                                    if content:
-                                        full_response += content
-                                except json.JSONDecodeError:
-                                    logging.error(f"Ошибка декодирования JSON из потока: {line}")
-                        return full_response
-                    else:
-                        # Обработка обычного ответа
-                        response_json = await response.json()
-                        logging.debug(f"Ответ API: {json.dumps(response_json)}")
+                try:
+                    async with session.post(
+                        url, 
+                        headers=headers, 
+                        json=payload,
+                        timeout=fixed_timeout
+                    ) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            logging.error(f"Ошибка DeepSeek API ({response.status}): {error_text}")
+                            return f"Ошибка API: {response.status} - {error_text}"
                         
-                        # Возвращаем полный ответ для проверки наличия function_call
-                        return response_json
-                        
-        except asyncio.TimeoutError:
-            logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {self.timeout} сек)")
-            return "Ошибка: превышен таймаут запроса к API"
+                        if stream:
+                            # Обработка потокового ответа
+                            full_response = ""
+                            async for line in response.content:
+                                line = line.decode('utf-8').strip()
+                                if line.startswith('data: ') and line != 'data: [DONE]':
+                                    json_str = line[6:]  # Убираем 'data: '
+                                    try:
+                                        chunk = json.loads(json_str)
+                                        content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                                        if content:
+                                            full_response += ensure_correct_encoding(content)
+                                    except json.JSONDecodeError:
+                                        logging.error(f"Ошибка декодирования JSON из потока: {line}")
+                            return full_response
+                        else:
+                            # Обработка обычного ответа
+                            response_json = await response.json()
+                            logging.info(f"Ответ API: {json.dumps(response_json, ensure_ascii=False)}")
+                            
+                            # Обрабатываем кодировку в ответе
+                            if 'choices' in response_json and len(response_json['choices']) > 0:
+                                choice = response_json['choices'][0]
+                                if 'message' in choice:
+                                    message = choice['message']
+                                    if 'content' in message:
+                                        message['content'] = ensure_correct_encoding(message['content'])
+                                    if 'function_call' in message:
+                                        message['function_call'] = ensure_correct_encoding(message['function_call'])
+                            
+                            return response_json
+                except asyncio.TimeoutError:
+                    # Таймаут в 3 минуты превышен
+                    logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {fixed_timeout} сек)")
+                    return "Сервис пока не может обработать ваш запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
+                
         except Exception as e:
             logging.error(f"Ошибка при запросе к DeepSeek API: {str(e)}")
             return f"Ошибка: {str(e)}"
 
-    async def generate_text(self, prompt: str) -> str:
-        """
-        Генерирует текст на основе промпта.
+    async def prepare_context(self, context: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Подготовка контекста с обработкой кодировки"""
+        # Обрабатываем кодировку всего контекста
+        sanitized_context = sanitize_search_results(context)
         
-        Args:
-            prompt: Текстовый промпт для генерации
-            
-        Returns:
-            Сгенерированный текст
-        """
-        messages = [{"role": "user", "content": prompt}]
-        response = await self.chat_completion(messages)
+        # Дополнительная обработка для каждого элемента
+        for item in sanitized_context:
+            if isinstance(item.get('data'), str):
+                item['data'] = ensure_correct_encoding(item['data'])
+            if isinstance(item.get('content'), str):
+                item['content'] = ensure_correct_encoding(item['content'])
         
-        if isinstance(response, dict) and 'choices' in response:
-            return response['choices'][0]['message']['content']
-        elif isinstance(response, str):
-            return response
-        else:
-            logging.error(f"Неожиданный формат ответа: {response}")
-            return "Ошибка получения текста"
+        return sanitized_context
     
-    async def generate_with_system(self, system_prompt: str, user_prompt: str) -> str:
-        """
-        Генерирует текст с использованием системного и пользовательского промпта.
-        
-        Args:
-            system_prompt: Системный промпт для задания контекста
-            user_prompt: Пользовательский промпт
-            
-        Returns:
-            Сгенерированный текст
-        """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        response = await self.chat_completion(messages)
-        
-        if isinstance(response, dict) and 'choices' in response:
-            return response['choices'][0]['message']['content']
-        elif isinstance(response, str):
-            return response
-        else:
-            logging.error(f"Неожиданный формат ответа: {response}")
-            return "Ошибка получения текста"
-        
-        
-        
-    async def chat_with_functions(
-        self,
-        messages: List[Dict[str, Any]],
-        functions: List[Dict[str, Any]],
-        function_call: Union[Literal["auto"], Literal["none"], Dict[str, str]] = "auto"
-    ) -> Dict[str, Any]:
-        """
-        Отправляет запрос к DeepSeek с поддержкой вызова функций.
-        
-        Args:
-            messages: История диалога
-            functions: Описание функций в формате JSON Schema
-            function_call: Режим вызова функций
-            
-        Returns:
-            Полный ответ API, включая возможный вызов функции
-        """
-        # Включаем более подробную отладку для функциональных вызовов
-        logging.info(f"Запрос chat_with_functions, function_call={function_call}")
-        
-        # Убедимся, что последнее сообщение содержит явное указание на использование функций
-        if messages and messages[-1]["role"] == "user":
-            # Проверяем, есть ли уже подсказка о функциях
-            if not "функц" in messages[-1]["content"].lower() and not "использу" in messages[-1]["content"].lower():
-                # Добавляем невидимую подсказку для модели в конец сообщения
-                enhanced_content = messages[-1]["content"]
-                enhanced_content += "\n\n[Для ответа на этот вопрос можешь использовать доступные функции поиска информации]"
-                messages[-1]["content"] = enhanced_content
-        
-        # Формируем payload
-        url = f"{self.api_base}/chat/completions"
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        
-        # Устанавливаем низкую температуру для более детерминированного поведения
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": self.max_tokens,
-            "functions": functions,
-            "function_call": function_call
-        }
-        
-        # Более детальный вывод payload для отладки
-        logging.debug(f"Отправляемый payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
-        
+    async def generate_response(self, messages: List[Dict[str, str]], context: List[Dict[str, Any]] = None) -> str:
+        """Генерация ответа от DeepSeek с предварительной обработкой контекста"""
         try:
-            # Делаем до 3 попыток с увеличением таймаута
-            for attempt in range(3):
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            url, 
-                            headers=headers, 
-                            json=payload,
-                            timeout=self.timeout * (attempt + 1)
-                        ) as response:
-                            response_text = await response.text()
-                            
-                            if response.status != 200:
-                                logging.error(f"Ошибка DeepSeek API ({response.status}): {response_text[:200]}...")
-                                if attempt < 2:  # Если это не последняя попытка
-                                    logging.info(f"Повторная попытка {attempt+2}/3...")
-                                    await asyncio.sleep(1 * (attempt + 1))  # Задержка перед повторной попыткой
-                                    continue
-                                return f"Ошибка API: {response.status} - {response_text[:200]}..."
-                            
-                            try:
-                                response_json = json.loads(response_text)
-                                
-                                # Проверяем наличие function_call в ответе
-                                if 'choices' in response_json and len(response_json['choices']) > 0:
-                                    choice = response_json['choices'][0]
-                                    message = choice.get('message', {})
-                                    
-                                    if 'function_call' in message:
-                                        logging.info(f"✅ Function call найден: {message['function_call'].get('name')}")
-                                    else:
-                                        logging.warning("⚠️ Function call не найден в ответе")
-                                
-                                return response_json
-                            except json.JSONDecodeError:
-                                logging.error(f"Ошибка декодирования JSON ответа (попытка {attempt+1}/3): {response_text[:200]}...")
-                                if attempt < 2:  # Если это не последняя попытка
-                                    await asyncio.sleep(1 * (attempt + 1))
-                                    continue
-                                return f"Ошибка декодирования ответа API: {response_text[:200]}..."
+            if context:
+                context = validate_context(context)
+            
+            # Обрабатываем кодировку сообщений
+            sanitized_messages = validate_messages(messages)
+            
+            # Здесь ваш существующий код для отправки запроса в DeepSeek
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
                 
-                except asyncio.TimeoutError:
-                    logging.error(f"Таймаут запроса к DeepSeek API (попытка {attempt+1}/3, таймаут {self.timeout * (attempt + 1)} сек)")
-                    if attempt < 2:  # Если это не последняя попытка
-                        await asyncio.sleep(1 * (attempt + 1))
-                        continue
-                    return "Ошибка: превышен таймаут запроса к API"
+                payload = {
+                    "model": self.model,
+                    "messages": sanitized_messages
+                }
                 
-                except Exception as e:
-                    logging.error(f"Ошибка при запросе к DeepSeek API (попытка {attempt+1}/3): {str(e)}")
-                    if attempt < 2:  # Если это не последняя попытка
-                        await asyncio.sleep(1 * (attempt + 1))
-                        continue
-                    return f"Ошибка: {str(e)}"
-        
-            return "Не удалось получить ответ от DeepSeek API после нескольких попыток"
-        
+                if context:
+                    payload["context"] = context
+                
+                async with session.post(
+                    f"{self.api_base}/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail=f"DeepSeek API error: {error_text}"
+                        )
+                    
+                    result = await response.json()
+                    return ensure_correct_encoding(result["choices"][0]["message"]["content"])
+                    
         except Exception as e:
-            logging.error(f"Непредвиденная ошибка при запросе к DeepSeek API: {str(e)}")
-            return f"Ошибка: {str(e)}"  
+            logging.error(f"Error in DeepSeek service: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Internal server error: {str(e)}"
+            )
+
+async def _generate(
+    self, 
+    messages: List[Dict], 
+    functions: Optional[List[Dict]] = None,
+    max_tokens: int = 8192
+) -> str:
+    """
+    Внутренний метод генерации ответа с проверкой ограничений.
+    
+    Args:
+        messages: Список сообщений
+        functions: Список доступных функций
+        max_tokens: Максимальное количество токенов
+    """
+    # Строгая проверка max_tokens
+    max_tokens = max(1, min(max_tokens, 8192))
+    
+    # Фиксированный таймаут в 180 секунд
+    fixed_timeout = 180
+    
+    payload = {
+        "model": self.model,
+        "messages": messages,
+        "temperature": self.temperature,
+        "max_tokens": max_tokens
+    }
+    
+    if functions:
+        payload["functions"] = functions
+        payload["function_call"] = "auto"
+    
+    try:
+        logging.info(f"Отправка запроса к DeepSeek API: {self.api_base}/chat/completions")
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    f"{self.api_base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload,
+                    timeout=fixed_timeout
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logging.error(f"API Error: {error_text}")
+                        raise ValueError(f"API Error: {response.status} - {error_text}")
+                    
+                    result = await response.json()
+                    return result['choices'][0]['message']['content']
+            
+            except asyncio.TimeoutError:
+                logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {fixed_timeout} сек)")
+                return "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
+                
+    except Exception as e:
+        logging.error(f"Ошибка при запросе к DeepSeek API: {str(e)}")
+        return f"Ошибка API: {str(e)}"
+        
+        
+        
+async def chat_with_functions(
+    self,
+    messages: List[Dict[str, Any]],
+    functions: List[Dict[str, Any]],
+    function_call: Union[Literal["auto"], Literal["none"], Dict[str, str]] = "auto"
+) -> Dict[str, Any]:
+    """
+    Отправляет запрос к DeepSeek с поддержкой вызова функций.
+    
+    Args:
+        messages: История диалога
+        functions: Описание функций в формате JSON Schema
+        function_call: Режим вызова функций
+        
+    Returns:
+        Полный ответ API, включая возможный вызов функции
+    """
+    # Включаем более подробную отладку для функциональных вызовов
+    logging.info(f"Запрос chat_with_functions, function_call={function_call}")
+    
+    # Фиксированный таймаут в 180 секунд
+    fixed_timeout = 180
+    
+    # Формируем payload
+    url = f"{self.api_base}/chat/completions"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {self.api_key}"
+    }
+    
+    payload = {
+        "model": self.model,
+        "messages": messages,
+        "temperature": 1.2,
+        "max_tokens": self.max_tokens,
+        "functions": functions,
+        "function_call": function_call
+    }
+    
+    logging.info(f"Отправляемый payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+    
+    try:
+        logging.info(f"Отправка запроса к DeepSeek API: {url}")
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    url, 
+                    headers=headers, 
+                    json=payload,
+                    timeout=fixed_timeout
+                ) as response:
+                    response_text = await response.text()
+                    
+                    if response.status != 200:
+                        logging.error(f"Ошибка DeepSeek API ({response.status}): {response_text[:200]}...")
+                        return f"Ошибка API: {response.status} - {response_text[:200]}..."
+                    
+                    try:
+                        response_json = json.loads(response_text)
+                        
+                        # Проверяем наличие function_call в ответе
+                        if 'choices' in response_json and len(response_json['choices']) > 0:
+                            choice = response_json['choices'][0]
+                            message = choice.get('message', {})
+                            
+                            if 'function_call' in message:
+                                logging.info(f"✅ Function call найден: {message['function_call'].get('name')}")
+                            else:
+                                logging.warning("⚠️ Function call не найден в ответе")
+                        
+                        return response_json
+                    except json.JSONDecodeError:
+                        logging.error(f"Ошибка декодирования JSON ответа: {response_text[:200]}...")
+                        return f"Ошибка декодирования ответа API: {response_text[:200]}..."
+            
+            except asyncio.TimeoutError:
+                logging.error(f"Таймаут запроса к DeepSeek API (превышен лимит {fixed_timeout} сек)")
+                return "Сервис пока не может обработать запрос. Попытайтесь, пожалуйста, отправить повторный запрос через минуту."
+        
+    except Exception as e:
+        logging.error(f"Непредвиденная ошибка при запросе к DeepSeek API: {str(e)}")
+        return f"Ошибка: {str(e)}"
+
+async def _process_stream(self, response):
+    """Обработка потокового ответа от DeepSeek"""
+    async for line in response.content:
+        if line:
+            try:
+                line = line.decode('utf-8').strip()
+                # Декодируем строку
+                line = decode_unicode(line)
+                
+                if line.startswith('data: ') and line != 'data: [DONE]':
+                    json_str = line[6:]  # Убираем 'data: '
+                    try:
+                        chunk = json.loads(json_str)
+                        content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                        if content:
+                            return content
+                    except json.JSONDecodeError:
+                        logging.error(f"Ошибка декодирования JSON из потока: {line}")
+            except Exception as e:
+                logging.error(f"Ошибка обработки потокового ответа: {str(e)}")

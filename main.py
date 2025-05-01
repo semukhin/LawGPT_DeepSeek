@@ -1,14 +1,42 @@
-import sys, os
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from app.handlers import deepresearch
-from app.services.deepresearch_service import DeepResearchService
+import sys
+from dotenv import load_dotenv
+import os
 import logging
+from fastapi import FastAPI, Request
+
+# Добавляем путь к директории scripts в путь поиска модулей Python
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
+sys.path.insert(0, SCRIPTS_DIR)  # Гарантированно добавляем в начало пути
+sys.path.insert(0, BASE_DIR)     # Добавляем корневой каталог
+
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+from app.services.research_factory import ResearchAdapter
+
+try:
+    from app.services.es_init import init_elasticsearch_async, get_indexing_status
+except ModuleNotFoundError:
+    # Создаем заглушки для функций, если модуль недоступен
+    logging.warning("Модуль scripts.es_init не найден. Используются заглушки функций.")
+    def init_elasticsearch_async():
+        logging.warning("Elasticsearch инициализация пропущена (модуль недоступен)")
+        return False
+
+    def get_indexing_status():
+        return {"status": "unavailable", "error": "Модуль es_init недоступен"}
 import time
+from contextlib import asynccontextmanager
+import asyncio
 
+deep_research_service = ResearchAdapter()
 
+# Загрузка переменных окружения из .env файла
+load_dotenv()
+# Проверка загрузки переменных окружения
+print("DATABASE_URL:", os.getenv("DATABASE_URL"))
 
 # Добавляем путь к сторонним пакетам (third_party) до импорта роутеров
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +46,6 @@ if THIRD_PARTY_DIR not in sys.path:
 
 from app import models, database, auth
 from app.chat import router as chat_router
-from app.handlers import deepresearch  # Импортируем модуль deepresearch
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
@@ -27,17 +54,19 @@ app = FastAPI(
     version="2.0.0"
 )
 
-deep_research_service = DeepResearchService()
-
+# Подключение папки frontend для раздачи статических файлов
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 # Настраиваем логирование
 logging.basicConfig(
     level=logging.INFO,  # Уровень логирования
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Формат сообщений
+    format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
 )
 logger = logging.getLogger(__name__)  # Создаем логгер для текущего модуля
 
-
+# Отключаем отладочные сообщения для multipart parser
+logging.getLogger('fastapi.multipart.multipart').setLevel(logging.INFO)
+logging.getLogger('multipart.multipart').setLevel(logging.INFO)
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -47,12 +76,11 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
-
 # Middleware для установки правильной кодировки в HTTP заголовках
 @app.middleware("http")
 async def add_charset_middleware(request: Request, call_next):
     response = await call_next(request)
-    
+
     # Добавляем charset=utf-8 в заголовки Content-Type, если его нет
     content_type = response.headers.get("content-type")
     if content_type and "charset" not in content_type.lower():
@@ -60,9 +88,8 @@ async def add_charset_middleware(request: Request, call_next):
             response.headers["content-type"] = f"{content_type}; charset=utf-8"
         elif "application/json" in content_type:
             response.headers["content-type"] = f"{content_type}; charset=utf-8"
-    
-    return response
 
+    return response
 
 @app.get("/items/{item_id}")
 async def read_item(item_id: int):
@@ -70,37 +97,46 @@ async def read_item(item_id: int):
     # Ваш код обработки запроса
     return {"item_id": item_id}
 
-
-
 @app.post("/deep-research/")
 async def deep_research(query: str):
     """Эндпоинт для глубокого исследования."""
     results = await deep_research_service.research(query)
     return {"results": results}
 
-
 # Подключение роутеров
 app.include_router(chat_router)
 app.include_router(auth.router)
-# Подключаем роутер для глубокого исследования
-app.include_router(deepresearch.router)
+
 
 # Создание всех таблиц в базе данных
 models.Base.metadata.create_all(bind=database.engine)
 
-
 # Настройка CORS с указанием кодировки
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # В режиме разработки разрешаем все источники
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Разрешаем все методы
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Credentials",
+        "Access-Control-Allow-Headers",
+        "Access-Control-Allow-Methods",
+        "Access-Control-Expose-Headers",
+    ],
+    expose_headers=["X-Process-Time", "Content-Disposition"]
 )
 
 # Главная страница
-@app.get("/", response_class=HTMLResponse)
-def read_root():
+@app.get("/", response_class=FileResponse)
+async def read_root():
     html_content = """
     <html>
         <head>
@@ -113,11 +149,45 @@ def read_root():
         </body>
     </html>
     """
-    return HTMLResponse(content=html_content)
+    return FileResponse("frontend/index.html")
 
 @app.get("/ping")
 async def ping():
     return {"message": "pong"}
 
+@app.get("/indexing-status")
+async def indexing_status():
+    """Возвращает текущий статус индексации"""
+    return get_indexing_status()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Обработчик событий жизненного цикла приложения."""
+    # Действия при запуске
+    try:
+        from sqlalchemy import text
+        with database.engine.connect() as conn:
+            result = conn.execute(text("SELECT 1"))
+            logging.info("Соединение с MySQL успешно установлено")
+    except Exception as e:
+        logging.error(f"Ошибка соединения с MySQL: {str(e)}")
+
+    # Асинхронная инициализация Elasticsearch
+    try:
+        if 'init_elasticsearch_async' in globals():
+            if init_elasticsearch_async():
+                logger.info("Запущена асинхронная инициализация Elasticsearch")
+            else:
+                logger.warning("Elasticsearch инициализация пропущена. Поиск по базе знаний будет недоступен.")
+        else:
+            logger.warning("Функция init_elasticsearch_async недоступна. Elasticsearch не будет инициализирован.")
+    except Exception as e:
+        logger.warning(f"Ошибка при инициализации Elasticsearch: {str(e)}. Приложение продолжит работу без поддержки поиска.")
+
+    yield  # Здесь можно добавить код, который будет выполняться во время работы приложения
+
+    # Действия при завершении
+    logger.info("Приложение завершает работу")
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,0 +1,153 @@
+version: '3'
+
+services:
+  backend:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lawgpt_deepseek_backend_1  
+    restart: always
+    volumes:
+      - ./documents_docx:/app/documents_docx
+      - ./documents_html:/app/documents_html
+      - ./uploads:/app/uploads
+      - ./static:/app/static
+    environment:
+      # MySQL настройки для основного приложения
+      - DATABASE_URL=mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db  # Убраны кавычки
+      - DB_HOST=194.87.243.188
+      - DB_PORT=3306
+      - DB_NAME=default_db
+      - DB_USER=gen_user
+      - DB_PASSWORD=Grisha1977!
+      - DB_USER_MYSQL=gen_user
+      - DB_PASSWORD_MYSQL=Grisha1977!
+      - DB_HOST_MYSQL=194.87.243.188
+      - DB_PORT_MYSQL=3306
+      - DB_NAME_MYSQL=default_db
+      
+      # ElasticSearch настройки - убираем авторизацию
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ES_HOST=elasticsearch  # Убран http:// протокол
+      - ES_USER=none  # Фиктивное значение
+      - ES_PASS=none  # Фиктивное значение
+
+      # PostgreSQL настройки с префиксом PG_
+      - PG_DB_HOST=82.97.242.92
+      - PG_DB_PORT=5432
+      - PG_DB_NAME=ruslaw_db
+      - PG_DB_USER=gen_user
+      - PG_DB_PASSWORD=P?!ri#ag5%G1Si
+      
+      # Добавляем URL для PostgreSQL 
+      - DATABASE_URL_PG=postgresql://gen_user:P?!ri#ag5%G1Si@82.97.242.92:5432/ruslaw_db
+
+      # Остальные переменные остаются без изменений
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
+      - MAIL_SERVER=${MAIL_SERVER}
+      - MAIL_PORT=${MAIL_PORT}
+      - MAIL_USERNAME=${MAIL_USERNAME}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+      - MAIL_FROM=${MAIL_FROM}
+      - MAIL_STARTTLS=${MAIL_STARTTLS}
+      - MAIL_SSL_TLS=${MAIL_SSL_TLS}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_CX=${GOOGLE_CX}
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - es_network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      # - "ELASTIC_PASSWORD=${ES_PASS}"  # Эта строка закомментирована, т.к. безопасность отключена
+      - xpack.security.enabled=false 
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - es_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  # Сервис для индексации Elasticsearch 
+  es-indexer:
+    image: python:3.9
+    volumes:
+      - ./scripts:/app/scripts
+      - ./logs:/app/logs
+    environment:
+      # ElasticSearch настройки - убираем авторизацию
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ES_HOST=elasticsearch
+      - ES_USER=none
+      - ES_PASS=none
+      
+      # Остальные переменные окружения без изменений
+      - DB_HOST=82.97.242.92
+      - DB_PORT=5432
+      - DB_NAME=ruslaw_db
+      - DB_USER=gen_user
+      - DB_PASSWORD=P?!ri#ag5%G1Si
+      
+      - PG_DB_HOST=82.97.242.92
+      - PG_DB_PORT=5432
+      - PG_DB_NAME=ruslaw_db
+      - PG_DB_USER=gen_user
+      - PG_DB_PASSWORD=P?!ri#ag5%G1Si
+      
+      - PYTHONUNBUFFERED=1
+    entrypoint: >
+      bash -c "pip install elasticsearch psycopg2-binary asyncio python-dotenv &&
+              cd /app &&
+              python /app/scripts/dbcheck.py &&
+              python /app/scripts/es_init.py --table court_decisions --run-once"
+    networks:
+      - es_network
+    depends_on:
+      - elasticsearch
+
+  # Остальная часть docker-compose.yml остается без изменений
+  nginx:
+      platform: linux/amd64
+      image: nginx:alpine
+      ports:
+        - "80:80"
+        - "443:443"
+      volumes:
+        - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+        - ./nginx/ssl:/etc/nginx/ssl
+        - ./documents_html:/usr/share/nginx/documents_html
+        - ./frontend:/usr/share/nginx/frontend
+        - /etc/letsencrypt:/etc/letsencrypt
+      depends_on:
+        - backend
+      restart: always
+      networks:
+        - es_network
+
+volumes:
+  documents_docx:
+  documents_html:
+  uploads:
+  static:
+  elasticsearch_data:
+
+networks:
+  default:
+    driver: bridge
+  es_network:
+    driver: bridge

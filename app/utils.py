@@ -4,9 +4,51 @@ import time
 import logging
 import asyncio
 from functools import wraps
-
+import os
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+def filter_binary_for_logs(text):
+    """
+    Фильтрует бинарные и непечатаемые символы из текста для безопасного логирования.
+    Обрабатывает специфические ошибки Gemini API для лучшей диагностики.
+
+    Args:
+        text: Исходный текст, который может содержать бинарные данные
+
+    Returns:
+        str: Отфильтрованный текст, содержащий только печатаемые ASCII символы
+    """
+    if not isinstance(text, str):
+        text = str(text)
+
+    # Специальная обработка ошибок Gemini API
+    if "finish_reason" in text and "requires the response to contain a valid" in text:
+        # Выделяем и возвращаем информативную часть сообщения об ошибке
+        if "finish_reason](https://ai.google.dev/api/generate-content#finishreason) is 4" in text:
+            return "Ошибка Gemini API: finish_reason=4 (авторские права). Gemini считает, что документ содержит защищенный материал."
+        elif "finish_reason](https://ai.google.dev/api/generate-content#finishreason) is 5" in text:
+            return "Ошибка Gemini API: finish_reason=5 (безопасность). Gemini считает, что документ содержит небезопасный контент."
+        elif "finish_reason" in text:
+            try:
+                # Пытаемся извлечь код finish_reason
+                import re
+                match = re.search(r"finish_reason.*?is\s+(\d+)", text)
+                if match:
+                    code = match.group(1)
+                    return f"Ошибка Gemini API: finish_reason={code}. Ответ не содержит текста из-за ограничений API."
+            except Exception:
+                pass
+
+    # Заменяем непечатаемые символы на '?'
+    filtered = ''.join(c if c.isascii() and c.isprintable() else '?' for c in text)
+
+    # Если строка слишком длинная, обрезаем её
+    max_log_length = 500
+    if len(filtered) > max_log_length:
+        filtered = filtered[:max_log_length] + "... [обрезано]"
+
+    return filtered
 
 session = requests.Session()
 session.verify = False  # Отключаем проверку SSL
@@ -32,40 +74,58 @@ def get_url_content(url, headers=None, timeout=10):
         print(f"[ERROR]: Ошибка сети при запросе {url}: {e}")
     return None
 
-
-
-
 logging.basicConfig(level=logging.INFO)
 
-def measure_time(func):
-    """Декоратор для измерения времени выполнения функции (async и sync)."""
+def save_text_to_file(text, output_file_path):
+    """Сохраняет текст в файл."""
+    try:
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        return True
+    except Exception as e:
+        print(f"Ошибка при сохранении файла {output_file_path}: {e}")
+        return False
+
+def ensure_correct_encoding(text: str) -> str:
+    """
+    Проверяет и исправляет кодировку текста, обеспечивая UTF-8.
     
-    print(f"🔍 Декоратор применён к функции: {func.__name__}")  # Проверяем, применяется ли декоратор
-
-    @wraps(func)
-    async def async_wrapper(*args, **kwargs):
-        print(f"🚀 Вызов async-функции: {func.__name__}")  # Проверка вызова
-        start_time = time.perf_counter()
-        result = await func(*args, **kwargs)
-        end_time = time.perf_counter()
-        execution_time = end_time - start_time
-        log_message = f"⚡ Время выполнения {func.__name__} (async): {execution_time:.6f} секунд"
-        logging.info(log_message)
-        print(log_message)  # Вывод в терминал
-        return result
-
-    @wraps(func)
-    def sync_wrapper(*args, **kwargs):
-        print(f"🚀 Вызов sync-функции: {func.__name__}")  # Проверка вызова
-        start_time = time.perf_counter()
-        result = func(*args, **kwargs)
-        end_time = time.perf_counter()
-        execution_time = end_time - start_time
-        log_message = f"⚡ Время выполнения {func.__name__}: {execution_time:.6f} секунд"
-        logging.info(log_message)
-        print(log_message)  # Вывод в терминал
-        return result
-
-    if asyncio.iscoroutinefunction(func):
-        return async_wrapper  # Для async-функций
-    return sync_wrapper  # Для sync-функций
+    Args:
+        text: Исходный текст
+        
+    Returns:
+        str: Текст в корректной кодировке UTF-8
+    """
+    if not text:
+        return ""
+        
+    # Если текст уже в виде строки
+    if isinstance(text, str):
+        try:
+            # Пробуем перекодировать через bytes для исправления возможных проблем
+            return text.encode('utf-8', errors='ignore').decode('utf-8')
+        except UnicodeError:
+            try:
+                # Пробуем определить кодировку и перекодировать
+                import chardet
+                encoding = chardet.detect(text.encode())['encoding'] or 'utf-8'
+                return text.encode(encoding, errors='ignore').decode('utf-8')
+            except Exception:
+                # В крайнем случае просто игнорируем проблемные символы
+                return text.encode('ascii', errors='ignore').decode('ascii')
+    
+    # Если текст в bytes
+    if isinstance(text, bytes):
+        try:
+            return text.decode('utf-8', errors='ignore')
+        except UnicodeError:
+            try:
+                # Определяем кодировку
+                import chardet
+                encoding = chardet.detect(text)['encoding'] or 'utf-8'
+                return text.decode(encoding, errors='ignore')
+            except Exception:
+                return text.decode('ascii', errors='ignore')
+    
+    # Для других типов данных
+    return str(text)

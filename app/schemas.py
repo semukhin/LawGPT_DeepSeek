@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -45,3 +46,13 @@ class PasswordResetConfirm(BaseModel):
     email: EmailStr
     code: int
     new_password: str
+
+class FileUploadResponse(BaseModel):
+    """Модель ответа на загрузку файла."""
+    success: bool
+    fileUrl: Optional[str] = None
+    text: Optional[str] = None
+    error: Optional[str] = None
+    processingTime: Optional[float] = None
+    metadata: Optional[dict] = None
+    downloadUrl: Optional[str] = None  # Ссылка для скачивания полного текста

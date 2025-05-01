@@ -10,10 +10,10 @@ import datetime
 
 DEFAULT_CONFIG = {
     "api": {
-        "base_url": "https://api.openai.com/v1",
+        "base_url": "https://api.deepseek.com/v1",
         "api_key": "",
-        "model": "gpt-4",
-        "temperature": 0
+        "model": "deepseek-reasoner",
+        "temperature": 1.2
     },
     "search": {
         "engines": ["duckduckgo", "google"],

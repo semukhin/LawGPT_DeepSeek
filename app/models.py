@@ -3,7 +3,6 @@ from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
-from app.context_manager import ContextManager, OpenAIProvider
 
 
 class VerificationCode(Base):
@@ -30,6 +29,8 @@ class User(Base):
     verification_code = relationship("VerificationCode", back_populates="user", uselist=False)
     threads = relationship("Thread", back_populates="user")
     documents = relationship("Document", back_populates="user")  # Добавляем связь
+    prompt_logs = relationship("PromptLog", back_populates="user")
+
 
 
 class TempUser(Base):
@@ -55,10 +56,12 @@ class Thread(Base):
     id = Column(String(50), primary_key=True, default=lambda: f"thread_{uuid.uuid4().hex}")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    first_message = Column(Text, nullable=True)  # Добавлено поле для первого сообщения
+    first_message = Column(Text, nullable=True)
 
     user = relationship("User", back_populates="threads")
     messages = relationship("Message", back_populates="thread")
+    prompt_logs = relationship("PromptLog", back_populates="thread")
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -71,6 +74,7 @@ class Message(Base):
     context_summary = Column(Text, nullable=True)  # Добавленный столбец
 
     thread = relationship("Thread", back_populates="messages")
+    prompt_log = relationship("PromptLog", back_populates="message", uselist=False)
 
 
 class Document(Base):
@@ -78,9 +82,29 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    original_name = Column(String(255), nullable=False)
     file_path = Column(String(255), nullable=False)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-    download_date = Column(DateTime, default=func.now())  # Поле есть?
-
+    description = Column(String(1000))
+    mime_type = Column(String(100))
+    upload_date = Column(DateTime, default=datetime.utcnow)
+    content_text = Column(Text)  # Добавляем поле для хранения извлеченного текста
 
     user = relationship("User", back_populates="documents")
+
+
+class PromptLog(Base):
+    __tablename__ = "prompt_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(String(50), ForeignKey("threads.id"), nullable=False)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    system_prompt = Column(Text, nullable=False)
+    user_prompt = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    thread = relationship("Thread", back_populates="prompt_logs")
+    message = relationship("Message", back_populates="prompt_log", uselist=False)
+    user = relationship("User", back_populates="prompt_logs")
