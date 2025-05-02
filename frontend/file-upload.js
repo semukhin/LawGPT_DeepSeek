@@ -739,7 +739,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Экспортируем функцию во внешний интерфейс
     window.showNotification = function(message, type = 'info', duration = 3000) {
-        console.log("Итоговое имя файла для скачивания:", message);
+        // Логируем только если это уведомление о скачивании файла
+        if (type === 'success' && message.includes('Файл успешно скачан')) {
+            console.log("Итоговое имя файла для скачивания:", message);
+        }
         return createNotification(message, type, duration);
     };
 

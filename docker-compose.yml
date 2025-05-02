@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: lawgpt_deepseek_backend_1  
+    container_name: lawgpt_deepseek_backend_2
     restart: always
     volumes:
       - ./documents_docx:/app/documents_docx
@@ -14,36 +14,26 @@ services:
       - ./uploads:/app/uploads
       - ./static:/app/static
     environment:
-      # MySQL настройки для основного приложения
-      - DATABASE_URL=mysql+pymysql://gen_user:Grisha1977!@194.87.243.188:3306/default_db  # Убраны кавычки
-      - DB_HOST=194.87.243.188
-      - DB_PORT=3306
-      - DB_NAME=default_db
-      - DB_USER=gen_user
-      - DB_PASSWORD=Grisha1977!
-      - DB_USER_MYSQL=gen_user
-      - DB_PASSWORD_MYSQL=Grisha1977!
       - DB_HOST_MYSQL=194.87.243.188
       - DB_PORT_MYSQL=3306
       - DB_NAME_MYSQL=default_db
-      
-      # ElasticSearch настройки - убираем авторизацию
+      - DB_USER_MYSQL=gen_user
+      - DB_PASSWORD_MYSQL=Grisha1977!
+      - DB_HOST=82.97.242.92
+      - DB_PORT=5432
+      - DB_NAME=ruslaw_db
+      - DB_USER=gen_user
+      - DB_PASSWORD=P?!ri#ag5%G1Si
       - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - ES_HOST=elasticsearch  # Убран http:// протокол
-      - ES_USER=none  # Фиктивное значение
-      - ES_PASS=none  # Фиктивное значение
-
-      # PostgreSQL настройки с префиксом PG_
+      - ES_HOST=elasticsearch
+      - ES_USER=none
+      - ES_PASS=none
       - PG_DB_HOST=82.97.242.92
       - PG_DB_PORT=5432
       - PG_DB_NAME=ruslaw_db
       - PG_DB_USER=gen_user
       - PG_DB_PASSWORD=P?!ri#ag5%G1Si
-      
-      # Добавляем URL для PostgreSQL 
-      - DATABASE_URL_PG=postgresql://gen_user:P?!ri#ag5%G1Si@82.97.242.92:5432/ruslaw_db
-
-      # Остальные переменные остаются без изменений
+      - AI_PROVIDER=deepseek
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL}
@@ -64,16 +54,15 @@ services:
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
-    container_name: elasticsearch
+    container_name: elasticsearch_2
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      # - "ELASTIC_PASSWORD=${ES_PASS}"  # Эта строка закомментирована, т.к. безопасность отключена
       - xpack.security.enabled=false 
     ports:
-      - "9200:9200"
+      - "9201:9200"
     volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
+      - elasticsearch_data_2:/usr/share/elasticsearch/data
     networks:
       - es_network
     healthcheck:
@@ -83,71 +72,31 @@ services:
       retries: 5
       start_period: 60s
 
-  # Сервис для индексации Elasticsearch 
-  es-indexer:
-    image: python:3.9
+  nginx:
+    platform: linux/amd64
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./scripts:/app/scripts
-      - ./logs:/app/logs
-    environment:
-      # ElasticSearch настройки - убираем авторизацию
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - ES_HOST=elasticsearch
-      - ES_USER=none
-      - ES_PASS=none
-      
-      # Остальные переменные окружения без изменений
-      - DB_HOST=82.97.242.92
-      - DB_PORT=5432
-      - DB_NAME=ruslaw_db
-      - DB_USER=gen_user
-      - DB_PASSWORD=P?!ri#ag5%G1Si
-      
-      - PG_DB_HOST=82.97.242.92
-      - PG_DB_PORT=5432
-      - PG_DB_NAME=ruslaw_db
-      - PG_DB_USER=gen_user
-      - PG_DB_PASSWORD=P?!ri#ag5%G1Si
-      
-      - PYTHONUNBUFFERED=1
-    entrypoint: >
-      bash -c "pip install elasticsearch psycopg2-binary asyncio python-dotenv &&
-              cd /app &&
-              python /app/scripts/dbcheck.py &&
-              python /app/scripts/es_init.py --table court_decisions --run-once"
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./documents_html:/usr/share/nginx/documents_html
+      - ./frontend:/usr/share/nginx/frontend
+      - /etc/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - backend
+    restart: always
     networks:
       - es_network
-    depends_on:
-      - elasticsearch
-
-  # Остальная часть docker-compose.yml остается без изменений
-  nginx:
-      platform: linux/amd64
-      image: nginx:alpine
-      ports:
-        - "80:80"
-        - "443:443"
-      volumes:
-        - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
-        - ./nginx/ssl:/etc/nginx/ssl
-        - ./documents_html:/usr/share/nginx/documents_html
-        - ./frontend:/usr/share/nginx/frontend
-        - /etc/letsencrypt:/etc/letsencrypt
-      depends_on:
-        - backend
-      restart: always
-      networks:
-        - es_network
 
 volumes:
   documents_docx:
   documents_html:
   uploads:
   static:
-  elasticsearch_data:
+  elasticsearch_data_2:
 
 networks:
-  default:
-    driver: bridge
   es_network:
     driver: bridge

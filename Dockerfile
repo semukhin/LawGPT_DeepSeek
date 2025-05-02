@@ -8,14 +8,13 @@ RUN apt-get update && apt-get install -y \
     libmagic-dev \
     build-essential \
     tesseract-ocr \
-    tesseract-ocr-rus \
-    poppler-utils \
     wget \
     gnupg \
     default-libmysqlclient-dev \ 
     pkg-config \ 
-    && rm -rf /var/lib/apt/lists/* \
-    && which tesseract
+    libssl-dev \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Копируем requirements первым слоем для кэширования
 COPY requirements.txt .
@@ -36,5 +35,5 @@ RUN playwright install-deps && \
 # Открываем порт
 EXPOSE 8000
 
-# Запускаем приложение с логированием отладки
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Запускаем приложение
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

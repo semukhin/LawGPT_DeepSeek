@@ -19,6 +19,7 @@ from app.utils import ensure_correct_encoding, sanitize_search_results, validate
 from app.search_result import SearchResult
 import ssl
 import random
+from app.utils.text_utils import extract_keywords_ru
 
 # Добавляем путь к third_party для корректного импорта shandu
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -91,9 +92,17 @@ def google_search(query: str, logs: list, max_results: int = MAX_SEARCH_RESULTS)
         logs.append("⚠️ Поиск в Google отключен в настройках")
         return []
 
-    # Очищаем запрос от лишних символов и обрабатываем кодировку
-    clean_query = ensure_correct_encoding(query.strip())
-    logging.info(f"🔍 google_search: Начинаем поиск для '{clean_query}'")
+    # --- Новый блок: автоматическое извлечение ключевых фраз ---
+    orig_query = query.strip()
+    if len(orig_query) > 200:
+        keywords_query = extract_keywords_ru(orig_query)
+        logs.append(f"🔑 Извлечены ключевые слова для поиска: {keywords_query}")
+        logging.info(f"🔑 Исходный запрос: {orig_query}")
+        logging.info(f"🔑 Ключевые слова для поиска: {keywords_query}")
+        clean_query = keywords_query
+    else:
+        clean_query = ensure_correct_encoding(orig_query)
+        logging.info(f"🔍 google_search: Начинаем поиск для '{clean_query}'")
     
     # Очищаем ключи API от кавычек
     api_key = GOOGLE_API_KEY.replace('"', '') if GOOGLE_API_KEY else ""

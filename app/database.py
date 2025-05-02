@@ -3,6 +3,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import MYSQL_DATABASE_URL, POSTGRES_DATABASE_URL
 import logging
+import os
+from urllib.parse import quote_plus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,8 +32,16 @@ except Exception as e:
 
 # Для хранения данных Elasticsearch/RAG используем PostgreSQL (если настроен)
 try:
-    # Проверяем, что у нас есть POSTGRES_DATABASE_URL
-    if 'POSTGRES_DATABASE_URL' in globals() and POSTGRES_DATABASE_URL:
+    # Проверяем, что у нас есть все необходимые переменные окружения для PostgreSQL
+    PG_DB_HOST = os.getenv('DB_HOST')
+    PG_DB_PORT = os.getenv('DB_PORT', '5432')
+    PG_DB_NAME = os.getenv('DB_NAME')
+    PG_DB_USER = os.getenv('DB_USER')
+    PG_DB_PASSWORD = os.getenv('DB_PASSWORD')
+
+    if all([PG_DB_HOST, PG_DB_PORT, PG_DB_NAME, PG_DB_USER, PG_DB_PASSWORD]):
+        PG_DB_PASSWORD_ENCODED = quote_plus(PG_DB_PASSWORD)
+        POSTGRES_DATABASE_URL = f"postgresql+psycopg2://{PG_DB_USER}:{PG_DB_PASSWORD_ENCODED}@{PG_DB_HOST}:{PG_DB_PORT}/{PG_DB_NAME}"
         es_engine = create_engine(
             POSTGRES_DATABASE_URL,
             pool_pre_ping=True,
@@ -40,12 +50,12 @@ try:
         # Проверка соединения
         with es_engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
-            logging.info("Успешное подключение к PostgreSQL для хранения данных Elasticsearch")
+            logging.info("✅ Успешное подключение к PostgreSQL для хранения данных Elasticsearch")
     else:
-        logging.warning("POSTGRES_DATABASE_URL не определен, пропускаем подключение к PostgreSQL")
+        logging.warning("❌ Не все переменные окружения для PostgreSQL определены, пропускаем подключение")
         es_engine = None
 except Exception as e:
-    logging.error(f"Ошибка подключения к PostgreSQL для Elasticsearch: {e}")
+    logging.error(f"❌ Ошибка подключения к PostgreSQL для Elasticsearch: {e}")
     es_engine = None # Устанавливаем None чтобы показать, что подключение не удалось
 
 

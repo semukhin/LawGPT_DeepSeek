@@ -606,6 +606,11 @@ async function handleVerify(e) {
         }
     } catch (error) {
         hideLoading();
+        // Проверяем, авторизован ли пользователь
+        if (localStorage.getItem(config.storageTokenKey)) {
+            // Уже авторизован — не показываем ошибку
+            return;
+        }
         showNotification(
             `Ошибка при верификации: ${error.message || "неверный код"}`,
             "error",
@@ -1631,10 +1636,13 @@ async function loadChatMessages(threadId) {
             // Передаем обработанные сообщения функции рендеринга
             renderChatMessages(formattedMessages);
         } else {
+            // Если сервер вернул не массив, это действительно ошибка
             console.warn("Получен неверный формат данных от сервера:", messages);
             renderChatMessages([]);
+            showNotification("Не удалось загрузить сообщения чата", "error");
         }
     } catch (error) {
+        // Показываем ошибку только если это действительно ошибка запроса
         console.error("Ошибка при загрузке сообщений:", error);
         showNotification("Не удалось загрузить сообщения чата", "error");
     }
@@ -1658,7 +1666,7 @@ function renderChatMessages(messages) {
         console.log('Сообщений нет, показываем приветственное сообщение');
         // Если сообщений нет, показываем приветственное сообщение
         addAssistantMessage(
-            "Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?",
+            "Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь? Я владею знаниями российского законодательства, судебной практикой, могу распознать скан документа, многое другое."
         );
         return;
     }
@@ -1892,6 +1900,15 @@ async function sendMessage() {
             "error",
         );
         console.error("Ошибка при отправке сообщения:", error);
+        // Если ошибка — это таймаут или 504, пробуем подгрузить сообщения через 5 секунд
+        if (error && (error.message.includes('504') || error.message.toLowerCase().includes('timeout'))) {
+            setTimeout(() => {
+                const threadId = localStorage.getItem(config.storageThreadKey);
+                if (threadId) {
+                    loadChatMessages(threadId);
+                }
+            }, 5000);
+        }
     } finally {
         if (sendBtn) {
             sendBtn.disabled = false;

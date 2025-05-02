@@ -350,7 +350,7 @@ async def get_thread_messages(
     db: Session = Depends(get_db)
 ):
     """Возвращает сообщения из выбранного треда."""
-    return await get_messages(thread_id=thread_id, db=db)
+    return await get_messages(thread_id=thread_id, db=db, current_user_id=current_user.id)
 
 
 # ===================== Эндпоинты для загрузки и скачивания файлов =====================

@@ -19,16 +19,16 @@ import asyncio
 import traceback
 
 # Глобальные переменные для конфигурации
-ELASTICSEARCH_URL = os.getenv('ES_HOST', 'http://147.45.145.136:9200')
+ELASTICSEARCH_URL = os.getenv('ES_HOST', 'http://147.45.145.136:9201')
 ES_HOST = ELASTICSEARCH_URL
 ES_USER = os.getenv('ES_USER', None)
 ES_PASS = os.getenv('ES_PASS', None)
-DB_CONFIG = {
-    "host": os.getenv('PG_DB_HOST', os.getenv('DB_HOST')),
-    "port": int(os.getenv('PG_DB_PORT', os.getenv('DB_PORT', 5432))),
-    "database": os.getenv('PG_DB_NAME', os.getenv('DB_NAME')),
-    "user": os.getenv('PG_DB_USER', os.getenv('DB_USER')),
-    "password": os.getenv('PG_DB_PASSWORD', os.getenv('DB_PASSWORD'))
+db_config = {
+    "host": os.getenv('DB_HOST'),
+    "port": int(os.getenv('DB_PORT', 5432)),
+    "database": os.getenv('DB_NAME'),
+    "user": os.getenv('DB_USER'),
+    "password": os.getenv('DB_PASSWORD')
 }
 INDEXING_INTERVAL = int(os.getenv('INDEXING_INTERVAL', '24'))
 
@@ -78,7 +78,7 @@ indexing_stats = {
 stats_lock = threading.Lock()
 
 
-def wait_for_elasticsearch(max_retries=30, delay=5):
+def wait_for_elasticsearch(max_retries=10, delay=3):
     """Ожидает доступности Elasticsearch с повторными попытками"""
     global ELASTICSEARCH_URL
     logging.info(f"Ожидание запуска Elasticsearch (до {max_retries} попыток с интервалом {delay} сек)...")
@@ -91,47 +91,23 @@ def wait_for_elasticsearch(max_retries=30, delay=5):
     else:
         logging.info("Подключение к Elasticsearch без авторизации")
 
-    # Основной URL должен содержать схему
-    main_url = "http://elasticsearch:9200"
+    # Используем адрес из переменной окружения
+    es_url = ELASTICSEARCH_URL
+    logging.info(f"Попытка подключения к {es_url}")
 
     for attempt in range(max_retries):
         try:
-            # Используем основной URL
             es_client = Elasticsearch(
-                hosts=main_url,
+                hosts=es_url,
                 basic_auth=auth,
                 verify_certs=False,
-                request_timeout=30
+                request_timeout=3
             )
             info = es_client.info()
             logging.info(f"Успешное подключение к Elasticsearch {info['version']['number']} (попытка {attempt+1})")
             return es_client
         except Exception as e:
-            logging.warning(f"Попытка {attempt+1}/{max_retries}: не удалось подключиться к {main_url}: {e}")
-
-            # Попробуем альтернативные адреса, если основной не работает
-            if attempt == 5:
-                alt_urls = [
-                    "http://127.0.0.1:9200",
-                    "http://172.28.0.2:9200",
-                    "http://elasticsearch:9200"  # Повторяем основной URL
-                ]
-                for alt_url in alt_urls:
-                    try:
-                        logging.info(f"Пробуем альтернативный URL: {alt_url}")
-                        es_alt = Elasticsearch(
-                            hosts=alt_url,
-                            basic_auth=auth,
-                            request_timeout=5,
-                            verify_certs=False
-                        )
-                        if es_alt.ping():
-                            logging.info(f"Успешное подключение к альтернативному URL {alt_url}")
-                            ELASTICSEARCH_URL = alt_url
-                            return es_alt
-                    except Exception as alt_e:
-                        logging.warning(f"Альтернативный URL {alt_url} недоступен: {alt_e}")
-
+            logging.warning(f"Попытка {attempt+1}/{max_retries}: не удалось подключиться к {es_url}: {e}")
             time.sleep(delay)
 
     raise ConnectionError(f"Не удалось подключиться к Elasticsearch после {max_retries} попыток")
@@ -641,8 +617,15 @@ def index_table_data(es, conn, table_name, index_name, batch_size=1000, id_field
                                     doc['template_variables'] = {}
 
                     # Обработка массива для referenced_cases
-                    if table_name == 'court_reviews' and 'referenced_cases' in doc and isinstance(doc['referenced_cases'], list):
-                        doc['referenced_cases'] = ','.join(doc['referenced_cases'])
+                    if table_name == 'court_reviews' and 'referenced_cases' in doc:
+                        if isinstance(doc['referenced_cases'], list):
+                            # Если элемент - словарь, извлекаем нужное поле (например, 'case_number')
+                            doc['referenced_cases'] = ','.join(
+                                str(item.get('case_number', item)) if isinstance(item, dict) else str(item)
+                                for item in doc['referenced_cases']
+                            )
+                        elif doc['referenced_cases'] is None:
+                            doc['referenced_cases'] = ''
 
                     # Преобразуем datetime объекты в строки
                     for key, value in doc.items():

@@ -14,17 +14,17 @@ conf = ConnectionConfig(
 async def send_verification_email(email_to: str, code: int):
     """Отправка письма с кодом подтверждения."""
     message = MessageSchema(
-        subject="LawGPT.Код подтверждения",
+        subject="LawGPT. Код подтверждения",
         recipients=[email_to],
-        body=f"LawGPT.Ваш код подтверждения: {code}",
+        body=f"LawGPT. Ваш код подтверждения: {code}",
         subtype="plain"
     )
     fm = FastMail(conf)
     await fm.send_message(message)
 
 async def send_recovery_email(email_to: str, code: int):
-    subject = "LawGPT.Код восстановления пароля"
-    body = f"LawGPT.Ваш код для восстановления пароля: {code}"
+    subject = "LawGPT. Код восстановления пароля"
+    body = f"LawGPT. Ваш код для восстановления пароля: {code}"
     message = MessageSchema(
         subject=subject,
         recipients=[email_to],

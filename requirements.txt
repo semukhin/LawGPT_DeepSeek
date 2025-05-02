@@ -44,8 +44,9 @@
    langchain-anthropic
    langchain-community
    langchain-openai
-   langchain-anthropic
-   langchain-community
    pymysql>=1.1.0
    chardet>=5.0.0
    cryptography>=42.0.5
+   pandas>=2.0.0
+   google-generativeai 
+   google-api-python-client

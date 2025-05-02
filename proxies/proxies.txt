@@ -1,0 +1,5 @@
+# Пример списка прокси для скрейпера
+# Формат: http://user:pass@host:port или http://host:port
+http://proxy1.example.com:8080
+http://proxy2.example.com:8080
+# http://user:password@proxy3.example.com:3128 

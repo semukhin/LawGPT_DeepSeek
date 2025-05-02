@@ -71,9 +71,25 @@ async def register_user(
     background_tasks: BackgroundTasks,
     db: Session = Depends(database.get_db),
 ):
+    # 1. Проверяем, есть ли пользователь в основной таблице
+    existing_user = db.query(models.User).filter(models.User.email == user.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Пользователь уже зарегистрирован")
+
+    # 2. Проверяем, есть ли временный пользователь
     existing_temp_user = db.query(models.TempUser).filter(models.TempUser.email == user.email).first()
     if existing_temp_user:
-        raise HTTPException(status_code=400, detail="Пользователь уже проходит регистрацию")
+        # Повторно отправляем код, не создаём новую запись
+        code = existing_temp_user.code
+        background_tasks.add_task(mail_utils.send_verification_email, user.email, code)
+        temp_token = create_access_token(
+            data={"sub": user.email},
+            expires_delta=timedelta(minutes=15)
+        )
+        return {
+            "message": "Код подтверждения повторно отправлен на вашу почту",
+            "temp_token": temp_token
+        }
 
     # Генерация кода верификации
     code = randint(1000, 9999)
@@ -158,29 +174,26 @@ async def verify_code(
 @router.post("/api/login")
 async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
     """Авторизация пользователя."""
-    try:
-        db_user = db.query(models.User).filter(models.User.email == user.email).first()
-        if not db_user or not verify_password(user.password, db_user.hashed_password):
+    # 1. Проверяем основной users
+    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    if db_user:
+        if not verify_password(user.password, db_user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Неверный email или пароль"
             )
-        
         if not db_user.is_verified:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Пользователь не верифицирован"
             )
-        
         # Обновляем is_active
         db_user.is_active = True
         db.commit()
         db.refresh(db_user)
-
         access_token = create_access_token(
             data={"sub": db_user.email, "user_id": db_user.id}
         )
-        
         return {
             "access_token": access_token,
             "token_type": "bearer",
@@ -191,11 +204,18 @@ async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db))
                 "last_name": db_user.last_name
             }
         }
-    except Exception as e:
+    # 2. Проверяем temp_users
+    temp_user = db.query(models.TempUser).filter(models.TempUser.email == user.email).first()
+    if temp_user:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Пользователь уже проходит регистрацию"
         )
+    # 3. Нет ни там, ни там
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Пользователь с таким email не зарегистрирован"
+    )
 
 
 @router.get("/api/profile", response_model=schemas.UserOut)
