@@ -103,8 +103,8 @@ USE_SHANDU_RESEARCH_AGENT = os.getenv("USE_SHANDU_RESEARCH_AGENT", "False") == "
 
 
 # ===== Google Configuration =====
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").replace('"', '')
-GOOGLE_CX = os.getenv("GOOGLE_CX", "")
+# GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").replace('"', '')  # Отключаем Google API
+# GOOGLE_CX = os.getenv("GOOGLE_CX", "")  # Отключаем Google Custom Search
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '')
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro-preview-03-25")
 
@@ -139,5 +139,17 @@ ES_INDICES = {
     "court_reviews": "court_reviews_index", 
     "legal_articles": "legal_articles_index",
     "procedural_forms": "procedural_forms_index"
+}
+
+# ===== Tavily Configuration =====
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+TAVILY_SEARCH_PARAMS = {
+    "max_results": 10,
+    "search_depth": "advanced",
+    "include_domains": [],  # Можно добавить список разрешенных доменов
+    "exclude_domains": [],  # Можно добавить список исключаемых доменов
+    "include_raw_content": True,
+    "include_images": False,
+    "max_tokens": 8000
 }
 

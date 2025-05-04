@@ -5,6 +5,8 @@ import logging
 import asyncio
 from functools import wraps
 import os
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -129,3 +131,24 @@ def ensure_correct_encoding(text: str) -> str:
     
     # Для других типов данных
     return str(text)
+
+def get_relevant_images(soup: BeautifulSoup, base_url: str):
+    images = []
+    for img in soup.find_all('img'):
+        src = img.get('src')
+        if src:
+            full_url = urljoin(base_url, src)
+            if not any(x in full_url.lower() for x in ['avatar', 'logo', 'banner', 'ad', 'icon']):
+                images.append(full_url)
+    return images
+
+def extract_title(soup: BeautifulSoup) -> str:
+    h1 = soup.find('h1')
+    if h1:
+        title = h1.get_text(strip=True)
+        if title:
+            return title
+    title_tag = soup.find('title')
+    if title_tag:
+        return title_tag.get_text(strip=True)
+    return "Без заголовка"

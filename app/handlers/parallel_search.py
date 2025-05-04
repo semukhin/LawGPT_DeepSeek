@@ -1,12 +1,18 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.web_search import search_and_scrape
+from app.handlers.web_search import WebSearchHandler
 import asyncio
 import time
 import re
 import chardet
 from app.handlers.web_search import run_multiple_searches
+from app.services.query_optimizer import QueryOptimizer
+from app.services.tavily_service import TavilyService
+import json
+import os
+import hashlib
+from app.handlers.es_law_search import search_law_chunks_multi
 
 def ensure_correct_encoding(text: str) -> str:
     """
@@ -83,80 +89,148 @@ def ensure_correct_encoding(text: str) -> str:
 
 async def run_parallel_search(query: str) -> Dict[str, Any]:
     """
-    Выполняет параллельный поиск в разных источниках.
+    Выполняет параллельный поиск в разных источниках: ElasticSearch и Tavily (по двум уточнённым запросам).
+    Включает дедупликацию результатов и улучшенную обработку ошибок.
+    Теперь: сначала ждет уточнённые запросы DeepSeek (таймаут 20 сек), только после этого ищет.
     """
     logging.info(f"🚀 Запуск параллельного поиска для запроса: '{query}'")
-    
-    # Результаты поиска
-    search_results = {}
-    combined_context = ""
-    start_time = time.time()
-    
+    search_results = {
+        "es_results": [],
+        "es_case_refs": [],
+        "tavily_queries": [],
+        "tavily_results": [],
+        "tavily_case_refs": [],
+        "metadata": {
+            "start_time": time.time(),
+            "query": query,
+            "success": False,
+            "error": None
+        }
+    }
     try:
-        # 1. Поиск в Elasticsearch
-        logging.info("⏳ Поиск в Elasticsearch...")
+        # 1. Получаем два уточнённых запроса через DeepSeek с таймаутом
+        optimizer = QueryOptimizer()
         try:
-            es_results = search_law_chunks(query)
-            if es_results:
-                search_results["elasticsearch"] = es_results
-                combined_context += "\n\n## Российское законодательство:\n\n"
-                # Преобразуем результаты в строки, если они словари
-                formatted_results = []
-                
-                # Определяем, содержит ли запрос номер судебного дела
-                case_number_pattern = r'[АA]\d{1,2}-\d+/\d{2,4}(?:-[А-Яа-яA-Za-z0-9]+)*'
-                has_case_number = bool(re.search(case_number_pattern, query))
-                
-                for result in es_results:
-                    if isinstance(result, dict):
-                        # Если это судебное решение и в запросе есть номер дела,
-                        # берем полный текст без ограничений
-                        if has_case_number and result.get('source') == 'court_decisions':
-                            text = result.get('text', '')
-                        else:
-                            # Для остальных результатов увеличиваем лимит до 5000 символов
-                            text = result.get('text', '')[:5000]
-                        
-                        source = result.get('source', '')
-                        formatted_text = f"Источник: {source}\n{text}" if source else text
-                        formatted_results.append(formatted_text)
-                    else:
-                        formatted_results.append(str(result))
-                
-                # Берем больше результатов для судебной практики
-                max_results = 10 if has_case_number else 7
-                combined_context += "\n\n---\n\n".join(formatted_results[:max_results])
-                
+            tavily_queries = await asyncio.wait_for(optimizer.get_two_search_queries(query), timeout=20)
+            if not tavily_queries or not any(tavily_queries):
+                tavily_queries = [query]
+                logging.warning("⏳ DeepSeek не вернул уточнённые запросы, используем исходный запрос пользователя.")
+        except asyncio.TimeoutError:
+            tavily_queries = [query]
+            logging.warning("⏳ Таймаут DeepSeek (20 сек). Используем исходный запрос пользователя.")
         except Exception as e:
-            logging.error(f"❌ Ошибка при поиске в Elasticsearch: {e}")
-            
-        # 2. Поиск в интернете
-        logging.info("⏳ Поиск в интернете...")
-        try:
-            from app.handlers.web_search import run_multiple_searches
-            web_results = await run_multiple_searches(query, [])
-            if web_results and isinstance(web_results, dict):
-                search_results["web"] = web_results
-                if web_results.get("general"):
-                    combined_context += "\n\n## Интернет-источники:\n\n"
-                    for result in web_results["general"][:10]:  # Увеличиваем до топ-10 результатов
-                        if isinstance(result, dict) and result.get("url") and result.get("text"):
-                            # Проверяем кодировку текста
-                            text = ensure_correct_encoding(result['text'])
-                            combined_context += f"### Источник: {result['url']}\n\n"
-                            combined_context += f"{text[:5000]}\n\n---\n\n"  # Увеличиваем лимит до 5000 символов
-        except Exception as e:
-            logging.error(f"❌ Ошибка при поиске в интернете: {e}")
-            
-        # Добавляем результаты в общий контекст
-        search_results["combined_context"] = combined_context
-        
-        # Логируем время выполнения
-        elapsed_time = time.time() - start_time
-        logging.info(f"✅ Параллельный поиск завершен за {elapsed_time:.2f} секунд")
-        
+            tavily_queries = [query]
+            logging.error(f"❌ Ошибка при получении уточнённых запросов: {e}. Используем исходный запрос пользователя.")
+        search_results["tavily_queries"] = tavily_queries
+        logging.info(f"✅ Используем для поиска запросы: {tavily_queries}")
+
+        # 2. Поиск в Tavily по каждому уточнённому запросу
+        async def search_tavily(tq: str) -> List[Dict]:
+            try:
+                tavily_service = TavilyService()
+                results = await tavily_service.search(tq, max_results=7)
+                if results:
+                    logging.info(f"📝 Получены результаты Tavily для запроса '{tq}': {len(results)} результатов")
+                    seen_urls = set()
+                    unique_results = []
+                    for r in results:
+                        url = r.get('href', '')
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
+                            r['query'] = tq
+                            r['timestamp'] = time.time()
+                            unique_results.append(r)
+                    return unique_results
+                return []
+            except Exception as e:
+                logging.error(f"❌ Ошибка при поиске в Tavily для запроса '{tq}': {str(e)}")
+                return []
+        tavily_tasks = [search_tavily(tq) for tq in tavily_queries]
+        tavily_results = await asyncio.gather(*tavily_tasks)
+        all_tavily_results = []
+        seen_urls = set()
+        for results in tavily_results:
+            for r in results:
+                url = r.get('href', '')
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_tavily_results.append(r)
+        search_results["tavily_results"] = all_tavily_results
+        search_results["tavily_results_raw"] = tavily_results
+        logging.info(f"✅ Всего найдено {len(all_tavily_results)} уникальных результатов в Tavily")
+
+        # 3. Поиск в Elasticsearch по уточнённым запросам
+        es_results_by_tavily = []
+        if tavily_queries:
+            es_results_by_tavily = await asyncio.gather(*[
+                asyncio.create_task(search_law_chunks(q)) for q in tavily_queries
+            ])
+            # Объединяем все результаты для расширенного блока
+            all_es_results = search_law_chunks_multi(tavily_queries, size=5)
+            all_texts = set(hashlib.md5(r.get("text", "").strip().encode()).hexdigest() 
+                          for r in search_results["es_results"])
+            for r in all_es_results:
+                text = r.get("text", "").strip()
+                text_hash = hashlib.md5(text.encode()).hexdigest()
+                if text_hash not in all_texts:
+                    search_results["es_results"].append(r)
+                    all_texts.add(text_hash)
+        search_results["es_results_by_tavily"] = es_results_by_tavily
+
+        # 4. Извлекаем номера дел и реквизиты из ElasticSearch (по основным результатам)
+        es_case_refs = []
+        for res in search_results["es_results"]:
+            text = res.get("text", "")
+            case_numbers = set()
+            patterns = [
+                r'\b\d{2,}-[А-Яа-яA-Za-z0-9\-]+\b',
+                r'№\s*\d+[\-\w]*',
+                r'дело\s*№\s*\d+[\-\w]*',
+                r'[А-Я]\d{2,}-\d+/\d{4}',
+            ]
+            for pattern in patterns:
+                found = re.findall(pattern, text)
+                case_numbers.update(found)
+            if case_numbers:
+                es_case_refs.append({
+                    "case_numbers": list(case_numbers),
+                    "title": res.get("title", ""),
+                    "metadata": res.get("metadata", {})
+                })
+        search_results["es_case_refs"] = es_case_refs
+
+        # 5. Обновляем метаданные
+        search_results["metadata"].update({
+            "success": True,
+            "execution_time": time.time() - search_results["metadata"]["start_time"],
+            "es_results_count": len(search_results["es_results"]),
+            "tavily_results_count": len(all_tavily_results),
+            "es_by_tavily_count": sum(len(res) for res in es_results_by_tavily)
+        })
+        logging.info(f"✅ Параллельный поиск завершен за {search_results['metadata']['execution_time']:.2f} секунд")
         return search_results
-        
     except Exception as e:
-        logging.error(f"❌ Ошибка при параллельном поиске: {e}")
-        return {"error": str(e)}
+        error_msg = f"❌ Ошибка при параллельном поиске: {e}"
+        logging.error(error_msg)
+        search_results["metadata"]["error"] = str(e)
+        search_results["metadata"]["execution_time"] = time.time() - search_results["metadata"]["start_time"]
+        return search_results
+
+async def search_tavily(query: str) -> List[Dict[str, Any]]:
+    """
+    Выполняет поиск в интернете через Tavily API.
+    """
+    logging.info(f"🔍 Начало поиска в Tavily по запросу: '{query}'")
+    try:
+        tavily_service = TavilyService()
+        results = await tavily_service.search(query, max_results=5)
+        
+        if not results:
+            logging.warning("❌ Tavily вернул пустой ответ или отсутствуют результаты")
+            return []
+            
+        logging.info(f"✅ Успешно получено {len(results)} результатов от Tavily")
+        return results
+    except Exception as e:
+        logging.error(f"❌ Ошибка при поиске в Tavily: {str(e)}")
+        return []

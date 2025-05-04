@@ -12,6 +12,7 @@ from app.utils.text_utils import (
 )
 
 from app.utils.decorators import measure_time
+from app.utils.image_utils import get_relevant_images, extract_title
 
 __all__ = [
     'decode_unicode', 
@@ -20,5 +21,7 @@ __all__ = [
     'validate_messages',
     'validate_context',
     'detect_encoding',
-    'measure_time'
+    'measure_time',
+    'get_relevant_images',
+    'extract_title'
 ] 

@@ -101,13 +101,47 @@ class AISearcher:
         
         content_text = ""
         sources = []
-        for result in search_results:
-            if isinstance(result, SearchResult):
-                content_text += f"\nSource: {result.source}\nTitle: {result.title}\nURL: {result.url}\nSnippet: {result.snippet}\n"
-                sources.append(result.to_dict())
-            elif isinstance(result, dict):
-                content_text += f"\nSource: {result.get('source', 'Unknown')}\nTitle: {result.get('title', 'Untitled')}\nURL: {result.get('url', '')}\nSnippet: {result.get('snippet', '')}\n"
-                sources.append(result)
+        
+        # Специальная обработка для судебных решений
+        legal_keywords = ["суд", "судебный", "арбитражный", "решение", "постановление", "приговор", "определение"]
+        is_legal_query = any(keyword in query.lower() for keyword in legal_keywords)
+        
+        if is_legal_query:
+            # Форматируем результаты для юридических документов
+            for result in search_results:
+                if isinstance(result, SearchResult):
+                    # Извлекаем номер дела, если есть
+                    case_number = ""
+                    if "№" in result.title:
+                        case_number = result.title.split("№")[1].split()[0]
+                    
+                    # Форматируем результат
+                    formatted_result = f"\nИсточник: {result.source}\n"
+                    if case_number:
+                        formatted_result += f"Номер дела: {case_number}\n"
+                    formatted_result += f"Заголовок: {result.title}\n"
+                    if result.url:
+                        formatted_result += f"URL: {result.url}\n"
+                    formatted_result += f"Содержание: {result.snippet}\n"
+                    
+                    content_text += formatted_result
+                    sources.append(result.to_dict())
+                elif isinstance(result, dict):
+                    content_text += f"\nИсточник: {result.get('source', 'Unknown')}\n"
+                    content_text += f"Заголовок: {result.get('title', 'Untitled')}\n"
+                    if result.get('url'):
+                        content_text += f"URL: {result.get('url')}\n"
+                    content_text += f"Содержание: {result.get('snippet', '')}\n"
+                    sources.append(result)
+        else:  # 8 пробелов
+            # Стандартная обработка для неюридических запросов  # 12 пробелов
+            for result in search_results:  # 12 пробелов
+                if isinstance(result, SearchResult):  # 16 пробелов
+                    content_text += f"\nИсточник: {result.source}\nЗаголовок: {result.title}\nURL: {result.url}\nСодержание: {result.snippet}\n"  # 20 пробелов
+                    sources.append(result.to_dict())  # 20 пробелов
+                elif isinstance(result, dict):
+                    content_text += f"\nИсточник: {result.get('source', 'Unknown')}\nЗаголовок: {result.get('title', 'Untitled')}\nURL: {result.get('url', '')}\nСодержание: {result.get('snippet', '')}\n"
+                    sources.append(result)
         
         if detailed:
             analysis_prompt = ChatPromptTemplate.from_messages([
@@ -115,7 +149,14 @@ class AISearcher:
 Your analysis should be thorough, balanced, and critical.
 Focus on extracting factual information while noting potential biases.
 Assess the credibility of sources based on expertise, evidence, consistency, and timeliness relative to the current date and time.
-Identify any contradictions between sources or within a source."""),
+Identify any contradictions between sources or within a source.
+
+For legal documents specifically:
+1. Verify the jurisdiction (arbitration court vs. court of general jurisdiction)
+2. Check the document type (decision, ruling, etc.)
+3. Note the court level (first instance, appeal, cassation)
+4. Extract key legal arguments and conclusions
+5. Identify relevant legal norms and precedents"""),
                 ("user", """Analyze the following search results for the query: "{query}"
 
 Content:
@@ -126,6 +167,12 @@ Provide a detailed analysis including:
 2. Any contradictions or discrepancies between sources
 3. Reliability assessment of sources (expertise, evidence, consistency, timeliness)
 4. A comprehensive summary of the information
+
+For legal documents:
+- Verify jurisdiction and court type
+- Extract key legal arguments
+- Note relevant legal norms
+- Identify precedents
 
 Be specific and cite the sources when referring to information.
 If the search results contain little or no relevant information, explicitly state this.""")

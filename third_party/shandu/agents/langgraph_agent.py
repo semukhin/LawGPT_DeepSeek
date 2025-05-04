@@ -18,6 +18,7 @@ from ..search.search import UnifiedSearcher, SearchResult
 from ..scraper import WebScraper, ScrapedContent
 from ..research.researcher import ResearchResult
 from ..config import config, get_current_date, get_current_datetime
+import re
 
 console = Console()
 
@@ -299,9 +300,72 @@ IMPORTANT: Respond with only one word: RELEVANT or IRRELEVANT""")
                         
                         # Process content extraction and reliability evaluation in parallel
                         async def process_scraped_item(item):
+                            # Извлекаем основной контент
                             main_content = await self.scraper.extract_main_content(item)
                             
-                            # Combined reliability evaluation and content extraction
+                            # Проверяем на юридический контент
+                            legal_keywords = ["суд", "судебный", "арбитражный", "решение", "постановление", "приговор", "определение"]
+                            is_legal_content = any(keyword in main_content.lower() for keyword in legal_keywords)
+                            
+                            # Извлекаем только релевантные части текста
+                            relevant_sections = []
+                            paragraphs = main_content.split('\n')
+                            
+                            for paragraph in paragraphs:
+                                # Пропускаем пустые параграфы
+                                if not paragraph.strip():
+                                    continue
+                                    
+                                # Для юридического контента
+                                if is_legal_content:
+                                    # Ищем параграфы, содержащие ключевые юридические термины
+                                    if any(keyword in paragraph.lower() for keyword in legal_keywords):
+                                        relevant_sections.append(paragraph)
+                                    # Ищем параграфы с номерами статей и законов
+                                    elif re.search(r'ст\.\s*\d+|\d+\s*ФЗ|ГК\s*РФ|УК\s*РФ|АПК\s*РФ|ГПК\s*РФ', paragraph):
+                                        relevant_sections.append(paragraph)
+                                else:
+                                    # Для неюридического контента проверяем релевантность через LLM
+                                    relevance_prompt = ChatPromptTemplate.from_messages([
+                                        ("system", """Определите, является ли следующий параграф релевантным запросу.
+Ответьте только "ДА" или "НЕТ"."""),
+                                        ("user", """Запрос: {query}
+Параграф: {paragraph}""")
+                                    ])
+                                    
+                                    chain = relevance_prompt | self.llm
+                                    result = await chain.ainvoke({"query": item.query, "paragraph": paragraph})
+                                    
+                                    if "ДА" in result.content.upper():
+                                        relevant_sections.append(paragraph)
+                            
+                            # Объединяем релевантные секции
+                            filtered_content = '\n'.join(relevant_sections)
+                            
+                            if is_legal_content:
+                                # Специальный промпт для юридических документов
+                                prompt = ChatPromptTemplate.from_messages([
+                                    ("system", """Вы - эксперт по анализу судебных решений. Ваша задача - проанализировать судебное решение и предоставить структурированный анализ.
+
+При анализе судебного решения обратите внимание на:
+1. Юрисдикцию и уровень суда (арбитражный суд или суд общей юрисдикции)
+2. Номер дела и дату вынесения решения
+3. Стороны процесса (истец и ответчик)
+4. Предмет спора
+5. Правовую позицию суда
+6. Примененные нормы права
+7. Итоговое решение и его обоснование"""),
+                                    ("user", """Проанализируйте следующее судебное решение:
+
+Источник: {url}
+Заголовок: {title}
+Запрос: {query}
+Содержание: {content}
+
+Предоставьте структурированный анализ в соответствии с указанным форматом.""")
+                                ])
+                            else:
+                                # Стандартный промпт для неюридического контента
                             prompt = ChatPromptTemplate.from_messages([
                                 ("system", """Analyze this source in two parts:
 PART 1: Evaluate the reliability of this source based on domain reputation, author expertise, citations, objectivity, and recency.
@@ -315,15 +379,16 @@ Provide your response in two clearly separated sections:
 RELIABILITY: [HIGH/MEDIUM/LOW] followed by a brief justification (1-2 sentences)
 EXTRACTED_CONTENT: Detailed facts, statistics, data points, examples, and key information relevant to the query.""")
                             ])
+                            
                             chain = prompt | self.llm
                             result = await chain.ainvoke({
                                 "url": item.url, 
                                 "title": item.title, 
-                                "query": subquery,
-                                "content": main_content[:8000]  # Reduced from 10000 to 8000 for faster processing
+                                "query": item.query,
+                                "content": filtered_content[:8000]  # Ограничиваем размер для быстрой обработки
                             })
                             
-                            # Parse the combined response
+                            # Парсим комбинированный ответ
                             response_text = result.content
                             reliability_section = ""
                             content_section = ""
@@ -333,11 +398,10 @@ EXTRACTED_CONTENT: Detailed facts, statistics, data points, examples, and key in
                                 reliability_section = parts[0].replace("RELIABILITY:", "").strip()
                                 content_section = parts[1].strip()
                             else:
-                                # Fallback if format wasn't followed
                                 reliability_section = "MEDIUM (Unable to parse reliability assessment)"
                                 content_section = response_text
                             
-                            # Extract rating
+                            # Извлекаем рейтинг
                             rating = "MEDIUM"
                             if "HIGH" in reliability_section.upper():
                                 rating = "HIGH"

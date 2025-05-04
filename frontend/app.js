@@ -227,15 +227,8 @@ function showAuthScreen(screenId) {
  * @param {string} type - Тип уведомления ('success', 'error', 'info')
  */
 function showNotification(message, type = "info") {
-    const notification = document.getElementById("notification");
-    notification.textContent = message;
-    notification.className = `notification ${type}`;
-    notification.style.display = "block";
-
-    // Автоматически скрываем уведомление через 3 секунды
-    setTimeout(() => {
-        notification.style.display = "none";
-    }, 3000);
+    // Просто вызываем createNotification без data-атрибутов и селекторов по тексту
+    createNotification(message, type);
 }
 
 /**
@@ -1666,7 +1659,7 @@ function renderChatMessages(messages) {
         console.log('Сообщений нет, показываем приветственное сообщение');
         // Если сообщений нет, показываем приветственное сообщение
         addAssistantMessage(
-            "Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь? Я владею знаниями российского законодательства, судебной практикой, могу распознать скан документа, многое другое."
+            "Здравствуйте! Я юридический ассистент LawGPT. Чем я могу вам помочь?"
         );
         return;
     }
@@ -1728,61 +1721,7 @@ async function sendMessage() {
 
     // Добавляем сообщение пользователя в чат с зафиксированным временем
     if (text) {
-    addUserMessage(text, userTimestamp);
-    }
-    if (file) {
-        // Добавляем информацию о файле в чат сразу
-        const fileInfo = document.createElement("div");
-        fileInfo.className = "message message-file-info";
-        fileInfo.innerHTML = `
-            <div class="file-info-content">
-                <i class="fas fa-file-upload"></i>
-                <span class="file-name">${file.name}</span>
-                <span class="file-size">(${formatFileSize(file.size)})</span>
-            </div>
-        `;
-        document.getElementById("messages-container").appendChild(fileInfo);
-        
-        // Создаем контейнер для прогресса распознавания
-        const progressContainer = document.createElement("div");
-        progressContainer.className = "recognition-progress-container";
-        progressContainer.innerHTML = `
-            <div class="recognition-status">
-                <div class="recognition-progress">
-                    <div class="progress-bar">
-                        <div class="progress-fill"></div>
-                    </div>
-                    <span class="progress-text">0%</span>
-                </div>
-                <div class="recognition-timer">
-                    Время: 0:00
-                </div>
-            </div>
-        `;
-        document.getElementById("messages-container").appendChild(progressContainer);
-
-        // Запускаем таймер
-        const startTime = Date.now();
-        const timerElement = progressContainer.querySelector(".recognition-timer");
-        const timerInterval = setInterval(() => {
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const minutes = Math.floor(elapsed / 60);
-            const seconds = elapsed % 60;
-            timerElement.textContent = `Время: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-        }, 1000);
-
-        // Обновляем прогресс каждые 2 секунды
-        let progress = 0;
-        const progressBar = progressContainer.querySelector(".progress-fill");
-        const progressText = progressContainer.querySelector(".progress-text");
-        const progressInterval = setInterval(() => {
-            if (progress < 90) { // Оставляем 10% для финальной обработки
-                progress += Math.random() * 5;
-                progress = Math.min(progress, 90);
-                progressBar.style.width = `${progress}%`;
-                progressText.textContent = `${Math.round(progress)}%`;
-            }
-        }, 2000);
+        addUserMessage(text, userTimestamp);
     }
 
     // Очищаем поле ввода
@@ -1794,129 +1733,55 @@ async function sendMessage() {
         sendBtn.disabled = true;
     }
 
-    // Показываем индикатор набора текста
-    showTypingIndicator();
-
-    // Создаем FormData для отправки текста и файла
-    const formData = new FormData();
-    if (text) {
-        formData.append("query", text);
-    }
-    if (file) {
-        formData.append("file", file);
-        removeUploadedFile(); // Очищаем предпросмотр файла
-    }
+    // Показываем индикатор набора текста с обновляемым статусом
+    showTypingIndicatorWithStatus();
 
     try {
-        console.log(`Отправка сообщения в тред ${threadId}`);
+        // Отправляем запрос на /deep-research/
+        const response = await fetch("/deep-research/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${localStorage.getItem(config.storageTokenKey)}`
+            },
+            body: JSON.stringify({
+                query: text,
+                thread_id: threadId
+            })
+        });
 
-        // Делаем реальный запрос к серверу
-        const response = await apiRequestFormData(
-            `/chat/${threadId}`,
-            formData,
-        );
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
+        const data = await response.json();
+        
         // Скрываем индикатор набора текста
-        hideTypingIndicator();
+        hideTypingIndicatorWithStatus();
 
         // Фиксируем время получения ответа ассистента
         const assistantTimestamp = new Date();
 
-        if (response.assistant_response) {
-            // Если был файл, завершаем прогресс распознавания
-            if (file) {
-                const progressContainer = document.querySelector(".recognition-progress-container");
-                if (progressContainer) {
-                    const progressBar = progressContainer.querySelector(".progress-fill");
-                    const progressText = progressContainer.querySelector(".progress-text");
-                    progressBar.style.width = "100%";
-                    progressText.textContent = "100%";
-                    
-                    // Удаляем прогресс-бар через 1 секунду
-                    setTimeout(() => {
-                        progressContainer.remove();
-                    }, 1000);
-                }
+        if (data && data.results) {
+            // Если есть reasoning_content, показываем его
+            if (data.results.reasoning_content) {
+                addReasoningMessage(data.results.reasoning_content);
             }
-
-            // Добавляем ответ ассистента с зафиксированным временем
-            addAssistantMessage(
-                response.assistant_response,
-                assistantTimestamp,
-            );
-
-            // Если был загружен файл и есть дополнительный ответ
-            if (response.additional_response) {
-                addAssistantMessage(
-                    response.additional_response,
-                    new Date(),
-                );
-            }
-
-            // Если был загружен файл, показываем информацию о распознанном тексте
-            if (response.recognized_text) {
-                const infoMessage = document.createElement("div");
-                infoMessage.className = "message message-system";
-
-                // Создаем кнопку скачивания с правильным URL
-                const downloadButton = response.download_url ? `
-                        <div class="download-text-button">
-                        <a href="${response.download_url}" class="download-btn" download="${response.saved_filename}">
-                                <i class="fas fa-download"></i> Скачать распознанный текст
-                            </a>
-                        </div>
-                ` : '';
-
-                // Добавляем информацию о файле
-                infoMessage.innerHTML = `
-                    <div class="message-content">
-                        <div class="file-info">
-                            <i class="fas fa-file-check"></i>
-                            <span>Файл успешно распознан: ${response.file_name}</span>
-                            ${response.file_metadata ? `
-                                <div class="file-details">
-                                    <p>Размер: ${response.file_metadata.file_size_formatted}</p>
-                                    <p>Символов: ${response.file_metadata.char_count}</p>
-                                    <p>Слов: ${response.file_metadata.word_count}</p>
-                                </div>
-                            ` : ''}
-                        </div>
-                        ${downloadButton}
-                    </div>
-                `;
-
-                // Добавляем системному сообщению ту же временную метку
-                infoMessage.dataset.timestamp = assistantTimestamp.getTime();
-
-                document.getElementById("messages-container").appendChild(infoMessage);
-            }
+            
+            // Добавляем основной ответ ассистента
+            addAssistantMessage(data.results.analysis || data.results, assistantTimestamp);
         } else {
-            showNotification("Ошибка: не получен ответ от ассистента", "error");
+            addAssistantMessage("Не удалось получить ответ от ассистента", assistantTimestamp);
         }
+
     } catch (error) {
-        hideTypingIndicator();
-        showNotification(
-            `Ошибка при отправке сообщения: ${error.message}`,
-            "error",
-        );
+        hideTypingIndicatorWithStatus();
+        showNotification(`Ошибка при отправке сообщения: ${error.message}`, "error");
         console.error("Ошибка при отправке сообщения:", error);
-        // Если ошибка — это таймаут или 504, пробуем подгрузить сообщения через 5 секунд
-        if (error && (error.message.includes('504') || error.message.toLowerCase().includes('timeout'))) {
-            setTimeout(() => {
-                const threadId = localStorage.getItem(config.storageThreadKey);
-                if (threadId) {
-                    loadChatMessages(threadId);
-                }
-            }, 5000);
-        }
     } finally {
         if (sendBtn) {
             sendBtn.disabled = false;
         }
-        
-        // Очищаем все интервалы
-        if (window.timerInterval) clearInterval(window.timerInterval);
-        if (window.progressInterval) clearInterval(window.progressInterval);
     }
 
     // Прокручиваем к последнему сообщению
@@ -2018,6 +1883,13 @@ function addUserMessage(text, timestamp = null) {
  * @param {Date|null} timestamp - Временная метка (опционально)
  */
 function addAssistantMessage(text, timestamp = null) {
+    if (typeof text !== 'string') {
+        try {
+            text = JSON.stringify(text);
+        } catch {
+            text = String(text);
+        }
+    }
     console.log('Добавление сообщения ассистента:', { text, timestamp });
     const messagesContainer = document.getElementById('messages-container');
     if (!messagesContainer) {
@@ -2031,10 +1903,8 @@ function addAssistantMessage(text, timestamp = null) {
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
     
-    // Сначала сохраняем оригинальный текст
     contentDiv.setAttribute('data-original-text', text);
     
-    // Применяем markdown форматирование
     if (window.MarkdownProcessor) {
         contentDiv.innerHTML = MarkdownProcessor.markdownToHtml(text);
     } else {
@@ -2049,7 +1919,6 @@ function addAssistantMessage(text, timestamp = null) {
     messageDiv.appendChild(timeDiv);
     messagesContainer.appendChild(messageDiv);
     
-    // Инициализируем специальные компоненты после добавления в DOM
     if (window.MarkdownProcessor) {
         MarkdownProcessor.initSpecialComponents(messageDiv);
     }
@@ -2518,3 +2387,159 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// === Добавляем функцию для reasoning_content ===
+function addReasoningMessage(reasoningText) {
+    if (typeof reasoningText !== 'string') {
+        try {
+            reasoningText = JSON.stringify(reasoningText);
+        } catch {
+            reasoningText = String(reasoningText);
+        }
+    }
+    let reasoningDiv = document.getElementById('reasoning-message');
+    if (!reasoningDiv) {
+        reasoningDiv = document.createElement('div');
+        reasoningDiv.className = 'message message-reasoning';
+        reasoningDiv.id = 'reasoning-message';
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        reasoningDiv.appendChild(contentDiv);
+        const messagesContainer = document.getElementById('messages-container');
+        messagesContainer.appendChild(reasoningDiv);
+    }
+    const contentDiv = reasoningDiv.querySelector('.message-content');
+    contentDiv.textContent = reasoningText;
+    scrollToBottom();
+}
+function removeReasoningMessage() {
+    const reasoningDiv = document.getElementById('reasoning-message');
+    if (reasoningDiv) reasoningDiv.remove();
+}
+
+// === WebSocket обработка reasoning_content ===
+function handleReasoningWebSocketMessage(event) {
+    let data;
+    try {
+        data = JSON.parse(event.data);
+    } catch (e) {
+        showNotification("Ошибка парсинга ответа reasoning_content", "error");
+        return;
+    }
+    if (data.error) {
+        // Показываем только текст ошибки, не используем селектор с длинным текстом
+        showNotification("Ошибка WebSocket reasoning: " + String(data.error), "error");
+        removeReasoningMessage();
+        return;
+    }
+    // Выводим reasoning_content и analysis, если есть
+    let reasoning = typeof data.reasoning_content === 'string' ? data.reasoning_content : '';
+    let content = typeof data.analysis === 'string' ? data.analysis : (typeof data.content === 'string' ? data.content : '');
+    if (reasoning) {
+        addReasoningMessage(reasoning);
+    }
+    if (content && !data.is_streaming) {
+        // Финальный ответ — добавляем как обычное сообщение ассистента
+        addAssistantMessage(content);
+        removeReasoningMessage();
+    }
+}
+
+// Переопределяем showNotification для безопасности
+window.showNotification = function(message, type = 'info', duration = 3000) {
+    // Обрезаем слишком длинные сообщения для безопасности селектора и отображения
+    let safeMessage = String(message);
+    if (safeMessage.length > 300) {
+        safeMessage = safeMessage.slice(0, 297) + '...';
+    }
+    // Просто показываем текст, не используем data-атрибуты с длинным текстом
+    const notification = document.getElementById("notification");
+    if (notification) {
+        notification.textContent = safeMessage;
+        notification.className = `notification ${type}`;
+        notification.style.display = "block";
+        setTimeout(() => {
+            notification.style.display = "none";
+        }, duration);
+    }
+};
+
+// Показывает индикатор набора текста ассистентом и статус подготовки
+function showTypingIndicatorWithStatus() {
+    const messagesContainer = document.getElementById("messages-container");
+    if (!messagesContainer) {
+        console.error("Контейнер сообщений не найден");
+        return;
+    }
+
+    // Проверяем, существует ли уже индикатор
+    let indicator = document.getElementById("typing-indicator-container");
+    if (indicator) {
+        indicator.style.display = "flex";
+        return;
+    }
+
+    // Создаем новый индикатор
+    const container = document.createElement("div");
+    container.className = "message message-assistant";
+    container.id = "typing-indicator-container";
+
+    // Индикатор с анимированными точками
+    const typingIndicator = document.createElement("div");
+    typingIndicator.className = "typing-indicator";
+    typingIndicator.innerHTML = `
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+    `;
+    container.appendChild(typingIndicator);
+
+    // Статус
+    const statusDiv = document.createElement("div");
+    statusDiv.className = "typing-status";
+    statusDiv.style.marginLeft = "10px";
+    statusDiv.style.fontSize = "12px";
+    statusDiv.style.color = "rgba(255, 255, 255, 0.7)";
+    container.appendChild(statusDiv);
+
+    messagesContainer.appendChild(container);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    // Последовательность статусов с индивидуальными задержками
+    const statuses = [
+        { text: "Анализ запроса...", delay: 700 },
+        { text: "Поиск релевантных документов...", delay: 200 },
+        { text: "Извлечение ключевой информации...", delay: 950 },
+        { text: "Формирование ответа...", delay: 2000 },
+        { text: "Финальная проверка...", delay: 200 }
+    ];
+    let statusIdx = 0;
+    statusDiv.textContent = statuses[0].text;
+    window._typingStatusTimeout = setTimeout(() => {
+        statusIdx = (statusIdx + 1) % statuses.length;
+        showNextStatus();
+    }, statuses[0].delay);
+}
+
+function hideTypingIndicatorWithStatus() {
+    const indicator = document.getElementById("typing-indicator-container");
+    if (indicator) {
+        indicator.remove();
+    }
+    if (window._typingStatusTimeout) {
+        clearTimeout(window._typingStatusTimeout);
+        window._typingStatusTimeout = null;
+    }
+}
+
+// --- Заменяем showTypingIndicator/hideTypingIndicator на новые ---
+window.showTypingIndicator = showTypingIndicatorWithStatus;
+window.hideTypingIndicator = hideTypingIndicatorWithStatus;
+
+function showNextStatus() {
+    statusDiv.textContent = statuses[statusIdx].text;
+    window._typingStatusTimeout = setTimeout(() => {
+        statusIdx = (statusIdx + 1) % statuses.length;
+        showNextStatus();
+    }, statuses[statusIdx].delay);
+}

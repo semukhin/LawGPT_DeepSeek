@@ -6,11 +6,11 @@ import os
 import json
 from app.config import ELASTICSEARCH_URL, ES_INDICES as CONFIG_ES_INDICES
 from app.utils import decode_unicode, sanitize_search_results, ensure_correct_encoding, validate_messages, validate_context
+from app.utils.logger import get_logger, LogLevel
+from app.services.embedding_service import EmbeddingService
 
-# Настройка логирования - level changed to INFO
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
+# Получаем глобальный логгер
+logger = get_logger()
 
 ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
 ES_USER = os.getenv("ES_USER", None)
@@ -40,7 +40,7 @@ def get_es_client():
         # Проверяем, нужна ли авторизация
         if ES_USER and ES_PASS and ES_USER.lower() != 'none' and ES_PASS.lower() != 'none':
             # С авторизацией
-            logger.info("Подключение к Elasticsearch с авторизацией")
+            logger.log("Подключение к Elasticsearch с авторизацией", LogLevel.INFO)
             es = Elasticsearch(
                 ELASTICSEARCH_URL,
                 basic_auth=(ES_USER, ES_PASS),
@@ -49,7 +49,7 @@ def get_es_client():
             )
         else:
             # Без авторизации
-            logger.info("Подключение к Elasticsearch без авторизации")
+            logger.log("Подключение к Elasticsearch без авторизации", LogLevel.INFO)
             es = Elasticsearch(
                 ELASTICSEARCH_URL,
                 retry_on_timeout=True,
@@ -57,7 +57,7 @@ def get_es_client():
             )
         return es
     except Exception as e:
-        logging.error(f"Ошибка подключения к Elasticsearch: {e}")
+        logger.log(f"Ошибка подключения к Elasticsearch: {e}", LogLevel.ERROR)
         raise
 
 
@@ -86,7 +86,7 @@ class SmartSearchService:
         match = re.search(pattern, query)
         if match:
             case_number = match.group(0)
-            logger.info(f"SmartSearchService: Извлечен номер дела: {case_number}")
+            logger.log(f"SmartSearchService: Извлечен номер дела: {case_number}", LogLevel.INFO)
 
             # Нормализуем год, если он в коротком формате (например, 05 -> 2005)
             parts = case_number.split('/')
@@ -96,10 +96,10 @@ class SmartSearchService:
                     # Преобразуем 2-значный год в 4-значный (05 -> 2005)
                     full_year = f"20{year_part}" if int(year_part) < 50 else f"19{year_part}"
                     case_number = case_number.replace(f"/{year_part}", f"/{full_year}", 1)
-                    logger.info(f"SmartSearchService: Нормализован год в номере дела: {case_number}")
+                    logger.log(f"SmartSearchService: Нормализован год в номере дела: {case_number}", LogLevel.INFO)
 
             return case_number
-        logger.info(f"SmartSearchService: Номер дела не найден в запросе: '{query}'")
+        logger.log(f"SmartSearchService: Номер дела не найден в запросе: '{query}'", LogLevel.INFO)
         return None
 
 
@@ -124,7 +124,7 @@ class SmartSearchService:
 
     def extract_document_type(self, query: str) -> Optional[str]:
         """Извлекает тип документа из запроса"""
-        logger.info(f"🔎 Проверка типа документа для запроса: '{query}'")
+        logger.log(f"🔎 Проверка типа документа для запроса: '{query}'", LogLevel.INFO)
         doc_types = [
                 "исковое заявление", "иск", "претензия", "отзыв", "отзыв на исковое заявление", 
                 "ходатайство", "апелляционная жалоба", "кассационная жалоба", 
@@ -136,14 +136,14 @@ class SmartSearchService:
 
         for doc_type in doc_types:
             if doc_type.lower() in query.lower():
-                logger.info(f"🔎 Найден тип документа: '{doc_type}'")
+                logger.log(f"🔎 Найден тип документа: '{doc_type}'", LogLevel.INFO)
                 return doc_type
-        logger.info(f"🔎 Тип документа не найден")
+        logger.log(f"🔎 Тип документа не найден", LogLevel.INFO)
         return None
 
     def search_by_case_number(self, case_number: str, limit: int = 10) -> List[Dict]:
         """Поиск полного текста судебного решения по номеру дела"""
-        logger.info(f"🔍 Поиск по номеру дела: {case_number}")
+        logger.log(f"🔍 Поиск по номеру дела: {case_number}", LogLevel.INFO)
 
         # Разбираем номер дела на составные части
         full_case_number = case_number
@@ -175,7 +175,7 @@ class SmartSearchService:
 
         # Удаляем дубликаты
         variants = list(set(variants))
-        logger.info(f"🔍 Варианты номера дела для поиска: {variants}")
+        logger.log(f"🔍 Варианты номера дела для поиска: {variants}", LogLevel.INFO)
 
         # Формируем запрос с учетом всех вариантов
         should_clauses = []
@@ -199,7 +199,7 @@ class SmartSearchService:
 
         try:
             # Логируем запрос для отладки
-            logger.info(f"🔍 Отправляем запрос: {json.dumps(body, ensure_ascii=False)}")
+            logger.log(f"🔍 Отправляем запрос: {json.dumps(body, ensure_ascii=False)}", LogLevel.INFO)
 
             response = self.es.search(index=self.court_decisions_index, body=body)
             hits = response["hits"]["hits"]
@@ -215,20 +215,20 @@ class SmartSearchService:
                     doc_id_set.add(doc_id)
                     results.append(source)
 
-                logger.info(f"🔍 Найдено {len(results)} чанков для дела {case_number} (документы: {len(doc_id_set)})")
+                logger.log(f"🔍 Найдено {len(results)} чанков для дела {case_number} (документы: {len(doc_id_set)})", LogLevel.INFO)
                 return results
             else:
-                logger.warning(f"🔍 Дело {case_number} не найдено")
+                logger.log(f"🔍 Дело {case_number} не найдено", LogLevel.WARNING)
                 return []
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при поиске дела {case_number}: {str(e)}")
+            logger.log(f"❌ Ошибка при поиске дела {case_number}: {str(e)}", LogLevel.ERROR)
             logger.exception("Stacktrace:")
             return []
 
     def search_by_company(self, company: str, limit: int = 10) -> List[Dict]:
         """Поиск дел с участием указанной компании"""
-        logger.info(f"🔍 Поиск дел с участием компании: {company}")
+        logger.log(f"🔍 Поиск дел с участием компании: {company}", LogLevel.INFO)
 
         body = {
             "size": limit,
@@ -254,19 +254,19 @@ class SmartSearchService:
 
             if hits:
                 results = [hit["_source"] for hit in hits]
-                logger.info(f"🔍 Найдено {len(results)} дел с участием {company}")
+                logger.log(f"🔍 Найдено {len(results)} дел с участием {company}", LogLevel.INFO)
                 return results
             else:
-                logger.warning(f"🔍 Дела с участием {company} не найдены")
+                logger.log(f"🔍 Дела с участием {company} не найдены", LogLevel.WARNING)
                 return []
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при поиске компании {company}: {str(e)}")
+            logger.log(f"❌ Ошибка при поиске компании {company}: {str(e)}", LogLevel.ERROR)
             return []
 
     def search_by_text_fragment(self, text: str, limit: int = 10) -> List[Dict]:
         """Поиск фрагмента текста с контекстом (предыдущий и следующий чанки)"""
-        logger.info(f"🔍 Поиск по фрагменту текста: {text[:100]}...")
+        logger.log(f"🔍 Поиск по фрагменту текста: {text[:100]}...", LogLevel.INFO)
 
         body = {
             "size": limit,
@@ -287,7 +287,7 @@ class SmartSearchService:
             hits = response["hits"]["hits"]
 
             if not hits:
-                logger.warning(f"🔍 Фрагмент текста не найден")
+                logger.log(f"🔍 Фрагмент текста не найден", LogLevel.WARNING)
                 return []
 
             results = []
@@ -311,11 +311,11 @@ class SmartSearchService:
 
                 results.append(result)
 
-            logger.info(f"🔍 Найдено {len(results)} фрагментов текста с контекстом")
+            logger.log(f"🔍 Найдено {len(results)} фрагментов текста с контекстом", LogLevel.INFO)
             return results
 
         except Exception as e:
-            logger.error(f"❌ Ошибка при поиске фрагмента текста: {str(e)}")
+            logger.log(f"❌ Ошибка при поиске фрагмента текста: {str(e)}", LogLevel.ERROR)
             return []
 
     def _get_adjacent_chunk(self, doc_id: str, chunk_id: int) -> Optional[Dict]:
@@ -350,7 +350,7 @@ class SmartSearchService:
         # Проверяем наличие номера дела в запросе
         case_number = self.extract_case_number(query)
         if case_number:
-            logger.info(f"🧠 Определен поиск по номеру дела: {case_number}")
+            logger.log(f"🧠 Определен поиск по номеру дела: {case_number}", LogLevel.INFO)
             results = self.search_by_case_number(case_number, limit)
             return {
                 "type": "case_number",
@@ -361,7 +361,7 @@ class SmartSearchService:
         # Проверяем наличие компании в запросе
         company = self.extract_company_name(query)
         if company:
-            logger.info(f"🧠 Определен поиск по компании: {company}")
+            logger.log(f"🧠 Определен поиск по компании: {company}", LogLevel.INFO)
             results = self.search_by_company(company, limit)
             return {
                 "type": "company",
@@ -372,7 +372,7 @@ class SmartSearchService:
         # Проверяем наличие типа процессуального документа
         doc_type = self.extract_document_type(query)
         if doc_type:
-            logger.info(f"🧠 Определен поиск по типу документа: {doc_type}")
+            logger.log(f"🧠 Определен поиск по типу документа: {doc_type}", LogLevel.INFO)
             results = search_procedural_forms(query, min(limit, 5))  # Ограничиваем до 5 форм
 
             if results:
@@ -383,7 +383,7 @@ class SmartSearchService:
                 }
 
         # По умолчанию ищем по тексту запроса
-        logger.info(f"🧠 Определен поиск по тексту запроса")
+        logger.log(f"🧠 Определен поиск по тексту запроса", LogLevel.INFO)
         results = self.search_by_text_fragment(query, limit)
         return {
             "type": "text_fragment",
@@ -424,12 +424,12 @@ def extract_case_numbers_from_query(query: str) -> List[str]:
     match = re.search(pattern, query)
 
     if not match:
-        logger.info(f"Номер дела не найден в запросе: '{query}'")
+        logger.log(f"Номер дела не найден в запросе: '{query}'", LogLevel.INFO)
         return []
 
     # Получаем найденный номер дела
     case_number = match.group(0)
-    logger.info(f"Извлечен номер дела: {case_number}")
+    logger.log(f"Извлечен номер дела: {case_number}", LogLevel.INFO)
 
     variants = [case_number]
 
@@ -437,14 +437,14 @@ def extract_case_numbers_from_query(query: str) -> List[str]:
     if case_number.startswith("А"):  # русская А
         latin_variant = "A" + case_number[1:]
         variants.append(latin_variant)
-        logger.info(f"Создан латинский вариант: {latin_variant}")
+        logger.log(f"Создан латинский вариант: {latin_variant}", LogLevel.INFO)
     elif case_number.startswith("A"):  # латинская A
         russian_variant = "А" + case_number[1:]
         variants.append(russian_variant)
-        logger.info(f"Создан русский вариант: {russian_variant}")
+        logger.log(f"Создан русский вариант: {russian_variant}", LogLevel.INFO)
 
     # Логируем все варианты для отладки
-    logger.info(f"Сформированы варианты номера дела: {variants}")
+    logger.log(f"Сформированы варианты номера дела: {variants}", LogLevel.INFO)
     return variants
 
 
@@ -466,7 +466,7 @@ def search_procedural_forms(query: str, limit: int = 5) -> List[str]:
 
         # Проверяем существование индекса
         if not es.indices.exists(index=index_name):
-            logger.warning(f"🔍 Индекс {index_name} не существует")
+            logger.log(f"🔍 Индекс {index_name} не существует", LogLevel.WARNING)
             return []
 
         # Валидация параметра limit
@@ -488,7 +488,7 @@ def search_procedural_forms(query: str, limit: int = 5) -> List[str]:
         # Если нашли тип документа, добавляем его в запрос
         if doc_type:
             should_clauses.append({"match": {"doc_type": {"query": doc_type, "boost": 4.0}}})
-            logger.info(f"🔍 Определен тип документа: {doc_type}")
+            logger.log(f"🔍 Определен тип документа: {doc_type}", LogLevel.INFO)
 
         body = {
             "size": size,
@@ -570,66 +570,145 @@ def search_procedural_forms(query: str, limit: int = 5) -> List[str]:
 
             results.append(result)
 
-        logger.info(f"🔍 Найдено {len(results)} процессуальных форм документов")
+        logger.log(f"🔍 Найдено {len(results)} процессуальных форм документов", LogLevel.INFO)
         return results
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска в индексе procedural_forms_index: {str(e)}")
+        logger.log(f"❌ Ошибка поиска в индексе procedural_forms_index: {str(e)}", LogLevel.ERROR)
         logger.exception("Подробная информация об ошибке:")
         return []
 
 
-def search_law_chunks(query: str) -> List[Dict]:
+async def get_query_embedding(query: str) -> List[float]:
     """
-    Выполняет поиск по всем индексам и возвращает релевантные фрагменты.
+    Получает эмбеддинг для текста запроса.
+    Использует sentence-transformers через EmbeddingService.
     
     Args:
-        query (str): Поисковый запрос
+        query: Текст запроса
         
     Returns:
-        List[Dict]: Список найденных фрагментов
+        List[float]: Вектор эмбеддинга размерности 384
     """
     try:
-        es = get_es_client()
-        
-        # Получаем результаты из всех источников
-        court_decisions = search_court_decisions(es, query, limit=3)
-        ruslawod_chunks = search_ruslawod_chunks(es, query, limit=3)
-        court_reviews = search_court_reviews(es, query, limit=2)
-        legal_articles = search_legal_articles(es, query, limit=2)
-        
-        # Объединяем все результаты
-        all_results = []
-        
-        # Добавляем результаты с указанием источника
-        for result in court_decisions:
-            all_results.append({
-                "source": "court_decisions",
-                "text": ensure_correct_encoding(result)
-            })
-            
-        for result in ruslawod_chunks:
-            all_results.append({
-                "source": "ruslawod",
-                "text": ensure_correct_encoding(result)
-            })
-            
-        for result in court_reviews:
-            all_results.append({
-                "source": "court_reviews",
-                "text": ensure_correct_encoding(result)
-            })
-            
-        for result in legal_articles:
-            all_results.append({
-                "source": "legal_articles",
-                "text": ensure_correct_encoding(result)
-            })
-        
-        return all_results
+        embedding_service = EmbeddingService()
+        return await embedding_service.get_embedding_async(query)
         
     except Exception as e:
-        logging.error(f"Ошибка при поиске в ElasticSearch: {str(e)}")
+        logger.log(f"❌ Ошибка при получении эмбеддинга: {str(e)}", LogLevel.ERROR)
+        return [0.0] * 384  # Возвращаем нулевой вектор в случае ошибки
+
+async def search_law_chunks(query: str, size: int = 5, use_vector: bool = True) -> List[Dict[str, Any]]:
+    """
+    Поиск фрагментов законов в Elasticsearch с поддержкой векторного поиска.
+    
+    Args:
+        query: Текст запроса
+        size: Максимальное количество результатов
+        use_vector: Использовать ли векторный поиск
+        
+    Returns:
+        List[Dict[str, Any]]: Результаты поиска
+    """
+    logger.log(f"🔍 Начало поиска в Elasticsearch по запросу: '{query}'", LogLevel.INFO)
+    try:
+        # Инициализация клиента Elasticsearch
+        es = get_es_client()
+        
+        # Базовый текстовый поиск
+        text_query = {
+            "bool": {
+                "should": [
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": [
+                                "text^3",  # Основной текст с большим весом
+                                "title^2",  # Заголовок с меньшим весом
+                                "metadata.*^1"  # Все метаданные с наименьшим весом
+                            ],
+                            "type": "best_fields",
+                            "fuzziness": "AUTO",
+                            "operator": "or"
+                        }
+                    },
+                    {
+                        "match_phrase": {
+                            "text": {
+                                "query": query,
+                                "boost": 2
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
+            }
+        }
+        
+        # Если включен векторный поиск, добавляем kNN запрос
+        if use_vector:
+            # Получаем эмбеддинг запроса
+            query_vector = await get_query_embedding(query)
+            
+            search_query = {
+                "knn": {
+                    "field": "embedding",
+                    "query_vector": query_vector,
+                    "k": size,
+                    "num_candidates": size * 2
+                },
+                "rank_score": 0.4,  # Вес для kNN
+                "query": {
+                    "script_score": {
+                        "query": text_query,
+                        "script": {
+                            "source": "_score * 0.6"  # Вес для текстового поиска
+                        }
+                    }
+                }
+            }
+        else:
+            search_query = {"query": text_query}
+        
+        # Добавляем подсветку
+        search_query["highlight"] = {
+            "fields": {
+                "text": {
+                    "fragment_size": 150,
+                    "number_of_fragments": 3
+                }
+            }
+        }
+        
+        # Логируем отправляемый запрос
+        logger.log(f"📤 Отправка запроса в Elasticsearch: {json.dumps(search_query, ensure_ascii=False)}", LogLevel.INFO)
+        
+        response = es.search(
+            index="court_decisions_index",
+            body=search_query,
+            size=size
+        )
+        
+        # Логируем полученный ответ
+        logger.log(f"📥 Получен ответ от Elasticsearch. Найдено результатов: {response['hits']['total']['value']}", LogLevel.INFO)
+        
+        results = []
+        for hit in response['hits']['hits']:
+            result = {
+                "text": hit["_source"]["text"],
+                "title": hit["_source"].get("title", ""),
+                "metadata": hit["_source"].get("metadata", {}),
+                "score": hit["_score"],
+                "highlights": hit.get("highlight", {}).get("text", []),
+                "vector_score": hit.get("_vector_score")  # Добавляем score векторного поиска
+            }
+            results.append(result)
+            # Логируем каждый найденный результат
+            logger.log(f"📄 Найден документ: {result['title']} (score: {result['score']}, vector_score: {result.get('vector_score')})", LogLevel.INFO)
+        
+        return results
+    except Exception as e:
+        logger.log(f"❌ Ошибка при поиске в Elasticsearch: {str(e)}", LogLevel.ERROR)
         return []
 
 
@@ -651,7 +730,7 @@ def search_court_decisions(es, query: str, limit: int) -> List[str]:
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return []
 
         # Извлекаем номер дела из запроса с помощью регулярного выражения
@@ -669,7 +748,7 @@ def search_court_decisions(es, query: str, limit: int) -> List[str]:
                 case_numbers.append(number.replace('A', 'А'))
 
         if case_numbers:
-            logger.info(f"🔍 Извлечены варианты номера дела: {case_numbers}")
+            logger.log(f"🔍 Извлечены варианты номера дела: {case_numbers}", LogLevel.INFO)
 
             # Создаем поисковый запрос с альтернативными вариантами номера дела
             should_clauses = []
@@ -695,7 +774,7 @@ def search_court_decisions(es, query: str, limit: int) -> List[str]:
                     }
                 }
             }
-            logger.info(f"🔍 Поиск по номеру дела: {json.dumps(should_clauses[:2], ensure_ascii=False)}")
+            logger.log(f"🔍 Поиск по номеру дела: {json.dumps(should_clauses[:2], ensure_ascii=False)}", LogLevel.INFO)
         else:
             # Для остальных запросов используем обычный multi_match
             body = {
@@ -729,16 +808,16 @@ def search_court_decisions(es, query: str, limit: int) -> List[str]:
         }
 
         # Выполняем поиск
-        logger.info(f"🔍 Выполняем поиск: {json.dumps(body, ensure_ascii=False)[:200]}...")
+        logger.log(f"🔍 Выполняем поиск: {json.dumps(body, ensure_ascii=False)[:200]}...", LogLevel.INFO)
         response = es.search(index=index_name, body=body)
         hits = response["hits"]["hits"]
 
         # Логируем результаты поиска
         if hits:
             found_case_numbers = [hit["_source"].get("case_number", "N/A") for hit in hits[:3]]
-            logger.info(f"🔍 Найдено {len(hits)} результатов. Первые номера дел: {', '.join(found_case_numbers)}")
+            logger.log(f"🔍 Найдено {len(hits)} результатов. Первые номера дел: {', '.join(found_case_numbers)}", LogLevel.INFO)
         else:
-            logger.warning(f"🔍 По запросу '{query}' результатов не найдено")
+            logger.log(f"🔍 По запросу '{query}' результатов не найдено", LogLevel.WARNING)
 
         results = []
         for hit in hits:
@@ -766,7 +845,7 @@ def search_court_decisions(es, query: str, limit: int) -> List[str]:
         return results
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска в индексе court_decisions_index: {str(e)}")
+        logger.log(f"❌ Ошибка поиска в индексе court_decisions_index: {str(e)}", LogLevel.ERROR)
         logger.exception("Подробная информация об ошибке:")
         return []
 
@@ -789,7 +868,7 @@ def search_ruslawod_chunks(es, query: str, limit: int) -> List[str]:
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return []
 
         # Создаем поисковый запрос
@@ -869,11 +948,11 @@ def search_ruslawod_chunks(es, query: str, limit: int) -> List[str]:
 
             results.append(result)
 
-        logger.info(f"🔍 Найдено {len(results)} фрагментов законодательства")
+        logger.log(f"🔍 Найдено {len(results)} фрагментов законодательства", LogLevel.INFO)
         return results
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска в индексе ruslawod_chunks_index: {str(e)}")
+        logger.log(f"❌ Ошибка поиска в индексе ruslawod_chunks_index: {str(e)}", LogLevel.ERROR)
         return []
 
 def search_court_reviews(es, query: str, limit: int) -> List[str]:
@@ -894,7 +973,7 @@ def search_court_reviews(es, query: str, limit: int) -> List[str]:
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return []
 
         # Создаем поисковый запрос
@@ -971,11 +1050,11 @@ def search_court_reviews(es, query: str, limit: int) -> List[str]:
 
             results.append(result)
 
-        logger.info(f"🔍 Найдено {len(results)} обзоров судебной практики")
+        logger.log(f"🔍 Найдено {len(results)} обзоров судебной практики", LogLevel.INFO)
         return results
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска в индексе court_reviews_index: {str(e)}")
+        logger.log(f"❌ Ошибка поиска в индексе court_reviews_index: {str(e)}", LogLevel.ERROR)
         return []
 
 def search_legal_articles(es, query: str, limit: int) -> List[str]:
@@ -996,7 +1075,7 @@ def search_legal_articles(es, query: str, limit: int) -> List[str]:
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return []
 
         # Создаем поисковый запрос
@@ -1077,11 +1156,11 @@ def search_legal_articles(es, query: str, limit: int) -> List[str]:
 
             results.append(result)
 
-        logger.info(f"🔍 Найдено {len(results)} правовых статей")
+        logger.log(f"🔍 Найдено {len(results)} правовых статей", LogLevel.INFO)
         return results
 
     except Exception as e:
-        logger.error(f"❌ Ошибка поиска в индексе legal_articles_index: {str(e)}")
+        logger.log(f"❌ Ошибка поиска в индексе legal_articles_index: {str(e)}", LogLevel.ERROR)
         return []
 
 def create_court_decisions_index(es):
@@ -1129,9 +1208,9 @@ def create_court_decisions_index(es):
             }
         )
 
-        logger.info(f"✅ Индекс {index_name} успешно создан.")
+        logger.log(f"✅ Индекс {index_name} успешно создан.", LogLevel.INFO)
     else:
-        logger.info(f"✅ Индекс {index_name} уже существует.")
+        logger.log(f"✅ Индекс {index_name} уже существует.", LogLevel.INFO)
 
 def create_ruslawod_chunks_index(es):
     """
@@ -1178,9 +1257,9 @@ def create_ruslawod_chunks_index(es):
             }
         )
 
-        logger.info(f"✅ Индекс {index_name} успешно создан.")
+        logger.log(f"✅ Индекс {index_name} успешно создан.", LogLevel.INFO)
     else:
-        logger.info(f"✅ Индекс {index_name} уже существует.")
+        logger.log(f"✅ Индекс {index_name} уже существует.", LogLevel.INFO)
 
 def create_procedural_forms_index(es):
     """
@@ -1245,9 +1324,9 @@ def create_procedural_forms_index(es):
             }
         )
 
-        logger.info(f"✅ Индекс {index_name} успешно создан.")
+        logger.log(f"✅ Индекс {index_name} успешно создан.", LogLevel.INFO)
     else:
-        logger.info(f"✅ Индекс {index_name} уже существует.")
+        logger.log(f"✅ Индекс {index_name} уже существует.", LogLevel.INFO)
 
 def create_indices():
     """
@@ -1264,10 +1343,10 @@ def create_indices():
         # Также можно создать индексы для court_reviews_index и legal_articles_index
         # но пока оставим их без явного создания
 
-        logger.info("✅ Все необходимые индексы проверены или созданы.")
+        logger.log("✅ Все необходимые индексы проверены или созданы.", LogLevel.INFO)
 
     except Exception as e:
-        logger.error(f"❌ Ошибка при создании индексов: {str(e)}")
+        logger.log(f"❌ Ошибка при создании индексов: {str(e)}", LogLevel.ERROR)
 
 def index_court_decisions():
     """
@@ -1291,7 +1370,7 @@ def update_court_decisions_mapping(es=None):
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return False
 
         # Обновляем маппинг для индекса
@@ -1328,10 +1407,10 @@ def update_court_decisions_mapping(es=None):
             body=mapping_update
         )
 
-        logger.info(f"✅ Маппинг для индекса {index_name} успешно обновлен.")
+        logger.log(f"✅ Маппинг для индекса {index_name} успешно обновлен.", LogLevel.INFO)
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}")
+        logger.log(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}", LogLevel.ERROR)
         return False
 
 def update_procedural_forms_mapping(es=None):
@@ -1350,7 +1429,7 @@ def update_procedural_forms_mapping(es=None):
 
         # Проверяем, существует ли индекс
         if not es.indices.exists(index=index_name):
-            logger.warning(f"⚠️ Индекс {index_name} не существует.")
+            logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
             return False
 
         # Обновляем маппинг для индекса
@@ -1381,10 +1460,10 @@ def update_procedural_forms_mapping(es=None):
             body=mapping_update
         )
 
-        logger.info(f"✅ Маппинг для индекса {index_name} успешно обновлен.")
+        logger.log(f"✅ Маппинг для индекса {index_name} успешно обновлен.", LogLevel.INFO)
         return True
     except Exception as e:
-        logger.error(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}")
+        logger.log(f"❌ Ошибка при обновлении маппинга для индекса {index_name}: {str(e)}", LogLevel.ERROR)
         return False
 
 def update_all_mappings():
@@ -1402,8 +1481,128 @@ def update_all_mappings():
 
         return success1 and success2
     except Exception as e:
-        logger.error(f"❌ Ошибка при обновлении маппингов: {str(e)}")
+        logger.log(f"❌ Ошибка при обновлении маппингов: {str(e)}", LogLevel.ERROR)
         return False
+
+def search_law_chunks_multi(queries: list[str], size: int = 5) -> list[dict]:
+    """
+    Выполняет поиск по нескольким запросам в Elasticsearch и объединяет результаты.
+    Args:
+        queries: Список поисковых запросов
+        size: Количество результатов на каждый запрос
+    Returns:
+        Список уникальных результатов
+    """
+    all_results = []
+    seen = set()
+    for q in queries:
+        results = search_law_chunks(q, size)
+        for r in results:
+            # Уникальность по тексту и заголовку
+            key = (r.get("text", "")[:100], r.get("title", ""))
+            if key not in seen:
+                seen.add(key)
+                all_results.append(r)
+    return all_results
+
+# Универсальная функция для проверки наличия поля embedding в индексе
+async def has_embedding_field(es, index_name: str) -> bool:
+    try:
+        mapping = es.indices.get_mapping(index=index_name)
+        props = mapping[index_name]['mappings'].get('properties', {})
+        return 'embedding' in props
+    except Exception:
+        return False
+
+# Универсальная функция поиска по эмбеддингам для любого индекса
+async def search_index_with_embeddings(index_name: str, query: str, size: int = 5, use_vector: bool = True) -> list:
+    es = get_es_client()
+    if not es.indices.exists(index=index_name):
+        logger.log(f"⚠️ Индекс {index_name} не существует.", LogLevel.WARNING)
+        return []
+    # Проверяем наличие поля embedding
+    has_embedding = await has_embedding_field(es, index_name)
+    # Формируем текстовый запрос
+    text_query = {
+        "bool": {
+            "should": [
+                {"multi_match": {
+                    "query": query,
+                    "fields": ["title^3", "text^2", "content^2", "full_text^2", "subject_matter^2", "category", "subcategory", "body", "description", "keywords"],
+                    "type": "best_fields",
+                    "fuzziness": "AUTO"
+                }}
+            ],
+            "minimum_should_match": 1
+        }
+    }
+    search_query = {"query": text_query}
+    if use_vector and has_embedding:
+        query_vector = await get_query_embedding(query)
+        search_query = {
+            "knn": {
+                "field": "embedding",
+                "query_vector": query_vector,
+                "k": size,
+                "num_candidates": size * 2
+            },
+            "rank_score": 0.4,
+            "query": {
+                "script_score": {
+                    "query": text_query,
+                    "script": {"source": "_score * 0.6"}
+                }
+            }
+        }
+    # Добавляем подсветку
+    search_query["highlight"] = {
+        "fields": {
+            "text": {"fragment_size": 150, "number_of_fragments": 3},
+            "title": {"fragment_size": 150, "number_of_fragments": 2},
+            "full_text": {"fragment_size": 150, "number_of_fragments": 2},
+            "content": {"fragment_size": 150, "number_of_fragments": 2}
+        }
+    }
+    try:
+        response = es.search(index=index_name, body=search_query, size=size)
+        hits = response["hits"]["hits"]
+        results = []
+        for hit in hits:
+            source = hit["_source"]
+            result = {
+                "title": source.get("title", ""),
+                "text": source.get("text", source.get("content", source.get("full_text", ""))),
+                "score": hit.get("_score"),
+                "vector_score": hit.get("_vector_score"),
+                "highlights": sum([hit.get("highlight", {}).get(f, []) for f in ["text", "title", "full_text", "content"]], [])
+            }
+            results.append(result)
+        logger.log(f"🔍 Найдено {len(results)} результатов по индексу {index_name}", LogLevel.INFO)
+        return results
+    except Exception as e:
+        logger.log(f"❌ Ошибка поиска по индексу {index_name}: {str(e)}", LogLevel.ERROR)
+        return []
+
+# Обёртки для каждого индекса
+async def search_procedural_forms_with_embeddings(query: str, size: int = 5, use_vector: bool = True):
+    index_name = ES_INDICES.get("procedural_forms", "procedural_forms_index")
+    return await search_index_with_embeddings(index_name, query, size, use_vector)
+
+async def search_court_reviews_with_embeddings(query: str, size: int = 5, use_vector: bool = True):
+    index_name = ES_INDICES.get("court_reviews", "court_reviews_index")
+    return await search_index_with_embeddings(index_name, query, size, use_vector)
+
+async def search_legal_articles_with_embeddings(query: str, size: int = 5, use_vector: bool = True):
+    index_name = ES_INDICES.get("legal_articles", "legal_articles_index")
+    return await search_index_with_embeddings(index_name, query, size, use_vector)
+
+async def search_ruslawod_chunks_with_embeddings(query: str, size: int = 5, use_vector: bool = True):
+    index_name = ES_INDICES.get("ruslawod_chunks", "ruslawod_chunks_index")
+    return await search_index_with_embeddings(index_name, query, size, use_vector)
+
+async def search_court_decisions_with_embeddings(query: str, size: int = 5, use_vector: bool = True):
+    index_name = ES_INDICES.get("court_decisions", "court_decisions_index")
+    return await search_index_with_embeddings(index_name, query, size, use_vector)
 
 if __name__ == "__main__":
     # Создание индексов при запуске модуля напрямую
@@ -1415,8 +1614,8 @@ if __name__ == "__main__":
     # Пример поиска
     test_query = "А65-28469/2012"
     results = search_law_chunks(test_query)
-    print(f"Поиск по запросу '{test_query}': найдено {len(results)} результатов")
+    logger.log(f"Поиск по запросу '{test_query}': найдено {len(results)} результатов", LogLevel.INFO)
 
     if results:
-        print("\nПервый результат:")
-        print(results[0]['text'][:500] + "...")
+        logger.log("\nПервый результат:", LogLevel.INFO)
+        logger.log(results[0]['text'][:500] + "...", LogLevel.INFO)

@@ -4,7 +4,6 @@ Implements unified search using multiple search engines with caching and paralle
 """
 from typing import List, Dict, Optional, Union, Any, Tuple
 from langchain_community.tools import DuckDuckGoSearchResults, DuckDuckGoSearchRun
-from googlesearch import search as google_search
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
@@ -16,6 +15,8 @@ from pathlib import Path
 import wikipedia
 import arxiv
 from ..config import config, get_user_agent
+from app.services.tavily_service import TavilyService
+import re
 
 class SearchResult:
     """Container for search results from various engines."""
@@ -113,7 +114,7 @@ class SearchCache:
 class UnifiedSearcher:
     """
     Unified search interface combining results from multiple search engines.
-    Supports DuckDuckGo, Google, Wikipedia, and arXiv with caching and parallel processing.
+    Supports Tavily, DuckDuckGo, Wikipedia, and arXiv with caching and parallel processing.
     Uses a shared ThreadPoolExecutor for better resource management.
     """
     # Class-level executor for thread pool reuse
@@ -145,6 +146,9 @@ class UnifiedSearcher:
         )
         self.ddg_run = DuckDuckGoSearchRun()
         
+        # Initialize Tavily searcher
+        self.tavily = TavilyService()
+        
         # Initialize cache
         self.cache = SearchCache(ttl=cache_ttl)
         
@@ -160,175 +164,148 @@ class UnifiedSearcher:
         # Add request timeout to prevent hanging
         self.request_timeout = 20  # 20 second timeout for all requests
 
-    async def _async_google_search(self, query: str, num_results: int) -> List[SearchResult]:
-        """Perform Google search asynchronously with improved error handling and relevance filtering."""
+    def _humanize_query(self, query: str) -> str:
+        """Make search query more human-like."""
+        # Remove special characters and extra whitespace
+        query = re.sub(r'[^\w\s]', ' ', query)
+        query = ' '.join(query.split())
+        return query
+
+    async def search(
+        self, 
+        query: str,
+        engines: Optional[List[str]] = None
+    ) -> List[SearchResult]:
+        """
+        Perform asynchronous search across multiple engines.
+        
+        Args:
+            query: Search query
+            engines: List of search engines to use (default: ["tavily", "ddg", "wiki", "arxiv"])
+            
+        Returns:
+            List[SearchResult]: Combined and deduplicated search results
+        """
+        if not engines:
+            engines = ["tavily", "ddg", "wiki", "arxiv"]
+            
+        tasks = []
+        results_per_engine = max(2, self.max_results // len(engines))
+        
+        # Create search tasks
+        if "tavily" in engines:
+            tasks.append(self.tavily.search(query))
+        if "ddg" in engines:
+            tasks.append(self._search_duckduckgo(query))
+        if "wiki" in engines:
+            tasks.append(self._search_wikipedia(query, results_per_engine))
+        if "arxiv" in engines:
+            tasks.append(self._search_arxiv(query, results_per_engine))
+            
+        # Execute all tasks concurrently
+        all_results = []
+        completed_tasks = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for result in completed_tasks:
+            if isinstance(result, Exception):
+                print(f"Search error: {result}")
+                continue
+            if isinstance(result, list):
+                all_results.extend(result)
+                
+        # Merge and deduplicate results
+        merged_results = self.merge_results(all_results)
+        return merged_results[:self.max_results]
+
+    def search_sync(
+        self,
+        query: str,
+        engines: Optional[List[str]] = None
+    ) -> List[SearchResult]:
+        """Synchronous version of search method."""
+        return asyncio.run(self.search(query, engines))
+
+    @staticmethod
+    def merge_results(
+        results: List[SearchResult],
+        strategy: str = "relevance"
+    ) -> List[SearchResult]:
+        """
+        Merge results from different sources with deduplication and ranking.
+        
+        Args:
+            results: List of search results to merge
+            strategy: Merging strategy ("relevance" or "source")
+            
+        Returns:
+            List[SearchResult]: Merged and ranked results
+        """
+        if not results:
+            return []
+            
+        # Remove duplicates based on URL
+        seen_urls = set()
+        unique_results = []
+        
+        for result in results:
+            if not result.url or result.url in seen_urls:
+                continue
+            seen_urls.add(result.url)
+            unique_results.append(result)
+            
+        if strategy == "relevance":
+            # Score and sort results
+            def score_result(result):
+                score = 0
+                # Prefer results with non-empty fields
+                if result.title:
+                    score += 2
+                if result.snippet:
+                    score += 2
+                if result.date:
+                    score += 1
+                # Prefer certain sources
+                if result.source == "tavily":
+                    score += 3
+                elif result.source == "wikipedia":
+                    score += 2
+                elif result.source == "arxiv":
+                    score += 1
+                return score
+                
+            return sorted(unique_results, key=score_result, reverse=True)
+            
+        return unique_results
+
+    def get_available_engines(self) -> List[str]:
+        """Return list of available search engines."""
+        return ["tavily", "ddg", "wiki", "arxiv"]
+
+    async def _search_duckduckgo(self, query: str) -> List[SearchResult]:
+        """Perform DuckDuckGo search with caching and error handling."""
+        # Check cache first
+        cached_results = self.cache.get(query, "duckduckgo")
+        if cached_results:
+            return [SearchResult(**r) for r in cached_results]
+        
         results = []
+        
+        # Use LangChain's DuckDuckGo tools
         try:
-            search_query = self._humanize_query(query)
+            # Run in executor to avoid blocking
+            loop = asyncio.get_event_loop()
+            ddg_results_str = await loop.run_in_executor(
+                self.executor,
+                lambda: self.ddg_results.run(query)
+            )
             
-            cached_results = self.cache.get(search_query, "google")
-            if cached_results:
-                return [SearchResult(**r) for r in cached_results]
+            ddg_results = self._parse_ddg_results(ddg_results_str)
+            results.extend(ddg_results)
             
-            headers = {'User-Agent': self.user_agent}
-            
-            for attempt in range(3):
-                try:
-                    print(f"Executing Google search for: {search_query}")
-                    
-                    search_results = list(google_search(
-                        search_query, 
-                        num_results=num_results * 2,
-                        proxy=self.proxy,
-                        timeout=15,
-                        unique=True, 
-                        advanced=True
-                    ))
-                    
-                    if search_results and len(search_results) > 0:
-                        first_result = search_results[0]
-                        print(f"Google search result type: {type(first_result)}")
-                        if hasattr(first_result, '__dict__'):
-                            print(f"Google search result attributes: {first_result.__dict__}")
-                        else:
-                            print(f"Google search result dir: {dir(first_result)}")
-                    
-                    filtered_results = []
-                    irrelevant_domains = [
-                        "pinterest", "instagram", "facebook", "twitter", 
-                        "youtube", "tiktok", "reddit", "quora", "linkedin",
-                        "msn.com/en-us/money", "msn.com/en-us/lifestyle",
-                        "msn.com/en-us/entertainment", "msn.com/en-us/travel",
-                        "amazon.com", "ebay.com", "etsy.com", "walmart.com", 
-                        "target.com", "netflix.com", "hulu.com", "spotify.com"
-                    ]
-                    
-                    for result in search_results:
-                        try:
-                            if hasattr(result, 'url') and hasattr(result, 'title'):
-                                url = result.url
-                                if url and isinstance(url, str) and any(domain in url.lower() for domain in irrelevant_domains):
-                                    continue
-                                
-                                # Исправленный блок для получения сниппета
-                                snippet = ""
-                                if hasattr(result, 'is_successful') and callable(getattr(result, 'is_successful')):
-                                    try:
-                                        if result.is_successful():
-                                            snippet = result.text[:200] if hasattr(result, 'text') else ""
-                                        else:
-                                            snippet = getattr(result, 'snippet', '')
-                                    except Exception as e:
-                                        print(f"Error calling is_successful: {e}")
-                                        snippet = getattr(result, 'description', '')
-                                else:
-                                    # Если метода is_successful нет, получаем description
-                                    snippet = getattr(result, 'description', '')
-                                    if not snippet and hasattr(result, 'snippet'):
-                                        snippet = result.snippet
-                                
-                                filtered_results.append(
-                                    SearchResult(
-                                        title=result.title,
-                                        url=url,
-                                        snippet=snippet,
-                                        source="Google"
-                                    )
-                                )
-                            elif isinstance(result, dict):
-                                url = result.get('url', '')
-                                if url and isinstance(url, str) and any(domain in url.lower() for domain in irrelevant_domains):
-                                    continue
-                                    
-                                filtered_results.append(
-                                    SearchResult(
-                                        title=result.get('title', result.get('url', 'Untitled')),
-                                        url=url,
-                                        snippet=result.get('description', ''),
-                                        source="Google",
-                                        date=result.get('date')
-                                    )
-                                )
-                            elif isinstance(result, str):
-                                if any(domain in result.lower() for domain in irrelevant_domains):
-                                    continue
-                                    
-                                filtered_results.append(
-                                    SearchResult(
-                                        title=result,
-                                        url=result,
-                                        snippet="",
-                                        source="Google"
-                                    )
-                                )
-                            else:
-                                print(f"Skipping unknown result type: {type(result)}")
-                        except Exception as e:
-                            print(f"Error processing search result: {e}")
-                            continue
-                                   
-                    if filtered_results:
-                        query_keywords = query.lower().split()
-                        important_keywords = [word for word in query_keywords 
-                                             if len(word) > 3 and word not in ["from", "with", "that", "this", "what", "when", "where", "which", "while"]]
-                        
-                        scored_results = []
-                        for result in filtered_results:
-                            score = 0
-                            title_lower = result.title.lower() if result.title else ""
-                            for keyword in important_keywords:
-                                if keyword in title_lower:
-                                    score += 3
-                            
-                            snippet_lower = result.snippet.lower() if result.snippet else ""
-                            for keyword in important_keywords:
-                                if keyword in snippet_lower:
-                                    score += 1
-                            
-                            scored_results.append((score, result))
-                        
-                        scored_results.sort(reverse=True, key=lambda x: x[0])
-                        results = [result for score, result in scored_results[:num_results]]
-                    else:
-                        results = []
-                        for result in search_results[:num_results]:
-                            try:
-                                if hasattr(result, 'url') and hasattr(result, 'title'):
-                                    snippet = ""
-                                    if hasattr(result, 'description'):
-                                        snippet = result.description
-                                    
-                                    results.append(SearchResult(
-                                        title=result.title,
-                                        url=result.url,
-                                        snippet=snippet,
-                                        source="Google"
-                                    ))
-                                elif isinstance(result, dict):
-                                    results.append(SearchResult(
-                                        title=result.get('title', result.get('url', 'Untitled')),
-                                        url=result.get('url', ''),
-                                        snippet=result.get('description', ''),
-                                        source="Google"
-                                    ))
-                                elif isinstance(result, str):
-                                    results.append(SearchResult(
-                                        title=result,
-                                        url=result,
-                                        snippet="",
-                                        source="Google"
-                                    ))
-                            except Exception as e:
-                                print(f"Error converting search result: {e}")
-                    
-                    break
-                except Exception as e:
-                    print(f"Google search attempt {attempt+1} failed: {e}")
-                    if attempt < 2:
-                        await asyncio.sleep(2 ** attempt)
-            
+            # Cache results
             if results:
                 try:
+                    # Ensure we're storing dictionaries, not SearchResult objects
                     result_dicts = []
                     for r in results:
                         if isinstance(r, SearchResult):
@@ -338,32 +315,31 @@ class UnifiedSearcher:
                         else:
                             print(f"Warning: Skipping non-serializable result: {type(r)}")
                     
-                    self.cache.set(search_query, "google", result_dicts)
+                    self.cache.set(query, "duckduckgo", result_dicts)
                 except Exception as e:
-                    print(f"Error caching Google search results: {e}")
+                    print(f"Error caching DuckDuckGo search results: {e}")
                 
         except Exception as e:
-            print(f"Google search error: {e}")
-            
-        return results
-    
-    def _humanize_query(self, query: str) -> str:
-        """Make search queries more human-like for better results."""
-        # Remove excessive punctuation and formatting
-        query = query.replace('?', ' ').replace('!', ' ').replace('"', ' ').replace("'", ' ')
-        query = ' '.join(query.split())
+            print(f"DuckDuckGo search error: {e}")
+            # Fallback to simpler DuckDuckGo run
+            try:
+                simple_result = await loop.run_in_executor(
+                    self.executor,
+                    lambda: self.ddg_run.run(query)
+                )
+                
+                results.append(
+                    SearchResult(
+                        title="DuckDuckGo Result",
+                        url="",
+                        snippet=simple_result,
+                        source="DuckDuckGo"
+                    )
+                )
+            except Exception as e:
+                print(f"DuckDuckGo fallback error: {e}")
         
-        # If query is too long, truncate it but keep important parts
-        if len(query) > 150:
-            words = query.split()
-            
-            # Keep the first 5 words and the last 10 words to maintain context
-            if len(words) > 15:
-                query = ' '.join(words[:5] + words[-10:])
-            else:
-                query = ' '.join(words[:15])
-            
-        return query
+        return results
 
     def _parse_ddg_results(self, results_str: str) -> List[SearchResult]:
         """Parse DuckDuckGo results with improved error handling."""
@@ -565,260 +541,12 @@ class UnifiedSearcher:
             
         return results
 
-    async def search(
-        self, 
-        query: str,
-        engines: Optional[List[str]] = None
-    ) -> List[SearchResult]:
-        """
-        Perform concurrent search across multiple search engines.
-        
-        Args:
-            query: Search query string
-            engines: List of search engines to use (supported: "google", "duckduckgo", "wikipedia", "arxiv")
-            
-        Returns:
-            List of SearchResult objects
-        """
-        if engines is None:
-            engines = config.get("search", "engines")
-        
-        results_per_engine = max(2, self.max_results // len(engines))
-        all_results = []
-        tasks = []
-        
-        # Start all searches concurrently
-        if "duckduckgo" in engines:
-            tasks.append(self._search_duckduckgo(query))
-        
-        if "google" in engines:
-            tasks.append(self._async_google_search(query, results_per_engine))
-        
-        if "wikipedia" in engines:
-            tasks.append(self._search_wikipedia(query, max(1, results_per_engine // 2)))
-        
-        if "arxiv" in engines:
-            tasks.append(self._search_arxiv(query, max(1, results_per_engine // 2)))
-        
-        # Wait for all searches to complete
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Process results
-        for result in results:
-            if isinstance(result, Exception):
-                print(f"Search error: {result}")
-            elif isinstance(result, list):
-                # Ensure all results are SearchResult objects
-                for item in result:
-                    try:
-                        if isinstance(item, SearchResult):
-                            all_results.append(item)
-                        elif isinstance(item, dict) and 'title' in item and 'url' in item and 'snippet' in item and 'source' in item:
-                            all_results.append(SearchResult(**item))
-                        # Handle googlesearch.SearchResult objects
-                        elif hasattr(item, 'title') and hasattr(item, 'url'):
-                            # Convert googlesearch.SearchResult to our SearchResult
-                            snippet = ""
-                            if hasattr(item, 'description'):
-                                snippet = item.description
-                            
-                            all_results.append(SearchResult(
-                                title=item.title,
-                                url=item.url,
-                                snippet=snippet,
-                                source="Google"
-                            ))
-                        else:
-                            print(f"Warning: Skipping invalid search result: {type(item)}")
-                    except Exception as e:
-                        print(f"Error processing search result: {e}")
-        
-        # Merge and limit results
-        return self.merge_results(all_results, "alternate")[:self.max_results]
-    
-    async def _search_duckduckgo(self, query: str) -> List[SearchResult]:
-        """Perform DuckDuckGo search with caching and error handling."""
-        # Check cache first
-        cached_results = self.cache.get(query, "duckduckgo")
-        if cached_results:
-            return [SearchResult(**r) for r in cached_results]
-        
-        results = []
-        
-        # Use LangChain's DuckDuckGo tools
-        try:
-            # Run in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            ddg_results_str = await loop.run_in_executor(
-                self.executor,
-                lambda: self.ddg_results.run(query)
-            )
-            
-            ddg_results = self._parse_ddg_results(ddg_results_str)
-            results.extend(ddg_results)
-            
-            # Cache results
-            if results:
-                try:
-                    # Ensure we're storing dictionaries, not SearchResult objects
-                    result_dicts = []
-                    for r in results:
-                        if isinstance(r, SearchResult):
-                            result_dicts.append(r.to_dict())
-                        elif isinstance(r, dict):
-                            result_dicts.append(r)
-                        else:
-                            print(f"Warning: Skipping non-serializable result: {type(r)}")
-                    
-                    self.cache.set(query, "duckduckgo", result_dicts)
-                except Exception as e:
-                    print(f"Error caching DuckDuckGo search results: {e}")
-                
-        except Exception as e:
-            print(f"DuckDuckGo search error: {e}")
-            # Fallback to simpler DuckDuckGo run
-            try:
-                simple_result = await loop.run_in_executor(
-                    self.executor,
-                    lambda: self.ddg_run.run(query)
-                )
-                
-                results.append(
-                    SearchResult(
-                        title="DuckDuckGo Result",
-                        url="",
-                        snippet=simple_result,
-                        source="DuckDuckGo"
-                    )
-                )
-            except Exception as e:
-                print(f"DuckDuckGo fallback error: {e}")
-        
-        return results
-
-    def search_sync(
-        self,
-        query: str,
-        engines: Optional[List[str]] = None
-    ) -> List[SearchResult]:
-        """
-        Synchronous version of search method.
-        """
-        return asyncio.run(self.search(query, engines))
-
-    @staticmethod
-    def merge_results(
-        results: List[SearchResult],
-        strategy: str = "relevance"
-    ) -> List[SearchResult]:
-        """
-        Merge results from different sources using various strategies with improved relevance filtering.
-        
-        Args:
-            results: List of SearchResult objects
-            strategy: Merging strategy ("alternate", "source_priority", "date", "relevance")
-            
-        Returns:
-            Merged and reordered list of SearchResult objects
-        """
-        if not results:
-            return []
-            
-        if strategy == "alternate":
-            # Group by source
-            sources = {}
-            for r in results:
-                if r.source not in sources:
-                    sources[r.source] = []
-                sources[r.source].append(r)
-            
-            # Alternate between sources
-            merged = []
-            max_len = max(len(v) for v in sources.values()) if sources else 0
-            for i in range(max_len):
-                for source in sources:
-                    if i < len(sources[source]):
-                        merged.append(sources[source][i])
-            return merged
-            
-        elif strategy == "date":
-            # Sort by date if available
-            dated_results = [r for r in results if r.date]
-            undated_results = [r for r in results if not r.date]
-            dated_results.sort(key=lambda x: x.date, reverse=True)
-            return dated_results + undated_results
-            
-        elif strategy == "relevance":
-            # Enhanced relevance-based sorting
-            # First, categorize by source type
-            academic = []
-            encyclopedia = []
-            news = []
-            official = []
-            other = []
-            
-            for r in results:
-                source_type = r.metadata.get("type", "").lower() if hasattr(r, "metadata") and r.metadata else ""
-                source = r.source.lower()
-                url = r.url.lower() if r.url else ""
-                
-                # Categorize by source type
-                if source_type == "academic_paper" or source == "arxiv" or ".edu/" in url:
-                    academic.append(r)
-                elif source_type == "encyclopedia" or source == "wikipedia" or "encyclopedia" in url:
-                    encyclopedia.append(r)
-                elif "news" in source or any(domain in url for domain in ["bbc", "cnn", "nyt", "reuters", "ap", "npr"]):
-                    news.append(r)
-                elif any(domain in url for domain in [".gov/", ".org/", "un.org", "who.int", "worldbank.org"]):
-                    official.append(r)
-                else:
-                    other.append(r)
-            
-            # Score results within each category
-            def score_result(result):
-                score = 0
-                
-                # Title length (prefer more descriptive titles)
-                if result.title:
-                    title_len = len(result.title)
-                    if 20 <= title_len <= 100:
-                        score += 2
-                    
-                # Snippet length (prefer more detailed snippets)
-                if result.snippet:
-                    snippet_len = len(result.snippet)
-                    if snippet_len > 100:
-                        score += 2
-                    elif snippet_len > 50:
-                        score += 1
-                
-                # Date (prefer more recent content)
-                if result.date:
-                    try:
-                        # Simple check if date looks recent (contains current year or last year)
-                        import datetime
-                        current_year = str(datetime.datetime.now().year)
-                        last_year = str(datetime.datetime.now().year - 1)
-                        if current_year in result.date:
-                            score += 3
-                        elif last_year in result.date:
-                            score += 2
-                    except:
-                        pass
-                
-                return score
-            
-            # Sort each category by score
-            for category in [academic, encyclopedia, official, news, other]:
-                category.sort(key=score_result, reverse=True)
-            
-            # Return in order of credibility with internal scoring
-            return academic + encyclopedia + official + news + other
-            
-        else:  # source_priority
-            # Keep original order which reflects source priority
-            return results
-    
-    def get_available_engines(self) -> List[str]:
-        """Get list of available search engines."""
-        return ["google", "duckduckgo", "wikipedia", "arxiv"]
+class TavilyInternetSearcher:
+    def __init__(self, max_results: int = 10):
+        self.max_results = max_results
+    def search(self, query: str) -> List[SearchResult]:
+        tavily = TavilyService(query)
+        results = tavily.search(max_results=self.max_results)
+        return [SearchResult(title=r.get('body','')[:80], url=r['href'], snippet=r.get('body',''), source='tavily') for r in results]
+    def search_sync(self, query: str) -> List[SearchResult]:
+        return self.search(query)

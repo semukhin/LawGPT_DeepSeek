@@ -1,11 +1,22 @@
 import asyncio
 import os
+import argparse
 from app.services.gemini_service import gemini_service
 import google
 
 async def main():
-    # Замените путь на свой тестовый файл (PDF или изображение)
-    test_file = "test.pdf"  # Можно указать test.png, test.jpg и т.д.
+    parser = argparse.ArgumentParser(description='Извлечение текста из PDF или изображения с помощью Gemini')
+    parser.add_argument('file_path', type=str, nargs='?', default='test.pdf', help='Путь к файлу (PDF или изображение)')
+    args = parser.parse_args()
+    
+    test_file = args.file_path
+    if not os.path.isabs(test_file):
+        # Если путь относительный, ищем относительно корня проекта
+        test_file = os.path.join(os.path.dirname(__file__), test_file)
+    if not os.path.exists(test_file):
+        print(f"❌ Файл не найден: {test_file}")
+        return
+        
     ext = os.path.splitext(test_file)[1].lower()
     image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
     mime_types = {

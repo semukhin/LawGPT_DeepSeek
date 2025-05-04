@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import os
 import logging
 from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from typing import Optional
 
 # Добавляем путь к директории scripts в путь поиска модулей Python
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -54,8 +56,8 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Подключение папки frontend для раздачи статических файлов
-app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
+# Монтируем статику для фронтенда
+app.mount("/frontend", StaticFiles(directory="frontend", html=True), name="frontend")
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -67,6 +69,8 @@ logger = logging.getLogger(__name__)  # Создаем логгер для те�
 # Отключаем отладочные сообщения для multipart parser
 logging.getLogger('fastapi.multipart.multipart').setLevel(logging.INFO)
 logging.getLogger('multipart.multipart').setLevel(logging.INFO)
+# Отключаем сообщения о перезагрузке uvicorn
+logging.getLogger('uvicorn.reload').setLevel(logging.WARNING)
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -97,15 +101,19 @@ async def read_item(item_id: int):
     # Ваш код обработки запроса
     return {"item_id": item_id}
 
+class DeepResearchRequest(BaseModel):
+    query: str
+    thread_id: Optional[str] = None
+
 @app.post("/deep-research/")
-async def deep_research(query: str):
+async def deep_research(request: DeepResearchRequest):
     """Эндпоинт для глубокого исследования."""
-    results = await deep_research_service.research(query)
+    results = await deep_research_service.research(request.query)
     return {"results": results}
 
 # Подключение роутеров
-app.include_router(chat_router)
-app.include_router(auth.router)
+app.include_router(chat_router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 
 # Создание всех таблиц в базе данных
@@ -137,18 +145,7 @@ app.add_middleware(
 # Главная страница
 @app.get("/", response_class=FileResponse)
 async def read_root():
-    html_content = """
-    <html>
-        <head>
-            <title>Главная страница</title>
-        </head>
-        <body>
-            <h1>Добро пожаловать на сайт!</h1>
-            <p>Это главное API-приложение с регистрацией, авторизацией и подтверждением почты.</p>
-            <p>Используйте доступные маршруты для взаимодействия с приложением.</p>
-        </body>
-    </html>
-    """
+    """Отдаем index.html из папки frontend"""
     return FileResponse("frontend/index.html")
 
 @app.get("/ping")

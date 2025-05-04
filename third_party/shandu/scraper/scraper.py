@@ -24,7 +24,11 @@ from langchain_community.document_transformers import BeautifulSoupTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import trafilatura
 from ..config import config
+import re
+import requests
+from .tavily_extract import TavilyExtract
 
+logger = logging.getLogger(__name__)
 
 # В файле third_party/shandu/scraper/scraper.py
 
@@ -1090,78 +1094,89 @@ class WebScraper:
             
         return results
     
-    async def extract_main_content(self, content: ScrapedContent) -> str:
-        """
-        Extract main content from a webpage, filtering out navigation, ads, etc.
-        Uses trafilatura for optimal content extraction with fallback to BeautifulSoup.
-        
-        Args:
-            content: ScrapedContent object
-            
-        Returns:
-            Extracted main content text
-        """
-        if not content.is_successful() or not content.html:
-            return content.text
-        
+    async def extract_main_content(self, item):
+        """Извлекает основной контент из HTML-страницы, фокусируясь на релевантных частях."""
         try:
-            extracted_text = trafilatura.extract(
-                content.html,
-                url=content.url,
-                include_comments=False,
-                include_tables=True,
-                include_images=False,
-                include_links=False,
-                output_format="txt"
-            )
+            # Парсим HTML
+            soup = BeautifulSoup(item.html, 'html.parser')
             
-            if extracted_text and len(extracted_text.strip()) > 100:
-                return extracted_text
-        except Exception as e:
-            print(f"Trafilatura extraction failed for main content: {e}")
-        
-        try:
-            soup = BeautifulSoup(content.html, 'html.parser')
-            
-            for selector in [
-                'nav', 'header', 'footer', 'aside', 
-                '.sidebar', '.navigation', '.menu', '.ad', '.advertisement',
-                '.cookie-notice', '.popup', '#cookie-banner', '.banner',
-                'script', 'style', 'iframe', 'noscript'
-            ]:
-                for element in soup.select(selector):
+            # Удаляем нежелательные элементы
+            for element in soup.find_all(['script', 'style', 'nav', 'footer', 'header', 'aside']):
                     element.decompose()
             
+            # Определяем основной контейнер контента
             main_content = None
-            for selector in [
-                'article', 'main', '.content', '.main-content', '#content', '#main',
-                '[role="main"]', '.post', '.entry', '.article-content'
-            ]:
+            
+            # Сначала ищем стандартные контейнеры контента
+            content_selectors = [
+                'article', 
+                'main', 
+                '.content', 
+                '.article', 
+                '.post', 
+                '.entry-content',
+                '#content',
+                '.main-content'
+            ]
+            
+            for selector in content_selectors:
                 main_content = soup.select_one(selector)
                 if main_content:
                     break
             
+            # Если не нашли стандартный контейнер, используем эвристики
             if not main_content:
-                main_content = soup.body
+                # Ищем самый большой текстовый блок
+                text_blocks = soup.find_all(['div', 'section'])
+                max_text_length = 0
+                for block in text_blocks:
+                    text_length = len(block.get_text(strip=True))
+                    if text_length > max_text_length:
+                        max_text_length = text_length
+                        main_content = block
+                    
+            # Если все еще не нашли, используем body
+            if not main_content:
+                main_content = soup.body or soup
             
-            if not main_content:
-                return content.text
+            # Извлекаем текст с сохранением структуры
+            paragraphs = []
+            for p in main_content.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li']):
+                text = p.get_text(strip=True)
+                if text and len(text) > 20:  # Игнорируем слишком короткие параграфы
+                    paragraphs.append(text)
                 
-            lines = []
-            for tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li']:
-                for element in main_content.find_all(tag):
-                    text = element.get_text(strip=True)
-                    if text:
-                        if tag.startswith('h'):
-                            # Add heading level indicator
-                            level = int(tag[1])
-                            prefix = '#' * level
-                            lines.append(f"{prefix} {text}")
-                        else:
-                            lines.append(text)
+            # Объединяем параграфы
+            content = '\n'.join(paragraphs)
             
-            return "\n\n".join(lines)
+            # Очищаем текст от лишних пробелов и переносов строк
+            content = re.sub(r'\s+', ' ', content)
+            content = re.sub(r'\n\s*\n', '\n', content)
+            
+            return content.strip()
             
         except Exception as e:
-            print(f"BeautifulSoup extraction failed for main content: {e}")
-            return content.text  # Return original text as fallback
+            logger.error(f"Ошибка при извлечении контента: {str(e)}")
+            return ""
+
+    async def extract_data_from_url(self, link, session):
+        try:
+            extractor = TavilyExtract(link, session)
+            content, image_urls, title = extractor.scrape()
+            if len(content) < 100:
+                self.logger.warning(f"Content too short or empty for {link}")
+                return {
+                    "url": link,
+                    "raw_content": None,
+                    "image_urls": [],
+                    "title": title,
+                }
+            return {
+                "url": link,
+                "raw_content": content,
+                "image_urls": image_urls,
+                "title": title,
+            }
+        except Exception as e:
+            self.logger.error(f"Error processing {link}: {str(e)}")
+            return {"url": link, "raw_content": None, "image_urls": [], "title": ""}

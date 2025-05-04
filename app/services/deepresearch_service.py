@@ -5,7 +5,7 @@ import json
 import asyncio
 import aiohttp
 import logging
-from typing import Dict, Optional, Any, List, Union
+from typing import Dict, Optional, Any, List, Union, AsyncGenerator
 from pathlib import Path
 from datetime import datetime
 from app.handlers.user_doc_request import extract_text_from_any_document
@@ -16,9 +16,10 @@ from app import models
 from app.handlers.parallel_search import run_parallel_search  # Добавляем импорт
 from app.services.web_scraper import WebScraper
 from app.services.db_service import DBService
-from app.services.search_service import SearchService
-from app.handlers.web_search import search_internet, google_search
+from app.handlers.web_search import WebSearchHandler
 from app.utils import ensure_correct_encoding  # Добавляем импорт
+from app.utils.logger import EnhancedLogger, LogLevel, get_logger
+import types
 
 # Импортируем настройки из config.py
 from app.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
@@ -29,34 +30,73 @@ GENERAL_SYSTEM_PROMPT = """
     Сейчас ты общаешься с пользователем в режиме обычного диалога.
     
     ВАЖНО: На общие вопросы и приветствия отвечай КРАТКО и ДРУЖЕЛЮБНО, 
-    НЕ упоминая юридическую тематику и законодательство.
-    
-    Примеры правильных ответов:
-    - На "привет" -> "Привет! Как дела?"
-    - На "как тебя зовут" -> "Я LawGPT, приятно познакомиться!"
-    - На "что ты умеешь" -> "Я могу помочь с разными вопросами. Что вас интересует?"
-    
-    НЕПРАВИЛЬНЫЕ ответы (не используй):
-    - "Привет! Чем могу помочь в вопросах российского законодательства?"
-    - "Я юридический ассистент LawGPT, специализирующийся на российском законодательстве"
-    - "Я могу помочь вам с юридическими вопросами"
-    
-    Помни: на общие вопросы отвечай как обычный дружелюбный собеседник,
-    без упоминания юридической тематики.
+    НЕ упоминая юридическую тематику и законодательство.    
 """
 
 LEGAL_SYSTEM_PROMPT = """
-    Ты - юридический ассистент LawGPT, высококвалифицированный эксперт в области российского права с опытом работы более 15 лет. 
-    Твоя задача - предоставлять точную, обоснованную и практически применимую юридическую информацию в соответствии с актуальным законодательством РФ.
-    
-    ### КЛЮЧЕВЫЕ ПРИНЦИПЫ РАБОТЫ:
-    1. ТОЧНОСТЬ И АКТУАЛЬНОСТЬ
-    2. ПРАВОВОЕ ОБОСНОВАНИЕ
-    3. СТРУКТУРИРОВАННОСТЬ
-    4. ПРАКТИЧЕСКАЯ НАПРАВЛЕННОСТЬ
-    
-    Помни: на юридические вопросы отвечай профессионально, с опорой на законодательство и судебную практику.
-"""
+                Ты - юридический ассистент LawGPT, высококвалифицированный эксперт в области российского права. 
+                Твоя задача - предоставлять точную, обоснованную и практически применимую юридическую информацию в соответствии с актуальным законодательством РФ.
+
+                **КЛЮЧЕВЫЕ ПРИНЦИПЫ РАБОТЫ:**
+
+                1. ТОЧНОСТЬ И АКТУАЛЬНОСТЬ: При анализе вопроса пользователя учитывай актуальные нормы права, включая последние изменения в законодательстве.
+
+                2. ПРАВОВОЕ ОБОСНОВАНИЕ: Каждый тезис в твоем ответе должен опираться на конкретные нормы права (статьи законов, постановления пленумов ВС РФ, определения судов). 
+
+                3. СТРУКТУРИРОВАННОСТЬ: Организуй ответ в логической последовательности:
+                    Краткое юридическое резюме ситуации,
+                    Анализ применимых правовых норм,
+                    Обязательно процитируй найденные номера дел и реквизиты судебных актов,
+                    Конкретные рекомендации и алгоритм действий,
+                    Возможные правовые риски и их минимизация,
+                    Выводы (1-3 предложения).
+
+                4. ПРАКТИЧЕСКАЯ НАПРАВЛЕННОСТЬ: Предлагай конкретные правовые механизмы решения проблемы с указанием процессуальных сроков, подсудности, формы и содержания необходимых документов.
+
+                **ВАЖНО:**
+                - При генерации ответа сначала сформулируй цепочку рассуждений (reasoning_content), где подробно опиши процесс анализа вопроса, поиска и оценки правовых норм
+                - Затем на основе этой цепочки рассуждений сформулируй финальный ответ
+                - Цепочка рассуждений должна быть подробной и логически обоснованной
+
+                **ПРАВИЛА РАБОТЫ С ДОКУМЕНТАМИ И ИСТОЧНИКАМИ:**
+                    1. СУДЕБНАЯ ПРАКТИКА:
+                        Используй ТОЛЬКО номера судебных дел, ЯВНО указанные в запросе пользователя или найденные в результатах поиска
+                        НИКОГДА не придумывай номера дел самостоятельно
+                        При цитировании практики указывай полные реквизиты: номер дела, наименование суда, дату принятия решения
+
+                    2. ЗАКОНОДАТЕЛЬСТВО:
+                        При ссылке на нормативные акты указывай полное название, номер и дату принятия закона,
+                        Корректно цитируй статьи законов, не искажая их смысл и содержание,
+                        Учитывай иерархию нормативных актов (Конституция → федеральные конституционные законы → федеральные законы → указы Президента → постановления Правительства → ведомственные акты),
+                        При наличии коллизий правовых норм указывай на это и объясняй принцип разрешения коллизии.
+
+                    3. ДОГОВОРЫ И ДОКУМЕНТЫ:
+                        При анализе договорных отношений учитывай принцип свободы договора и его ограничения
+                        Предлагай формулировки условий с учетом судебной практики и типичных рисков
+                        При рекомендации составления документов указывай их обязательные реквизиты и содержание.
+        
+                               
+                **СТИЛЬ КОММУНИКАЦИИ:**
+                    1. ПРОФЕССИОНАЛЬНЫЙ, но доступный для понимания неюристами
+                    2. КОНКРЕТНЫЙ: избегай размытых формулировок и абстрактных рекомендаций
+                    3. НЕПРЕДВЗЯТЫЙ: представляй различные правовые позиции по спорным вопросам
+                    4. КОНФИДЕНЦИАЛЬНЫЙ: напоминай о необходимости сохранения конфиденциальности информации
+                    5. ЭТИЧНЫЙ: не рекомендуй незаконные способы решения проблем
+
+                **ВАЖНЫЕ ОГРАНИЧЕНИЯ:**
+                    1. НЕ РЕКОМЕНДУЙ обращаться к внешним ресурсам (kad.arbitr.ru, "Гарант", "КонсультантПлюс", "СудАкт", "Кодекс")
+                    2. НЕ УПОМИНАЙ источники данных, которыми ты пользуешься
+                    3. НЕ ОТВЕЧАЙ на технические вопросы, не связанные с юриспруденцией
+                    4. НЕ ВЫДУМЫВАЙ номера судебных дел и реквизиты документов
+                    
+
+                **ОСОБЫЕ ИНСТРУКЦИИ:**
+                    1. Отвечай ТОЛЬКО на последний вопрос пользователя, если он не связан с предыдущими сообщениями в треде.
+                    2. Если запрос пользователя содержит номер судебного дела, статьи закона или договора - используй эти реквизиты в ответе.
+                    3. Если вопрос неясен или требует уточнения - запрашивай дополнительную информацию.
+                    4. При наличии неоднозначных трактовок правовых норм - представляй все обоснованные подходы.
+                    
+        """
 
 # 📂 Добавление пути к third_party для корректного импорта shandu
 BASE_DIR = os.path.dirname(
@@ -72,89 +112,64 @@ MAX_SEARCH_RESULTS = 10  # Максимальное количество рез�
 MIN_RELEVANCE_SCORE = 0.6  # Минимальный порог релевантности
 
 # Улучшенная конфигурация логгера для детальной информации
-logging.basicConfig(
-    level=logging.INFO,
-    format=
-    "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s")
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format=
+#     "%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s")
 
 
 def truncate_text_intelligently(text: str, max_length: int) -> str:
     """
     Умная обрезка текста, сохраняя наиболее информативные части.
-    
-    Args:
-        text: Исходный текст
-        max_length: Максимальная допустимая длина
-        
-    Returns:
-        Обрезанный текст, который не превышает max_length
     """
     if len(text) <= max_length:
         return text
 
-    # Определяем размер буфера для начала и конца
-    start_buffer = int(max_length * 0.05)  # 5% для начала
-    end_buffer = int(max_length * 0.03)  # 3% для конца
-    middle_buffer = max_length - start_buffer - end_buffer - 20  # 20 символов для "..."
+    start_buffer = int(max_length * 0.05)
+    end_buffer = int(max_length * 0.03)
+    middle_buffer = max_length - start_buffer - end_buffer - 20
 
-    # Разбиваем на абзацы для сохранения структуры
     paragraphs = text.split('\n\n')
 
-    # Если всего один абзац, просто обрезаем его
     if len(paragraphs) <= 1:
         return text[:start_buffer] + "..." + text[-end_buffer:]
 
-    # Собираем начало текста, сохраняя целостность абзацев
     start_text = ""
     for p in paragraphs:
-        if len(start_text) + len(p) + 2 <= start_buffer:  # +2 для \n\n
+        if len(start_text) + len(p) + 2 <= start_buffer:
             start_text += p + "\n\n"
         else:
-            # Если текущий абзац не помещается полностью, берем его часть
             if len(start_text) < start_buffer:
                 remaining = start_buffer - len(start_text)
-                if remaining > 20:  # Если осталось достаточно места
+                if remaining > 20:
                     start_text += p[:remaining] + "..."
             break
 
-    # Собираем конец текста, сохраняя целостность абзацев
     end_text = ""
     for p in reversed(paragraphs):
-        if len(end_text) + len(p) + 2 <= end_buffer:  # +2 для \n\n
+        if len(end_text) + len(p) + 2 <= end_buffer:
             end_text = p + "\n\n" + end_text
         else:
-            # Если текущий абзац не помещается полностью, берем его часть
             if len(end_text) < end_buffer:
                 remaining = end_buffer - len(end_text)
-                if remaining > 20:  # Если осталось достаточно места
+                if remaining > 20:
                     end_text = "..." + p[-remaining:] + "\n\n" + end_text
             break
 
-    # Если у нас осталось место для середины, добавляем несколько абзацев из середины
-    if middle_buffer > 100:  # Только если для середины есть достаточно места
+    if middle_buffer > 100:
         middle_start_index = len(start_text)
         middle_end_index = len(text) - len(end_text)
-
-        # Находим абзацы в середине
         middle_text = text[middle_start_index:middle_end_index]
         middle_paragraphs = middle_text.split('\n\n')
-
-        # Выбираем несколько абзацев из середины (например, 2-3)
         selected_middle = ""
-        middle_position = len(middle_paragraphs) // 2  # Центр списка абзацев
-
-        # Пытаемся добавить абзацы из середины
-        for i in range(max(0, middle_position - 1),
-                       min(len(middle_paragraphs), middle_position + 2)):
-            if len(selected_middle) + len(
-                    middle_paragraphs[i]) + 2 <= middle_buffer:
+        middle_position = len(middle_paragraphs) // 2
+        for i in range(max(0, middle_position - 1), min(len(middle_paragraphs), middle_position + 2)):
+            if len(selected_middle) + len(middle_paragraphs[i]) + 2 <= middle_buffer:
                 selected_middle += middle_paragraphs[i] + "\n\n"
             else:
                 break
-
         return start_text + "\n...\n\n" + selected_middle + "\n...\n\n" + end_text
 
-    # Если для середины не хватило места
     return start_text + "\n...\n\n" + end_text
 
 
@@ -179,15 +194,19 @@ def ensure_valid_court_numbers(answer: str, original_query: str) -> str:
 class ResearchResult:
     """Контейнер для результатов исследования."""
 
-    def __init__(self,
-                 query: str,
-                 analysis: str,
-                 timestamp: str,
-                 error: Optional[str] = None):
+    def __init__(
+        self,
+        query: str,
+        analysis: str,
+        timestamp: Optional[str] = None,
+        error: Optional[str] = None,
+        reasoning_content: Optional[str] = None
+    ):
         self.query = query
         self.analysis = analysis
         self.timestamp = timestamp
         self.error = error
+        self.reasoning_content = reasoning_content
 
     def to_dict(self) -> Dict[str, Any]:
         """Конвертирует результат в словарь."""
@@ -195,7 +214,8 @@ class ResearchResult:
             "query": self.query,
             "analysis": self.analysis,
             "timestamp": self.timestamp,
-            "error": self.error
+            "error": self.error,
+            "reasoning_content": self.reasoning_content
         }
 
     def save_to_file(self, filepath: str) -> None:
@@ -315,14 +335,14 @@ class DeepResearchService:
             max_concurrent=8
         )
 
-        # Инициализируем логгер для промптов
-        self.prompt_logger = PromptLogger()
+        # Инициализируем логгер
+        self.logger = get_logger()  # Используем глобальный логгер
+        self.prompt_logger = self.logger
 
-        logging.info(
-            f"DeepResearchService инициализирован. Директория для результатов: {self.output_dir}"
+        self.logger.log(
+            f"DeepResearchService инициализирован. Директория для результатов: {self.output_dir}",
+            LogLevel.INFO
         )
-
-        # Счетчик использования для отладки
         self.usage_counter = 0
 
     def filter_suspicious_court_numbers(self, text: str) -> str:
@@ -1454,113 +1474,323 @@ class DeepResearchService:
                 # Проверяем, содержится ли термин как отдельное слово
                 words = query_lower.split()
                 if term in words:
-                    logging.info(f"Найден юридический термин: {term}")
+                    self.logger.log(f"Найден юридический термин: {term}", LogLevel.INFO)
                     return False
             # Для более длинных терминов применяем обычную проверку
             elif term in query_lower:
-                logging.info(f"Найден юридический термин: {term}")
+                self.logger.log(f"Найден юридический термин: {term}", LogLevel.INFO)
                 return False
 
         # Если юридических терминов не найдено, проверяем общие паттерны
         for pattern in general_patterns:
             if pattern in query_lower:
-                logging.info(f"Найден общий паттерн: {pattern}")
+                self.logger.log(f"Найден общий паттерн: {pattern}", LogLevel.INFO)
                 return True
 
         # Если запрос очень короткий (менее 3 слов), скорее всего это общий запрос
         if len(query_lower.split()) < 3 and len(query_lower) < 15:
-            logging.info("Запрос короткий, считаем общим")
+            self.logger.log("Запрос короткий, считаем общим", LogLevel.INFO)
             return True
 
         # По умолчанию считаем запрос общим, если не подтвердилось, что он юридический
-        logging.info("Запрос не определен как юридический, считаем общим")
+        self.logger.log("Запрос не определен как юридический, считаем общим", LogLevel.INFO)
         return True
 
-    async def research(self, query: str, context: Optional[str] = None, is_general: Optional[bool] = None) -> Union[ResearchResult, Dict]:
+    def get_response_content(self, response):
+        """
+        Универсальный способ получить content и reasoning_content из ответа DeepSeek (dict или объект).
+        """
         try:
-            # Проверяем и исправляем кодировку запроса
-            query = ensure_correct_encoding(query)
-            
-            # Определяем тип запроса, если не указан
+            # dict-стиль
+            if isinstance(response, dict):
+                content = response["choices"][0]["message"]["content"]
+                reasoning_content = response["choices"][0]["message"].get("reasoning_content")
+            else:
+                # объект-стиль
+                content = response.choices[0].message.content
+                reasoning_content = getattr(response.choices[0].message, "reasoning_content", None)
+            return content, reasoning_content
+        except Exception as e:
+            self.logger.log(f"❌ Ошибка при разборе ответа DeepSeek: {str(e)}", LogLevel.ERROR)
+            return "Извините, произошла ошибка при обработке ответа от модели.", None
+
+    async def research(
+        self, 
+        query: str, 
+        context: Optional[str] = None, 
+        is_general: Optional[bool] = None, 
+        chat_history: Optional[str] = None, 
+        search_data: Optional[dict] = None
+    ) -> ResearchResult:
+        try:
             if is_general is None:
                 is_general = self.is_general_query(query)
-            
+                self.logger.log(f"📝 Определен тип запроса: {'общий' if is_general else 'юридический'}", LogLevel.INFO)
+
             if is_general:
-                # Для общих запросов используем обычный промпт
-                system_prompt = GENERAL_SYSTEM_PROMPT
-                messages = [{"role": "system", "content": system_prompt},
-                           {"role": "user", "content": query}]
-                
+                self.logger.log("📝 Обработка общего запроса", LogLevel.INFO)
+                messages = [
+                    {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
+                    {"role": "user", "content": query}
+                ]
                 response = await self.deepseek_service.chat_completion(messages)
+                content, reasoning_content = self.get_response_content(response)
                 return ResearchResult(
                     query=query,
-                    analysis=response['choices'][0]['message']['content'],
-                    timestamp=self._get_timestamp()
+                    analysis=content,
+                    timestamp=self._get_timestamp(),
+                    reasoning_content=reasoning_content
                 )
-            
-            # Для юридических запросов выполняем поиск
-            search_results = await run_parallel_search(query)
-            
-            if not search_results or search_results.get("error"):
-                logging.warning(f"Не удалось найти результаты поиска для запроса: {query}")
-                combined_context = ""
-            else:
-                # Получаем и обрабатываем результаты поиска
-                es_results = search_results.get("es_results", [])
-                web_results = search_results.get("web_results", [])
-                
-                # Форматируем результаты из ElasticSearch
-                es_context = ""
-                if es_results:
-                    es_context = "\n\n### Релевантные нормы законодательства:\n\n"
-                    for result in es_results[:MAX_SEARCH_RESULTS]:
-                        if isinstance(result, str):
-                            text = ensure_correct_encoding(result)
-                            es_context += f"{text}\n\n"
-                
-                # Форматируем результаты из веб-поиска
-                web_context = ""
-                if web_results:
-                    web_context = "\n\n### Судебная практика и разъяснения:\n\n"
-                    for result in web_results[:MAX_SEARCH_RESULTS]:
-                        if isinstance(result, str):
-                            text = ensure_correct_encoding(result)
-                            web_context += f"{text}\n\n"
-                
-                # Объединяем контекст
-                combined_context = es_context + web_context
-            
-            # Формируем промпт с контекстом
-            system_prompt = LEGAL_SYSTEM_PROMPT
+
+            if search_data is None:
+                self.logger.log("⚠️ Отсутствуют результаты поиска для юридического запроса", LogLevel.WARNING)
+                search_data = {}
+
+            es_block = self._format_es_results(search_data.get('elasticsearch', []))
+            tavily_block = self._format_tavily_results([query], [search_data.get('tavily', [])])
+            chat_block = self._format_chat_history(chat_history) if chat_history else ""
+
+            research_prompt = self._build_research_prompt(
+                query=query,
+                es_block=es_block,
+                es_by_tavily_block="",
+                tavily_block=tavily_block,
+                chat_block=chat_block
+            )
+
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"ЗАПРОС:\n{query}\n\nКОНТЕКСТ:\n{combined_context}"}
+                {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
+                {"role": "user", "content": research_prompt}
             ]
-            
-            # Сохраняем промпт
-            self.prompt_logger.save_prompt(messages, query, {"is_general": is_general})
-            
-            # Отправляем запрос к DeepSeek
             response = await self.deepseek_service.chat_completion(messages)
-            
-            # Сохраняем ответ
-            self.prompt_logger.save_response(response, query)
-            
-            # Возвращаем результат
+            content, reasoning_content = self.get_response_content(response)
             return ResearchResult(
                 query=query,
-                analysis=response['choices'][0]['message']['content'],
-                timestamp=self._get_timestamp()
+                analysis=content,
+                timestamp=self._get_timestamp(),
+                reasoning_content=reasoning_content
             )
-            
+
         except Exception as e:
-            logging.error(f"Ошибка при выполнении research: {str(e)}")
+            self.logger.log(f"❌ Ошибка при выполнении исследования: {str(e)}", LogLevel.ERROR)
             return ResearchResult(
                 query=query,
                 analysis="Извините, произошла ошибка при обработке запроса.",
-                timestamp=self._get_timestamp(),
-                error=str(e)
+                error=str(e),
+                timestamp=self._get_timestamp()
             )
+
+    def _format_es_results(self, results: List[Dict]) -> str:
+        """Форматирует результаты ElasticSearch."""
+        if not results:
+            return "Нет результатов из законодательства."
+        
+        formatted = []
+        for r in results:
+            # Получаем все доступные поля
+            text = ensure_correct_encoding(str(r.get("text", "")))
+            title = ensure_correct_encoding(str(r.get("title", "")))
+            metadata = r.get("metadata", {})
+            score = r.get("_score", 0)
+            highlights = r.get("highlight", {})
+            
+            if text:
+                # Форматируем результат
+                result_parts = []
+                
+                # Добавляем заголовок, если есть
+                if title:
+                    result_parts.append(f"Документ: {title}")
+                
+                # Добавляем основной текст
+                result_parts.append(f"Текст: {text}")
+                
+                # Добавляем подсвеченные фрагменты, если есть
+                if highlights:
+                    highlight_text = "\n".join(highlights.get("text", []))
+                    if highlight_text:
+                        result_parts.append(f"Релевантные фрагменты: {highlight_text}")
+                
+                # Добавляем метаданные
+                if metadata:
+                    meta_parts = []
+                    if metadata.get("law_name"):
+                        meta_parts.append(f"Закон: {metadata['law_name']}")
+                    if metadata.get("article"):
+                        meta_parts.append(f"Статья: {metadata['article']}")
+                    if metadata.get("section"):
+                        meta_parts.append(f"Раздел: {metadata['section']}")
+                    if metadata.get("date"):
+                        meta_parts.append(f"Дата: {metadata['date']}")
+                    if meta_parts:
+                        result_parts.append("Метаданные:\n" + "\n".join(meta_parts))
+                
+                # Добавляем оценку релевантности
+                result_parts.append(f"Релевантность: {score:.2f}")
+                
+                # Объединяем все части
+                formatted.append("\n".join(result_parts))
+        
+        # Сортируем результаты по релевантности (если есть _score)
+        if any("Релевантность:" in r for r in formatted):
+            formatted.sort(
+                key=lambda x: float(x.split("Релевантность:")[-1].strip() or "0"),
+                reverse=True
+            )
+        
+        # Берем только топ-10 результатов
+        formatted = formatted[:10]
+        
+        # Добавляем разделитель между результатами
+        final_text = "\n\n" + "=" * 80 + "\n\n".join(formatted)
+        
+        # Обрезаем до максимально допустимой длины
+        if len(final_text) > 15000:
+            final_text = truncate_text_intelligently(final_text, 15000)
+        
+        return final_text
+        
+    def _format_tavily_results(self, queries: List[str], results: List[List[Dict]]) -> str:
+        """Форматирует результаты Tavily."""
+        if not queries or not results:
+            self.logger.log("❌ Нет результатов Tavily для форматирования", LogLevel.WARNING)
+            return "Нет результатов."
+            
+        self.logger.log(f"📥 Получено запросов: {len(queries)}", LogLevel.INFO)
+        self.logger.log(f"📥 Получено списков результатов: {len(results)}", LogLevel.INFO)
+        
+        blocks = []
+        for i, (query, result_list) in enumerate(zip(queries, results)):
+            self.logger.log(f"📝 Форматирование результатов для запроса {i+1}: {query}", LogLevel.INFO)
+            self.logger.log(f"📊 Количество результатов: {len(result_list)}", LogLevel.INFO)
+            
+            if result_list:
+                # Сортируем результаты по релевантности (score)
+                sorted_results = sorted(
+                    result_list,
+                    key=lambda x: float(x.get("score", 0)),
+                    reverse=True
+                )
+                
+                formatted_results = []
+                for r in sorted_results:
+                    title = r.get("title", "").strip()
+                    body = r.get("body", "").strip()
+                    url = r.get("href", "").strip()
+                    source = r.get("source", "").strip()
+                    score = r.get("score", 0)
+                    metadata = r.get("metadata", {})
+                    
+                    if body:  # Добавляем только если есть содержимое
+                        # Форматируем результат с метаданными
+                        result_parts = []
+                        if title:
+                            result_parts.append(f"Заголовок: {title}")
+                        result_parts.append(f"Содержание: {body}")
+                        if url:
+                            result_parts.append(f"Источник: {url}")
+                        if source:
+                            result_parts.append(f"Домен: {source}")
+                        
+                        # Добавляем важные метаданные
+                        if metadata:
+                            if metadata.get("published_date"):
+                                result_parts.append(f"Дата публикации: {metadata['published_date']}")
+                            if metadata.get("word_count"):
+                                result_parts.append(f"Количество слов: {metadata['word_count']}")
+                        
+                        # Добавляем оценку релевантности
+                        result_parts.append(f"Релевантность: {score:.2f}")
+                        
+                        formatted_results.append("\n".join(result_parts))
+                
+                if formatted_results:
+                    # Берем только топ-5 наиболее релевантных результатов для каждого запроса
+                    content = "\n\n".join(formatted_results[:5])
+                    blocks.append(f"Результаты поиска для запроса '{query}':\n{content}")
+            
+        if not blocks:
+            return "Нет релевантных результатов."
+            
+        final_text = "\n\n" + "=" * 80 + "\n\n".join(blocks)
+        self.logger.log(f"✅ Форматирование завершено. Размер результата: {len(final_text)} символов", LogLevel.INFO)
+        return final_text
+        
+    def _format_chat_history(self, history: str) -> str:
+        """Форматирует историю чата."""
+        if not history:
+            return ""
+            
+        # Ограничиваем длину истории
+        return history[:5000]
+        
+    def _format_es_results_by_tavily(self, queries: list, results_by_query: list) -> str:
+        """Форматирует результаты ElasticSearch по уточнённым запросам Tavily."""
+        if not queries or not results_by_query:
+            return "Нет результатов по уточнённым запросам."
+        blocks = []
+        for i, (query, results) in enumerate(zip(queries, results_by_query)):
+            content = "\n".join([
+                ensure_correct_encoding(str(r.get("text", "")))
+                for r in results
+            ])[:8000]
+            blocks.append(f"Уточнённый запрос {i+1}: {query}\n{content}")
+        return "\n\n".join(blocks)
+
+    def _build_research_prompt(
+        self,
+        query: str,
+        es_block: str,
+        es_by_tavily_block: str,
+        tavily_block: str,
+        chat_block: str
+    ) -> str:
+        """
+        Собирает промпт для исследования.
+        Структурирует информацию по приоритетности и релевантности.
+        """
+        parts = []
+        
+        # 1. Добавляем исходный запрос
+        parts.append(f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{query}\n")
+        
+        # 2. Добавляем историю чата, если есть
+        if chat_block:
+            parts.append(f"ИСТОРИЯ ДИАЛОГА:\n{chat_block}\n")
+        
+        # 3. Добавляем результаты поиска в законодательстве
+        if es_block and es_block != "Нет результатов из законодательства.":
+            parts.append(f"РЕЗУЛЬТАТЫ ПОИСКА В ЗАКОНОДАТЕЛЬСТВЕ:\n{es_block}\n")
+        
+        # 4. Добавляем результаты поиска по уточнённым запросам
+        if es_by_tavily_block and es_by_tavily_block != "Нет результатов по уточнённым запросам.":
+            parts.append(f"ДОПОЛНИТЕЛЬНЫЕ РЕЗУЛЬТАТЫ ИЗ ЗАКОНОДАТЕЛЬСТВА:\n{es_by_tavily_block}\n")
+        
+        # 5. Добавляем результаты поиска в интернете
+        if tavily_block and tavily_block != "Нет релевантных результатов.":
+            parts.append(f"РЕЗУЛЬТАТЫ ПОИСКА В ИНТЕРНЕТЕ:\n{tavily_block}\n")
+        
+        # 6. Добавляем инструкции для модели
+        parts.append("""
+ИНСТРУКЦИИ ПО АНАЛИЗУ:
+1. Сначала проанализируй нормы законодательства, если они найдены
+2. Затем изучи судебную практику и правовые позиции из интернет-источников
+3. Сопоставь нормативную базу с практикой применения
+4. Сформулируй обоснованный юридический ответ, опираясь на:
+   - конкретные нормы права
+   - актуальную судебную практику
+   - правовые позиции из авторитетных источников
+5. Структурируй ответ по разделам:
+   - Краткое юридическое резюме
+   - Анализ применимых норм права
+   - Релевантная судебная практика
+   - Практические рекомендации
+   - Правовые риски
+   - Выводы
+""")
+        
+        # Объединяем все части с разделителями
+        return "\n" + "=" * 80 + "\n\n".join(parts)
 
     def read_document(self, file_path: str) -> Optional[str]:
         """
@@ -1573,14 +1803,14 @@ class DeepResearchService:
             Текстовое содержимое документа или None в случае ошибки
         """
         try:
-            logging.info(
-                f"[DeepResearch #{self.usage_counter}] Извлечение текста из документа: {file_path}"
+            self.logger.log(
+                f"[DeepResearch #{self.usage_counter}] Извлечение текста из документа: {file_path}", LogLevel.INFO
             )
             extracted_text = extract_text_from_any_document(file_path)
 
             if extracted_text:
-                logging.info(
-                    f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)"
+                self.logger.log(
+                    f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)", LogLevel.INFO
                 )
                 # Если текст слишком большой, обрезаем его
                 max_length = 30000
@@ -1591,8 +1821,8 @@ class DeepResearchService:
 
             return None
         except Exception as e:
-            logging.error(
-                f"[DeepResearch #{self.usage_counter}] Ошибка при извлечении текста из документа {file_path}: {str(e)}"
+            self.logger.log(
+                f"[DeepResearch #{self.usage_counter}] Ошибка при извлечении текста из документа {file_path}: {str(e)}", LogLevel.ERROR
             )
             return None
 

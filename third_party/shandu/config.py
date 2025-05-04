@@ -9,38 +9,17 @@ from pathlib import Path
 import datetime
 
 DEFAULT_CONFIG = {
-    "api": {
-        "base_url": "https://api.deepseek.com/v1",
-        "api_key": "",
-        "model": "deepseek-reasoner",
-        "temperature": 1.2
-    },
-    "search": {
-        "engines": ["duckduckgo", "google"],
-        "max_results": 10,
-        "region": "wt-wt",
-        "safesearch": "moderate",
-        "user_agent": "Research 1.0"
-    },
-    "research": {
-        "default_depth": 2,
-        "default_breadth": 4,
-        "max_depth": 5,
-        "max_breadth": 10,
-        "max_urls_per_query": 3
-    },
-    "scraper": {
-        "timeout": 30,
-        "max_retries": 3,
-        "chunk_size": 1000,
-        "chunk_overlap": 200,
-        "proxy": None
-    },
-    "display": {
-        "verbose": False,
-        "show_progress": True,
-        "show_chain_of_thought": True
-    }
+    "debug": False,
+    "max_depth": 3,
+    "max_results": 10,
+    "max_tokens": 8000,
+    "engines": ["duckduckgo"],
+    "cache_dir": ".cache",
+    "timeout": 30,
+    "user_agent": None,
+    "proxy": None,
+    "api_key": None,
+    "model": None
 }
 
 class Config:

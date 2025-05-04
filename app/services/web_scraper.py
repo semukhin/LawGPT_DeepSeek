@@ -15,6 +15,9 @@ from functools import lru_cache
 from playwright.async_api import async_playwright
 from collections import defaultdict
 import chardet
+from third_party.shandu.scraper.tavily_extract import TavilyExtract
+import requests
+from app.utils.logger import get_logger
 
 # Добавим конфигурацию для доступных источников
 DOMAIN_HANDLERS = {
@@ -127,6 +130,7 @@ class WebScraper:
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_concurrent = max_concurrent
+        self.logger = get_logger()  # Используем глобальный логгер
         
         # Список User-Agent для ротации
         self.user_agents = [
@@ -170,11 +174,6 @@ class WebScraper:
             "garant.ru": 2.0,
             "default": 1.0
         }
-        logging.basicConfig(
-            filename='logs/scraper_errors.log',
-            level=logging.WARNING,
-            format='%(asctime)s %(levelname)s %(message)s'
-        )
         
     async def scrape_url(self, url: str) -> Optional[ScrapedContent]:
         """Скрейпит контент с URL с учетом особенностей страницы"""
@@ -207,7 +206,7 @@ class WebScraper:
                     await asyncio.sleep(2 ** attempt)
                 
             except Exception as e:
-                logging.error(f"Ошибка при скрейпинге {url}: {e}")
+                self.logger.error(f"Ошибка при скрейпинге {url}: {e}")
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                 continue
@@ -236,7 +235,7 @@ class WebScraper:
                 }
                 async with session.get(url, **kwargs) as response:
                     if response.status != 200:
-                        logging.warning(f"HTTP error {response.status} for {url}")
+                        self.logger.warning(f"HTTP error {response.status} for {url}")
                         return None
                     try:
                         # Пробуем как utf-8
@@ -253,10 +252,10 @@ class WebScraper:
                             detected = chardet.detect(content)
                             encoding = detected['encoding'] or 'utf-8'
                             html_text = content.decode(encoding, errors='replace')
-                            logging.info(f"Использована кодировка {encoding} для {url}")
+                            self.logger.info(f"Использована кодировка {encoding} для {url}")
                             return html_text
         except Exception as e:
-            logging.warning(f"Ошибка при скрейпинге {url} | User-Agent: {headers['User-Agent']} | Ошибка: {e}")
+            self.logger.warning(f"Ошибка при скрейпинге {url} | User-Agent: {headers['User-Agent']} | Ошибка: {e}")
             return None
     
     async def _try_playwright_scraping(self, url: str, headers: Dict[str, str]) -> Optional[str]:
@@ -271,14 +270,14 @@ class WebScraper:
                 await page.set_extra_http_headers(headers)
                 response = await page.goto(url, wait_until='networkidle')
                 if not response or response.status != 200:
-                    logging.warning(f"Playwright HTTP error {response.status if response else 'no response'} for {url}")
+                    self.logger.warning(f"Playwright HTTP error {response.status if response else 'no response'} for {url}")
                     return None
                 # Эмуляция поведения пользователя
                 await page.mouse.wheel(0, 500)
                 await asyncio.sleep(random.uniform(1, 3))
                 return await page.content()
         except Exception as e:
-            logging.warning(f"Playwright ошибка для {url} | Ошибка: {e}")
+            self.logger.warning(f"Playwright ошибка для {url} | Ошибка: {e}")
             return None
     
     def _is_valid_content(self, html: str) -> bool:
@@ -337,7 +336,7 @@ class WebScraper:
             )
             
         except Exception as e:
-            logging.error(f"Ошибка при обработке HTML {url}: {e}")
+            self.logger.error(f"Ошибка при обработке HTML {url}: {e}")
             return None
     
     async def _apply_rate_limits(self, domain: str):
@@ -376,3 +375,26 @@ def save_response(response_text, response_id=None):
     fname = f"responses/response_{response_id or int(time.time())}.txt"
     with open(fname, 'w', encoding='utf-8') as f:
         f.write(response_text) 
+
+class TavilyWebScraper:
+    """Web scraper using TavilyExtract for all URLs."""
+    def __init__(self, user_agent: str = "LawGPT/1.0"):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": user_agent})
+        self.logger = logging.getLogger(__name__)
+    async def scrape_urls(self, urls: List[str]) -> List[Dict[str, Any]]:
+        results = []
+        for url in urls:
+            try:
+                extractor = TavilyExtract(url, session=self.session)
+                content, image_urls, title = extractor.scrape()
+                if content and len(content) > 100:
+                    results.append({
+                        "url": url,
+                        "raw_content": content,
+                        "image_urls": image_urls,
+                        "title": title,
+                    })
+            except Exception as e:
+                self.logger.error(f"Ошибка TavilyExtract для {url}: {e}")
+        return results 

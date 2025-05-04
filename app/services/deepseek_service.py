@@ -35,7 +35,7 @@ class DeepSeekService:
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
         model: str = "deepseek-reasoner",
-        temperature: float = 1.2,
+        temperature: float = 0.7,
         max_tokens: int = 8192,
         timeout: int = 180
     ):
@@ -104,6 +104,10 @@ class DeepSeekService:
         # Проверяем и исправляем кодировку во всех сообщениях
         messages = validate_messages(messages)
         
+        # Защита от None для всех параметров
+        def safe_str(val, default=""):
+            return str(val) if val is not None else default
+
         # Формируем payload с обязательными параметрами
         payload = {
             "model": model or self.model,
@@ -129,6 +133,14 @@ class DeepSeekService:
             
         if frequency_penalty is not None:
             payload["frequency_penalty"] = frequency_penalty
+
+        # Безопасно добавляем context, chat_history, search_data если они есть
+        if hasattr(self, 'context') and self.context is not None:
+            payload["context"] = safe_str(self.context)
+        if hasattr(self, 'chat_history') and self.chat_history is not None:
+            payload["chat_history"] = safe_str(self.chat_history)
+        if hasattr(self, 'search_data') and self.search_data is not None:
+            payload["search_data"] = self.search_data if isinstance(self.search_data, dict) else safe_str(self.search_data)
 
         # Логируем отправляемый payload с проверкой кодировки
         logging.info(f"Отправляемый payload: {json.dumps(ensure_correct_encoding(payload), ensure_ascii=False)[:200]}...")
@@ -156,18 +168,29 @@ class DeepSeekService:
                         if stream:
                             # Обработка потокового ответа
                             full_response = ""
+                            reasoning_content = ""
                             async for line in response.content:
                                 line = line.decode('utf-8').strip()
                                 if line.startswith('data: ') and line != 'data: [DONE]':
                                     json_str = line[6:]  # Убираем 'data: '
                                     try:
                                         chunk = json.loads(json_str)
-                                        content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
-                                        if content:
-                                            full_response += ensure_correct_encoding(content)
+                                        if 'reasoning_content' in chunk.get('choices', [{}])[0].get('delta', {}):
+                                            reasoning_content += chunk['choices'][0]['delta']['reasoning_content']
+                                        else:
+                                            content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                                            if content:
+                                                full_response += ensure_correct_encoding(content)
                                     except json.JSONDecodeError:
                                         logging.error(f"Ошибка декодирования JSON из потока: {line}")
-                            return full_response
+                            return {
+                                "choices": [{
+                                    "message": {
+                                        "content": full_response,
+                                        "reasoning_content": reasoning_content
+                                    }
+                                }]
+                            }
                         else:
                             # Обработка обычного ответа
                             response_json = await response.json()
@@ -182,6 +205,8 @@ class DeepSeekService:
                                         message['content'] = ensure_correct_encoding(message['content'])
                                     if 'function_call' in message:
                                         message['function_call'] = ensure_correct_encoding(message['function_call'])
+                                    if 'reasoning_content' in message:
+                                        message['reasoning_content'] = ensure_correct_encoding(message['reasoning_content'])
                             
                             return response_json
                 except asyncio.TimeoutError:

@@ -673,68 +673,17 @@ document.addEventListener('DOMContentLoaded', function() {
     //Функция для показа уведомлений
     // Функция для отображения уведомлений
     function createNotification(message, type = 'info', duration = 3000) {
-        // Предотвращаем дублирование уведомлений с тем же сообщением
-        const existingNotification = document.querySelector(`.notification[data-message="${message}"]`);
-        if (existingNotification) {
-            return;
-        }
-
-        // Создаем контейнер для уведомлений, если его еще нет
-        let notificationsContainer = document.getElementById('notifications-container');
-        if (!notificationsContainer) {
-            notificationsContainer = document.createElement('div');
-            notificationsContainer.id = 'notifications-container';
-            document.body.appendChild(notificationsContainer);
-        }
-
-        // Создаем уведомление
+        // Удаляем старое уведомление, если оно есть
+        const old = document.querySelector('.notification');
+        if (old) old.remove();
+        // Создаём новое уведомление
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
-        notification.setAttribute('data-message', message);
-        notification.innerHTML = `
-            <div class="notification-content">
-                <div class="notification-message">${message}</div>
-                <button class="notification-close">&times;</button>
-            </div>
-        `;
-
-        // Добавляем уведомление в контейнер
-        notificationsContainer.appendChild(notification);
-
-        // Добавляем слушатель для закрытия уведомления
-        notification.querySelector('.notification-close').addEventListener('click', () => {
-            notification.classList.add('hiding');
+        notification.textContent = message;
+        document.body.appendChild(notification);
             setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 300);
-        });
-
-        // Показываем уведомление (для анимации)
-        setTimeout(() => {
-            notification.classList.add('show');
-        }, 10);
-
-        // Автоматически скрываем уведомление через указанное время
-        if (duration > 0) {
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.classList.add('hiding');
-                    setTimeout(() => {
-                        if (notification.parentNode) {
-                            notification.parentNode.removeChild(notification);
-                        }
-                    }, 300);
-                }
+            notification.remove();
             }, duration);
-        }
-
-        // Логируем для отладки
-        console.log("Показано уведомление:", message);
-
-        // Возвращаем DOM элемент уведомления для возможных дальнейших манипуляций
-        return notification;
     }
 
     // Экспортируем функцию во внешний интерфейс

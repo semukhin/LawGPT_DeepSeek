@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import unicodedata
 
-from fastapi import Request, UploadFile, File, Form, HTTPException, FastAPI, APIRouter, Depends
+from fastapi import Request, UploadFile, File, Form, HTTPException, FastAPI, APIRouter, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,14 +21,15 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, Message, Thread, Document
 from app.auth import get_current_user
-from app.handlers.web_search import google_search
-from app.handlers.ai_request import send_custom_request
+from app.handlers.web_search import WebSearchHandler
+from app.handlers.ai_request import send_custom_request, deep_research_service
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.user_doc_request import extract_text_from_any_document, process_uploaded_file
 from app.utils import measure_time
 from transliterate import translit
 from app.utils.text_utils import decode_unicode
 from app.utils.chat_utils import get_messages
+from app.services.deepresearch_service import DeepResearchService
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -114,7 +115,7 @@ def fix_encoding(query: str) -> str:
 
 # ===================== Эндпоинты чата =====================
 @measure_time
-@router.post("/api/chat/{thread_id}")
+@router.post("/chat/{thread_id}")
 async def chat_in_thread(
         request: Request,
         thread_id: str,
@@ -276,9 +277,7 @@ async def chat_in_thread(
             enhanced_query = f"{query}\n\nДокумент содержит:\n{extracted_text[:3000]}..."
 
             # Получаем ответ ассистента
-            # Функция send_custom_request уже сохраняет сообщения в DB
-            assistant_response = await send_custom_request(
-                user_query=enhanced_query, thread_id=thread_id, db=db)
+            assistant_response = await send_custom_request(user_query=enhanced_query, thread_id=thread_id, db=db)
 
         # Обновляем first_message треда, если он пустой
         if not thread.first_message:
@@ -294,10 +293,7 @@ async def chat_in_thread(
         # 6. Обработка только текстового запроса (без файла)
         logging.info("💬 Обработка текстового запроса без файла.")
 
-        # Передаем thread_id и db в send_custom_request
-        assistant_response = await send_custom_request(user_query=query,
-                                                       thread_id=thread_id,
-                                                       db=db)
+        assistant_response = await send_custom_request(user_query=query, thread_id=thread_id, db=db)
 
         # Обновляем first_message треда, если он пустой
         if not thread.first_message and query:
@@ -312,7 +308,7 @@ async def chat_in_thread(
 
 
 @measure_time
-@router.post("/api/create_thread")
+@router.post("/create_thread")
 async def create_thread(current_user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
     """Создает новый тред для пользователя."""
@@ -326,7 +322,7 @@ async def create_thread(current_user: User = Depends(get_current_user),
 
 
 @measure_time
-@router.get("/api/chat/threads")
+@router.get("/chat/threads")
 async def get_threads(current_user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)):
     threads = db.query(Thread).filter_by(user_id=current_user.id).order_by(
@@ -343,7 +339,7 @@ async def get_threads(current_user: User = Depends(get_current_user),
 
 
 @measure_time
-@router.get("/api/messages/{thread_id}")
+@router.get("/messages/{thread_id}")
 async def get_thread_messages(
     thread_id: str,
     current_user: User = Depends(get_current_user),
@@ -356,7 +352,7 @@ async def get_thread_messages(
 # ===================== Эндпоинты для загрузки и скачивания файлов =====================
 
 
-@router.post("/api/download_recognized_text")
+@router.post("/download_recognized_text")
 async def download_recognized_text(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -508,7 +504,7 @@ async def download_recognized_text(
 
 
 @measure_time
-@router.post("/api/upload_file")
+@router.post("/upload_file")
 async def upload_file(file: UploadFile = File(...),
                       current_user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)):
@@ -565,7 +561,7 @@ async def upload_file(file: UploadFile = File(...),
     }
 
 
-@router.get("/api/download/{filename}")
+@router.get("/download/{filename}")
 async def download_file(filename: str, request: Request):
     """
     Позволяет скачать файл с распознанным текстом.
@@ -603,7 +599,7 @@ async def download_file(filename: str, request: Request):
     )
 
 
-@router.post("/api/download_recognized_text")
+@router.post("/download_recognized_text")
 async def create_and_return_file(
         file_content: str,
         file_name: str = "recognized_text.txt") -> FileResponse:

@@ -228,7 +228,7 @@ Analysis:"""
         self,
         query: str,
         depth: Optional[int] = None,
-        engines: List[str] = ["google", "duckduckgo"]
+        engines: List[str] = ["duckduckgo"]
     ) -> ResearchResult:
         """
         Perform intelligent research using LangChain agents and tools.
@@ -352,9 +352,21 @@ Analysis:"""
         self,
         query: str,
         depth: Optional[int] = None,
-        engines: List[str] = ["google", "duckduckgo"]
+        engines: List[str] = ["duckduckgo"]
     ) -> ResearchResult:
         """
         Synchronous version of research method.
         """
         return asyncio.run(self.research(query, depth, engines))
+
+    @property
+    def default_search_engines(self) -> List[str]:
+        """Get default search engines list."""
+        engines: List[str] = ["duckduckgo"]  
+        return engines
+
+    @property
+    def available_search_engines(self) -> List[str]:
+        """Get available search engines list."""
+        engines: List[str] = ["duckduckgo"]  
+        return engines

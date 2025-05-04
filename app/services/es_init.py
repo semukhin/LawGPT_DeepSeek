@@ -134,11 +134,11 @@ MAPPINGS = {
                 "doc_id": {"type": "keyword"},
                 "chunk_id": {"type": "integer"},
                 "text_chunk": {"type": "text", "analyzer": "simple_analyzer"},
-                # Дополнительные поля для поддержки совместимости с es_law_search.py
                 "text": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "text_chunk"},
                 "content": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "text_chunk"},
                 "full_text": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "text_chunk"},
-                "indexed_at": {"type": "date"}
+                "indexed_at": {"type": "date"},
+                "embedding": {"type": "dense_vector", "dims": 384}
             }
         }
     },
@@ -182,7 +182,8 @@ MAPPINGS = {
                 "amount": {"type": "float"},
                 # Поля для обратной совместимости
                 "decision_date": {"type": "date", "copy_to": "date"},
-                "indexed_at": {"type": "date"}
+                "indexed_at": {"type": "date"},
+                "embedding": {"type": "dense_vector", "dims": 384}
             }
         }
     },
@@ -212,7 +213,8 @@ MAPPINGS = {
                 # Поля для обратной совместимости
                 "content": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
                 "text": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
-                "indexed_at": {"type": "date"}
+                "indexed_at": {"type": "date"},
+                "embedding": {"type": "dense_vector", "dims": 384}
             }
         }
     },
@@ -245,7 +247,8 @@ MAPPINGS = {
                 "content": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
                 "text": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
                 "body": {"type": "text", "analyzer": "simple_analyzer", "copy_to": "full_text"},
-                "indexed_at": {"type": "date"}
+                "indexed_at": {"type": "date"},
+                "embedding": {"type": "dense_vector", "dims": 384}
             }
         }
     },
@@ -307,7 +310,8 @@ MAPPINGS = {
                 "last_updated": {"type": "date"},
                 "content": {"type": "text", "analyzer": "russian_analyzer", "copy_to": "full_text"},
                 "text": {"type": "text", "analyzer": "russian_analyzer", "copy_to": "full_text"},
-                "indexed_at": {"type": "date"}
+                "indexed_at": {"type": "date"},
+                "embedding": {"type": "dense_vector", "dims": 384}
             }
         }
     }
