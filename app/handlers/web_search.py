@@ -37,6 +37,10 @@ async def run_multiple_searches(query: str, logs: List[str]) -> Dict[str, List[D
         # Выполняем поиск через Tavily
         results = await tavily_service.search(query, max_results=MAX_SEARCH_RESULTS)
         
+        if not isinstance(results, list):
+            logs.append(f"❌ Tavily: неожиданный тип результата: {type(results)}")
+            return {}
+        
         if results:
             logs.append(f"✅ Найдено {len(results)} результатов через Tavily")
             return {"general": results}
@@ -113,16 +117,16 @@ class WebSearchHandler:
             List[SearchResult]: Список результатов поиска
         """
         try:
-            # Выполняем улучшенный поиск
             results = await self.tavily_service.search(query, max_results=max_results)
-            
-            # Преобразуем результаты в формат SearchResult
+            if not isinstance(results, list):
+                logging.warning(f"Tavily: неожиданный тип результата: {type(results)}")
+                return []
             search_results = []
             for result in results:
                 try:
                     search_results.append(
                         SearchResult(
-                            url=result.get('href', ''),
+                            url=result.get('href', '') or result.get('url', ''),
                             title=result.get('title', '') or result.get('body', '')[:80],
                             snippet=result.get('body', ''),
                             source="tavily"
@@ -131,9 +135,7 @@ class WebSearchHandler:
                 except Exception as e:
                     logging.error(f"Ошибка при создании SearchResult: {str(e)}")
                     continue
-                    
             return search_results
-            
         except Exception as e:
             logging.error(f"Ошибка в search_internet: {str(e)}")
             return []

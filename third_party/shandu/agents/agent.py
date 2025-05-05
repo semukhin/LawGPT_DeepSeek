@@ -79,7 +79,7 @@ class ResearchAgent:
         llm: Optional[ChatOpenAI] = None,
         searcher: Optional[UnifiedSearcher] = None,
         scraper: Optional[WebScraper] = None,
-        temperature: float = 1.2,
+        temperature: float = 0.6,
         max_depth: int = 2,
         breadth: int = 4,
         max_urls_per_query: int = 3,

@@ -29,7 +29,7 @@ class GeminiService:
     def is_available(self) -> bool:
         return self.model is not None
 
-    async def extract_text_from_pdf(self, pdf_bytes: bytes, prompt: str = "Извлеки текст из этого документа") -> str:
+    async def extract_text_from_pdf(self, pdf_bytes: bytes, prompt: str = "Извлеки текст из этого документа") -> dict:
         """Извлекает текст из PDF с помощью Gemini Vision (нативная поддержка PDF)."""
         if not self.is_available():
             return {"success": False, "error": "Gemini API не инициализирован"}
@@ -38,12 +38,12 @@ class GeminiService:
                 {"mime_type": "application/pdf", "data": pdf_bytes},
                 prompt
             ])
-            return response.text
+            return {"success": True, "text": response.text}
         except Exception as e:
             logging.error(f"❌ Ошибка при извлечении текста из PDF: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def extract_text_from_image(self, image_bytes: bytes, mime_type: str, prompt: str = "Извлеки текст из этого изображения") -> str:
+    async def extract_text_from_image(self, image_bytes: bytes, mime_type: str, prompt: str = "Извлеки текст из этого изображения") -> dict:
         """Извлекает текст из изображения с помощью Gemini Vision."""
         if not self.is_available():
             return {"success": False, "error": "Gemini API не инициализирован"}
@@ -52,7 +52,7 @@ class GeminiService:
                 {"mime_type": mime_type, "data": image_bytes},
                 prompt
             ])
-            return response.text
+            return {"success": True, "text": response.text}
         except Exception as e:
             logging.error(f"❌ Ошибка при извлечении текста из изображения: {str(e)}")
             return {"success": False, "error": str(e)}

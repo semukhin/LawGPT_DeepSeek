@@ -11,6 +11,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from typing import Tuple, List, Dict, Optional, Any, Union
+from sqlalchemy.orm import Session
 
 # Библиотеки для работы с документами
 import docx
@@ -494,9 +495,9 @@ async def extract_text_from_image_async(file_path: str) -> str:
             while retry_count < max_retries:
                 try:
                     timeout = 60.0 + (retry_count * 30.0)  # Увеличиваем таймаут с каждой попыткой
-                    logging.info(f"🔄 Попытка OCR {retry_count + 1} из {max_retries} с таймаутом {timeout} сек...")
+                    logging.info(f"🔄 Попытка OCR {retry_count + 1} из {max_retries} с таймаутом {timeout} сек...");
 
-                    gemini_result = await gemini_service.extract_text_from_image(img_bytes, mime_type, custom_timeout=timeout)
+                    gemini_result = await gemini_service.extract_text_from_image(img_bytes, mime_type)
 
                     if gemini_result.get("success"):
                         logging.info(f"✅ Текст успешно извлечен из изображения с помощью Gemini API. Символов: {len(gemini_result.get('text', ''))}")
@@ -520,8 +521,8 @@ async def extract_text_from_image_async(file_path: str) -> str:
                     retry_count += 1
                     await asyncio.sleep(1)  # Пауза перед следующей попыткой
 
-            # Если все попытки исчерпаны
-            error_message = gemini_result.get("error", "Превышено количество попыток")
+            # Если все попытки исчерпаны, возвращаем корректную ошибку
+            error_message = gemini_result.get("error", "Превышено количество попыток") if 'gemini_result' in locals() else "Превышено количество попыток"
             logging.error(f"❌ Не удалось выполнить OCR после {max_retries} попыток: {error_message}")
             return f"Не удалось извлечь текст из изображения после {max_retries} попыток: {error_message}"
         else:
@@ -777,13 +778,20 @@ async def extract_text_from_any_document(file_path: str) -> Tuple[str, Dict[str,
     return extracted_text, local_file_metadata
 
 
-async def process_uploaded_file(file: UploadFile) -> Tuple[str, str, Dict[str, Any]]:
+async def process_uploaded_file(file: UploadFile, user_id: Optional[int] = None, db: Optional[Session] = None) -> Tuple[str, str, Dict[str, Any]]:
     """
-    Сохраняет загруженный файл, извлекает из него текст и возвращает результат
-    для API ответа, включая метаданные.
+    Сохраняет загруженный файл, извлекает из него текст и сохраняет в базу данных.
+    
+    Args:
+        file: Загруженный файл
+        user_id: ID пользователя (если нужно сохранить в БД)
+        db: Сессия базы данных (если нужно сохранить в БД)
+        
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: (путь к файлу, извлеченный текст, метаданные)
     """
     start_time = time.time()
-    original_file_path = None  # Путь к сохраненному оригинальному файлу
+    original_file_path = None
 
     # Словарь для хранения метаданных файла
     file_metadata = {
@@ -796,40 +804,19 @@ async def process_uploaded_file(file: UploadFile) -> Tuple[str, str, Dict[str, A
         "char_count": 0,
         "word_count": 0,
         "page_count": 0,
-        "recognized_text_file_docx": None,
         "recognized_text_file_txt": None,
-        "download_url_docx": None,
-        "download_url_txt": None,
+        "download_url": None,
         "timestamp": datetime.now().isoformat()
     }
 
-    extracted_text_for_response = ""  # Текст, который будет возвращен API
-    response_message = ""  # Сообщение для пользователя в случае ошибки или успеха
-
-    # Проверяем, что файл предоставлен
-    if not file or not file.filename:
-        error_msg = "Ошибка: Файл не предоставлен или имя файла пустое"
-        logging.error(f"❌ {error_msg}")
-        # Бросаем HTTPException, так как это ошибка запроса клиента
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
-
-    logging.info(f"📄 Получен файл: {file.filename}")
-
     try:
-        # Проверка типа файла до сохранения
-        file_extension = os.path.splitext(file.filename)[1].lower()
-        file_metadata["extension"] = file_extension
+        # Проверки файла
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="Файл не предоставлен")
 
+        file_extension = os.path.splitext(file.filename)[1].lower()
         if file_extension not in SUPPORTED_EXTENSIONS:
-            error_msg = (
-                f"Неподдерживаемый тип файла: {file_extension}. "
-                f"Поддерживаются только: {', '.join(SUPPORTED_EXTENSIONS)}"
-            )
-            logging.error(f"❌ {error_msg}")
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail=error_msg
-            )
+            raise HTTPException(status_code=415, detail=f"Неподдерживаемый тип файла: {file_extension}")
 
         # Генерируем безопасное имя для сохранения оригинального файла
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -837,138 +824,65 @@ async def process_uploaded_file(file: UploadFile) -> Tuple[str, str, Dict[str, A
         saved_filename = f"{timestamp}_{safe_original_filename}"
         original_file_path = os.path.join(UPLOAD_FOLDER, saved_filename)
 
-        # Сохраняем загруженный файл асинхронно и проверяем размер
-        file_content = await file.read()  # Читаем все содержимое в память
+        # Сохраняем оригинальный файл
+        file_content = await file.read()
         file_size = len(file_content)
-
-        file_metadata["file_size_bytes"] = file_size
-        # Форматированный размер файла
-        if file_size < 1024:
-            file_metadata["file_size_formatted"] = f"{file_size} байт"
-        elif file_size < 1024 * 1024:
-            file_metadata["file_size_formatted"] = f"{file_size/1024:.1f} КБ"
-        else:
-            file_metadata["file_size_formatted"] = f"{file_size/(1024*1024):.1f} МБ"
-
-        logging.info(f"📏 Размер файла: {file_metadata['file_size_formatted']}")
-
-        if file_size == 0:
-            error_msg = "Ошибка: Загруженный файл пуст (0 байт)."
-            logging.error(f"❌ {error_msg}")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_msg)
-
+        
         if file_size > MAX_FILE_SIZE:
-            error_msg = (
-                f"Файл слишком большой: {file_metadata['file_size_formatted']}. "
-                f"Максимальный размер: {MAX_FILE_SIZE/(1024*1024)} МБ"
-            )
-            logging.error(f"❌ {error_msg}")
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=error_msg)
+            raise HTTPException(status_code=413, detail="Файл слишком большой")
 
-        # Проверяем существование директории перед сохранением
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        # Обновляем метаданные размера
+        file_metadata["file_size_bytes"] = file_size
+        file_metadata["file_size_formatted"] = (
+            f"{file_size/1024/1024:.1f} МБ" if file_size > 1024*1024 
+            else f"{file_size/1024:.1f} КБ" if file_size > 1024 
+            else f"{file_size} байт"
+        )
 
-        # Сохраняем файл асинхронно
+        # Сохраняем оригинальный файл
         async with aiofiles.open(original_file_path, "wb") as buffer:
             await buffer.write(file_content)
 
-        logging.info(
-            f"📂 Файл сохранён: {original_file_path} "
-            f"(размер: {file_metadata['file_size_formatted']})"
-        )
-
-        # Извлекаем текст из файла, обработка ошибок происходит внутри этой функции
+        # Извлекаем текст
         extracted_text, extraction_metadata = await extract_text_from_any_document(original_file_path)
-
-        # Обновляем метаданные из результатов извлечения
         file_metadata.update(extraction_metadata)
 
-        # Текст для ответа API - либо извлеченный, либо сообщение об ошибке
-        extracted_text_for_response = extracted_text
-
-        if file_metadata["extraction_success"]:
-            response_message = "Текст успешно извлечен."
-            logging.info(f"✅ Успешное извлечение текста. Символов: {len(extracted_text_for_response)}")
-        else:
-            response_message = extracted_text  # Сообщение об ошибке уже содержится в extracted_text
-            logging.warning(f"⚠️ Извлечение текста завершилось с ошибкой/пустым результатом: {response_message}")
-
-        # Форматируем извлеченный текст для лучшего отображения в ответе (если он есть)
-        if file_metadata["extraction_success"] and extracted_text_for_response:
-            # Удаляем лишние пробелы и переносы строк (асинхронно)
-            def format_text_sync(text):
-                formatted = re.sub(r'\n{3,}', '\n\n', text)  # Сжимаем множественные переносы
-                formatted = re.sub(r'[ \t]{2,}', ' ', formatted)  # Сжимаем множественные пробелы/табы
-                # Удаляем пробелы в начале и конце строк
-                formatted = '\n'.join([line.strip() for line in formatted.split('\n')])
-                return formatted.strip()  # Удаляем пробелы в начале/конце всего текста
-
-            formatted_text = await asyncio.to_thread(format_text_sync, extracted_text_for_response)
-            extracted_text_for_response = formatted_text
-            file_metadata["char_count"] = len(extracted_text_for_response)
-            file_metadata["word_count"] = len(extracted_text_for_response.split())
-
-    except HTTPException:
-        # Если уже была брошена HTTPException (напр., unsupported type, too large)
-        raise
-    except Exception as e:
-        # Ловим любые другие исключения, не пойманные ранее
-        elapsed_time = time.time() - start_time
-        file_metadata["processing_time_seconds"] = round(elapsed_time, 2)
-        error_msg = f"Непредвиденная ошибка при обработке файла {file_metadata['original_filename']}: {e}"
-        logging.error(f"❌ {error_msg}", exc_info=True)
-        # Возвращаем стандартный ответ с ошибкой
-        extracted_text_for_response = error_msg
-        response_message = error_msg  # Сообщение для пользователя
-        file_metadata["extraction_success"] = False  # Убедимся, что успех = False
-
-    finally:
-        # Всегда пытаемся удалить оригинальный загруженный файл после обработки
-        if original_file_path:
-            await cleanup_file(original_file_path)
-        # Очистка временных файлов из TEMP_FOLDER должна происходить внутри функций извлечения (.doc)
-        # или как общая задача по расписанию, если остаются "зависшие" файлы.
-
-    # Вычисляем общее время обработки
-    total_elapsed_time = time.time() - start_time
-    file_metadata["processing_time_seconds"] = round(total_elapsed_time, 2)
-    
-    # Проверяем полноту и целостность текста перед возвратом
-    if file_metadata["extraction_success"] and extracted_text_for_response:
-        # Проверяем, если файл слишком большой, то ожидаем более длинный текст
-        file_size_mb = file_metadata["file_size_bytes"] / (1024 * 1024)
-        text_length = len(extracted_text_for_response)
-        
-        # Примерная эвристика: для PDF ~1000 символов на страницу, ~10 страниц на 1MB
-        expected_min_length = file_size_mb * 10000
-        
-        if text_length < expected_min_length and file_size_mb > 0.5:
-            logging.warning(f"⚠️ Извлеченный текст может быть неполным: {text_length} символов при размере файла {file_size_mb:.2f} MB")
-            logging.warning(f"⚠️ Ожидалось примерно {int(expected_min_length)} символов")
+        # Сохраняем распознанный текст в файл
+        if extracted_text:
+            txt_filename = f"{timestamp}_{os.path.splitext(safe_original_filename)[0]}_recognized.txt"
+            txt_file_path = os.path.join(OUTPUT_FOLDER, txt_filename)
             
-            # Проверяем файл с распознанным текстом на диске
-            if file_metadata["recognized_text_file_txt"]:
-                txt_path = os.path.join(OUTPUT_FOLDER, file_metadata["recognized_text_file_txt"])
-                if os.path.exists(txt_path):
-                    try:
-                        with open(txt_path, 'r', encoding='utf-8') as f:
-                            file_text = f.read()
-                        
-                        file_text_length = len(file_text)
-                        logging.info(f"📏 Длина текста в файле: {file_text_length} символов")
-                        
-                        # Если в файле больше текста, чем в извлеченном - используем текст из файла
-                        if file_text_length > text_length * 1.1:  # Если больше на 10%
-                            logging.info(f"✅ Используем более полный текст из файла: +{file_text_length - text_length} символов")
-                            extracted_text_for_response = file_text
-                            file_metadata["char_count"] = file_text_length
-                            file_metadata["word_count"] = len(file_text.split())
-                    except Exception as e:
-                        logging.error(f"❌ Ошибка при чтении файла с распознанным текстом: {e}")
-        else:
-            logging.info(f"✅ Длина текста соответствует ожидаемой: {text_length} символов")
+            async with aiofiles.open(txt_file_path, "w", encoding="utf-8") as f:
+                await f.write(extracted_text)
+            
+            file_metadata["recognized_text_file_txt"] = txt_filename
+            file_metadata["download_url"] = f"/api/download/{txt_filename}"
 
-    # Возвращаем путь к оригинальному файлу (может быть None, если ошибка до сохранения),
-    # текст для ответа и метаданные
-    return original_file_path, extracted_text_for_response, file_metadata
+        # Если есть db и user_id, сохраняем в базу данных
+        if db and user_id:
+            from app.models import Document
+            document = Document(
+                user_id=user_id,
+                file_path=original_file_path,
+                document_name=file.filename,
+                document_url=file_metadata["download_url"],
+                uploaded_at=datetime.now()
+            )
+            db.add(document)
+            try:
+                db.commit()
+                logging.info(f"✅ Документ сохранен в БД: {document.id}")
+            except Exception as e:
+                db.rollback()
+                logging.error(f"❌ Ошибка сохранения в БД: {str(e)}")
+
+    except Exception as e:
+        logging.error(f"❌ Ошибка обработки файла: {str(e)}")
+        if original_file_path and os.path.exists(original_file_path):
+            await cleanup_file(original_file_path)
+        raise
+
+    # Обновляем время обработки
+    file_metadata["processing_time_seconds"] = round(time.time() - start_time, 2)
+    
+    return original_file_path, extracted_text, file_metadata

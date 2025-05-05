@@ -33,11 +33,11 @@ class ResearchAdapter:
         self.service = create_research_service(output_dir)
         self.is_shandu = USE_SHANDU_RESEARCH_AGENT
     
-    async def research(self, query: str):
-        """Универсальный метод исследования."""
+    async def research(self, query: str, thread_id: str = None, user_id: int = None, db = None, message_id: int = None):
+        """Универсальный метод исследования с поддержкой сохранения в БД."""
         if self.is_shandu:
-            # ResearchAgent имеет синхронный метод research_sync
+            # ResearchAgent не поддерживает сохранение в БД, просто вызываем sync-метод
             return self.service.research_sync(query)
         else:
-            # DeepResearchService имеет асинхронный метод research
-            return await self.service.research(query)
+            # DeepResearchService поддерживает все параметры
+            return await self.service.research(query, thread_id=thread_id, user_id=user_id, db=db, message_id=message_id)

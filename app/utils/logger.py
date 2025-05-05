@@ -20,54 +20,34 @@ _global_logger = None
 class EnhancedLogger:
     """Расширенный логгер с поддержкой сохранения в файл и дедупликацией."""
     
-    def __init__(self, base_dir: Optional[str] = None, app_name: str = 'lawgpt'):
-        """
-        Инициализация логгера.
-        
-        Args:
-            base_dir: Базовая директория для логов
-            app_name: Имя приложения для логов
-        """
+    def __init__(self, app_name: str = "app"):
         self.app_name = app_name
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         
-        # Определяем базовую директорию
-        if base_dir is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.base_dir = base_dir
-        
-        # Создаем директории для логов
+        # Создаем директории для логов, промптов и ответов
         self.logs_dir = os.path.join(self.base_dir, 'logs')
-        os.makedirs(self.logs_dir, exist_ok=True)
+        self.prompts_dir = os.path.join(self.base_dir, 'prompts')
+        self.responses_dir = os.path.join(self.base_dir, 'responses')
         
+        for dir_path in [self.logs_dir, self.prompts_dir, self.responses_dir]:
+            os.makedirs(dir_path, exist_ok=True)
+            
         # Настраиваем логгер
         self.logger = logging.getLogger(app_name)
-        self.logger.setLevel(logging.DEBUG)
-        
-        # Форматтер для логов
-        formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
-        )
+        self.logger.setLevel(logging.INFO)
         
         # Хендлер для файла
-        log_file = os.path.join(self.logs_dir, f'{app_name}_{datetime.now().strftime("%Y%m%d")}.log')
+        log_file = os.path.join(self.logs_dir, f"{app_name}_{datetime.now().strftime('%Y%m%d')}.log")
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setFormatter(formatter)
         file_handler.setLevel(logging.INFO)
         
-        # Хендлер для консоли
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        console_handler.setLevel(logging.INFO)
+        # Форматтер
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
+        file_handler.setFormatter(formatter)
         
-        # Очищаем существующие хендлеры
-        self.logger.handlers.clear()
-        
-        # Добавляем новые хендлеры
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
-        
-        # Отключаем распространение логов
-        self.logger.propagate = False
+        # Добавляем хендлер
+        if not self.logger.handlers:
+            self.logger.addHandler(file_handler)
         
         self.seen_messages: Set[str] = set()
         self._setup_logging_methods()
@@ -101,29 +81,33 @@ class EnhancedLogger:
     def save_prompt(self, messages: List[Dict], query: str, parameters: Dict):
         """Сохраняет промпт в JSON файл"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prompt_file = os.path.join(self.logs_dir, f'prompt_{timestamp}.json')
-        prompt_data = {
+        filename = os.path.join(self.prompts_dir, f"prompt_{timestamp}.json")
+        
+        data = {
             "timestamp": timestamp,
             "query": query,
             "messages": messages,
             "parameters": parameters
         }
-        with open(prompt_file, 'w', encoding='utf-8') as f:
-            json.dump(prompt_data, f, ensure_ascii=False, indent=2)
-        self.log(f"Сохранен промпт: {prompt_file}")
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        self.log(f"Сохранен промпт: {filename}")
 
     def save_response(self, response: Dict, query: str):
-        """Сохраняет ответ DeepSeek в JSON файл"""
+        """Сохраняет ответ в JSON файл"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        response_file = os.path.join(self.logs_dir, f'response_{timestamp}.json')
-        response_data = {
+        filename = os.path.join(self.responses_dir, f"response_{timestamp}.json")
+        
+        data = {
             "timestamp": timestamp,
             "query": query,
             "response": response
         }
-        with open(response_file, 'w', encoding='utf-8') as f:
-            json.dump(response_data, f, ensure_ascii=False, indent=2)
-        self.log(f"Сохранен ответ: {response_file}")
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        self.log(f"Сохранен ответ: {filename}")
 
 def get_logger(base_dir: Optional[str] = None, app_name: str = 'lawgpt') -> EnhancedLogger:
     """
@@ -142,7 +126,7 @@ def get_logger(base_dir: Optional[str] = None, app_name: str = 'lawgpt') -> Enha
         if base_dir is None:
             # Получаем путь к корневой директории приложения
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        _global_logger = EnhancedLogger(base_dir, app_name)
+        _global_logger = EnhancedLogger(app_name)
     return _global_logger
 
 # Создаем глобальный логгер при импорте модуля

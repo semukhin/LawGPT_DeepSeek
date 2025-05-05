@@ -351,6 +351,15 @@ async function apiRequest(endpoint, method, data = null, token = null) {
     try {
         const response = await fetch(`${config.apiUrl}${endpoint}`, options);
 
+        // Глобальная обработка 401 Unauthorized
+        if (response.status === 401) {
+            localStorage.removeItem(config.storageTokenKey);
+            localStorage.removeItem(config.storageThreadKey);
+            showAuth();
+            showNotification("Сессия истекла или неавторизован. Пожалуйста, войдите снова.", "error");
+            throw new Error("Not authenticated");
+        }
+
         // Обрабатываем ошибки HTTP
         if (!response.ok) {
             let errorText = `HTTP ошибка ${response.status}`;
@@ -401,6 +410,15 @@ async function apiRequestFormData(endpoint, formData) {
             body: formData,
             timeout: config.apiTimeout,
         });
+
+        // Глобальная обработка 401 Unauthorized
+        if (response.status === 401) {
+            localStorage.removeItem(config.storageTokenKey);
+            localStorage.removeItem(config.storageThreadKey);
+            showAuth();
+            showNotification("Сессия истекла или неавторизован. Пожалуйста, войдите снова.", "error");
+            throw new Error("Not authenticated");
+        }
 
         // Обрабатываем ошибки HTTP
         if (!response.ok) {
@@ -1737,24 +1755,40 @@ async function sendMessage() {
     showTypingIndicatorWithStatus();
 
     try {
-        // Отправляем запрос на /deep-research/
-        const response = await fetch("/deep-research/", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${localStorage.getItem(config.storageTokenKey)}`
-            },
-            body: JSON.stringify({
-                query: text,
-                thread_id: threadId
-            })
-        });
+        let response, data;
+        if (file) {
+            // Отправляем файл и текст через FormData на /api/chat/{threadId}
+            const formData = new FormData();
+            if (text) formData.append('query', text);
+            formData.append('file', file);
+
+            response = await fetch(`/api/chat/${threadId}`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem(config.storageTokenKey)}`
+                },
+                body: formData
+            });
+        } else {
+            // Только текст — старый эндпоинт
+            response = await fetch("/deep-research/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem(config.storageTokenKey)}`
+                },
+                body: JSON.stringify({
+                    query: text,
+                    thread_id: threadId
+                })
+            });
+        }
 
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const data = await response.json();
+        data = await response.json();
         
         // Скрываем индикатор набора текста
         hideTypingIndicatorWithStatus();
@@ -1762,13 +1796,14 @@ async function sendMessage() {
         // Фиксируем время получения ответа ассистента
         const assistantTimestamp = new Date();
 
-        if (data && data.results) {
-            // Если есть reasoning_content, показываем его
+        if (file && data && data.assistant_response) {
+            addAssistantMessage(data.assistant_response, assistantTimestamp);
+        } else if (data && data.results) {
             if (data.results.reasoning_content) {
-                addReasoningMessage(data.results.reasoning_content);
+                // Отключено для пользователя, только для внутреннего статуса/отладки
+                // Можно включить для админов или оставить пустым
+                // addReasoningMessage(data.results.reasoning_content);
             }
-            
-            // Добавляем основной ответ ассистента
             addAssistantMessage(data.results.analysis || data.results, assistantTimestamp);
         } else {
             addAssistantMessage("Не удалось получить ответ от ассистента", assistantTimestamp);
@@ -1890,6 +1925,11 @@ function addAssistantMessage(text, timestamp = null) {
             text = String(text);
         }
     }
+    // Проверка на дублирование reasoning_content и analysis
+    if (window._lastAssistantMessage && window._lastAssistantMessage === text) {
+        return;
+    }
+    window._lastAssistantMessage = text;
     console.log('Добавление сообщения ассистента:', { text, timestamp });
     const messagesContainer = document.getElementById('messages-container');
     if (!messagesContainer) {
@@ -2390,31 +2430,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // === Добавляем функцию для reasoning_content ===
 function addReasoningMessage(reasoningText) {
-    if (typeof reasoningText !== 'string') {
-        try {
-            reasoningText = JSON.stringify(reasoningText);
-        } catch {
-            reasoningText = String(reasoningText);
-        }
-    }
-    let reasoningDiv = document.getElementById('reasoning-message');
-    if (!reasoningDiv) {
-        reasoningDiv = document.createElement('div');
-        reasoningDiv.className = 'message message-reasoning';
-        reasoningDiv.id = 'reasoning-message';
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        reasoningDiv.appendChild(contentDiv);
-        const messagesContainer = document.getElementById('messages-container');
-        messagesContainer.appendChild(reasoningDiv);
-    }
-    const contentDiv = reasoningDiv.querySelector('.message-content');
-    contentDiv.textContent = reasoningText;
-    scrollToBottom();
-}
-function removeReasoningMessage() {
-    const reasoningDiv = document.getElementById('reasoning-message');
-    if (reasoningDiv) reasoningDiv.remove();
+    // Отключено для пользователя, только для внутреннего статуса/отладки
+    // Можно включить для админов или оставить пустым
+    // return;
 }
 
 // === WebSocket обработка reasoning_content ===
@@ -2436,7 +2454,9 @@ function handleReasoningWebSocketMessage(event) {
     let reasoning = typeof data.reasoning_content === 'string' ? data.reasoning_content : '';
     let content = typeof data.analysis === 'string' ? data.analysis : (typeof data.content === 'string' ? data.content : '');
     if (reasoning) {
-        addReasoningMessage(reasoning);
+        // Отключено для пользователя, только для внутреннего статуса/отладки
+        // Можно включить для админов или оставить пустым
+        // addReasoningMessage(reasoning);
     }
     if (content && !data.is_streaming) {
         // Финальный ответ — добавляем как обычное сообщение ассистента
@@ -2472,19 +2492,16 @@ function showTypingIndicatorWithStatus() {
         return;
     }
 
-    // Проверяем, существует ли уже индикатор
     let indicator = document.getElementById("typing-indicator-container");
     if (indicator) {
         indicator.style.display = "flex";
         return;
     }
 
-    // Создаем новый индикатор
     const container = document.createElement("div");
     container.className = "message message-assistant";
     container.id = "typing-indicator-container";
 
-    // Индикатор с анимированными точками
     const typingIndicator = document.createElement("div");
     typingIndicator.className = "typing-indicator";
     typingIndicator.innerHTML = `
@@ -2494,31 +2511,40 @@ function showTypingIndicatorWithStatus() {
     `;
     container.appendChild(typingIndicator);
 
-    // Статус
+    // --- Глобальные переменные для статусов ---
+    window._typingStatuses = [
+        { text: "Анализ запроса...", delay: 9000 },
+        { text: "Поиск релевантных документов...", delay: 3000 },
+        { text: "Извлечение ключевой информации...", delay: 20500 },
+        { text: "Формирование ответа...", delay: 20000 },
+        { text: "Финальная проверка...", delay: 2000 }
+    ];
+    window._typingStatusIdx = 0;
     const statusDiv = document.createElement("div");
     statusDiv.className = "typing-status";
     statusDiv.style.marginLeft = "10px";
     statusDiv.style.fontSize = "12px";
     statusDiv.style.color = "rgba(255, 255, 255, 0.7)";
     container.appendChild(statusDiv);
+    window._typingStatusDiv = statusDiv;
 
     messagesContainer.appendChild(container);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
-    // Последовательность статусов с индивидуальными задержками
-    const statuses = [
-        { text: "Анализ запроса...", delay: 700 },
-        { text: "Поиск релевантных документов...", delay: 200 },
-        { text: "Извлечение ключевой информации...", delay: 950 },
-        { text: "Формирование ответа...", delay: 2000 },
-        { text: "Финальная проверка...", delay: 200 }
-    ];
-    let statusIdx = 0;
-    statusDiv.textContent = statuses[0].text;
+    statusDiv.textContent = window._typingStatuses[0].text;
     window._typingStatusTimeout = setTimeout(() => {
-        statusIdx = (statusIdx + 1) % statuses.length;
+        window._typingStatusIdx = (window._typingStatusIdx + 1) % window._typingStatuses.length;
         showNextStatus();
-    }, statuses[0].delay);
+    }, window._typingStatuses[0].delay);
+}
+
+function showNextStatus() {
+    if (!window._typingStatusDiv || !window._typingStatuses) return;
+    window._typingStatusDiv.textContent = window._typingStatuses[window._typingStatusIdx].text;
+    window._typingStatusTimeout = setTimeout(() => {
+        window._typingStatusIdx = (window._typingStatusIdx + 1) % window._typingStatuses.length;
+        showNextStatus();
+    }, window._typingStatuses[window._typingStatusIdx].delay);
 }
 
 function hideTypingIndicatorWithStatus() {
@@ -2535,11 +2561,3 @@ function hideTypingIndicatorWithStatus() {
 // --- Заменяем showTypingIndicator/hideTypingIndicator на новые ---
 window.showTypingIndicator = showTypingIndicatorWithStatus;
 window.hideTypingIndicator = hideTypingIndicatorWithStatus;
-
-function showNextStatus() {
-    statusDiv.textContent = statuses[statusIdx].text;
-    window._typingStatusTimeout = setTimeout(() => {
-        statusIdx = (statusIdx + 1) % statuses.length;
-        showNextStatus();
-    }, statuses[statusIdx].delay);
-}

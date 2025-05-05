@@ -53,7 +53,7 @@ class ResearchGraph:
         llm: Optional[ChatOpenAI] = None, 
         searcher: Optional[UnifiedSearcher] = None, 
         scraper: Optional[WebScraper] = None, 
-        temperature: float = 1.0,
+        temperature: float = 0.6,
         date: Optional[str] = None
     ):
         api_base = config.get("api", "base_url")
@@ -366,11 +366,11 @@ IMPORTANT: Respond with only one word: RELEVANT or IRRELEVANT""")
                                 ])
                             else:
                                 # Стандартный промпт для неюридического контента
-                            prompt = ChatPromptTemplate.from_messages([
-                                ("system", """Analyze this source in two parts:
+                                prompt = ChatPromptTemplate.from_messages([
+                                    ("system", """Analyze this source in two parts:
 PART 1: Evaluate the reliability of this source based on domain reputation, author expertise, citations, objectivity, and recency.
 PART 2: Extract comprehensive detailed information relevant to the query."""),
-                                ("user", """Source URL: {url}
+                                    ("user", """Source URL: {url}
 Title: {title}
 Query: {query}
 Content: {content}
@@ -378,7 +378,7 @@ Content: {content}
 Provide your response in two clearly separated sections:
 RELIABILITY: [HIGH/MEDIUM/LOW] followed by a brief justification (1-2 sentences)
 EXTRACTED_CONTENT: Detailed facts, statistics, data points, examples, and key information relevant to the query.""")
-                            ])
+                                ])
                             
                             chain = prompt | self.llm
                             result = await chain.ainvoke({
@@ -773,8 +773,8 @@ async def clarify_query(query: str, llm: Optional[ChatOpenAI] = None, date: Opti
         api_base = config.get("api", "base_url")
         api_key = config.get("api", "api_key")
         model = config.get("api", "model")
-        temperature = config.get("api", "temperature", 0.7)
-        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=0.7)
+        temperature = config.get("api", "temperature", 0.6)
+        llm = ChatOpenAI(base_url=api_base, api_key=api_key, temperature=0.6)
     
     current_date = date or get_current_date()
     console.print(Panel(f"[bold blue]Initial Query:[/] {query}", title="Research Setup"))

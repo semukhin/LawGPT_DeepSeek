@@ -599,113 +599,65 @@ async def get_query_embedding(query: str) -> List[float]:
         return [0.0] * 384  # Возвращаем нулевой вектор в случае ошибки
 
 async def search_law_chunks(query: str, size: int = 5, use_vector: bool = True) -> List[Dict[str, Any]]:
-    """
-    Поиск фрагментов законов в Elasticsearch с поддержкой векторного поиска.
-    
-    Args:
-        query: Текст запроса
-        size: Максимальное количество результатов
-        use_vector: Использовать ли векторный поиск
-        
-    Returns:
-        List[Dict[str, Any]]: Результаты поиска
-    """
     logger.log(f"🔍 Начало поиска в Elasticsearch по запросу: '{query}'", LogLevel.INFO)
     try:
-        # Инициализация клиента Elasticsearch
         es = get_es_client()
-        
-        # Базовый текстовый поиск
-        text_query = {
-            "bool": {
-                "should": [
-                    {
-                        "multi_match": {
-                            "query": query,
-                            "fields": [
-                                "text^3",  # Основной текст с большим весом
-                                "title^2",  # Заголовок с меньшим весом
-                                "metadata.*^1"  # Все метаданные с наименьшим весом
-                            ],
-                            "type": "best_fields",
-                            "fuzziness": "AUTO",
-                            "operator": "or"
-                        }
-                    },
-                    {
-                        "match_phrase": {
-                            "text": {
+        search_query = {
+            "query": {
+                "bool": {
+                    "should": [
+                        {
+                            "multi_match": {
                                 "query": query,
-                                "boost": 2
+                                "fields": [
+                                    "text^3",
+                                    "title^2", 
+                                    "content^2",
+                                    "full_text^2"
+                                ],
+                                "type": "best_fields",
+                                "fuzziness": "AUTO"
+                            }
+                        },
+                        {
+                            "match_phrase": {
+                                "text": {
+                                    "query": query,
+                                    "boost": 2
+                                }
                             }
                         }
-                    }
-                ],
-                "minimum_should_match": 1
-            }
-        }
-        
-        # Если включен векторный поиск, добавляем kNN запрос
-        if use_vector:
-            # Получаем эмбеддинг запроса
-            query_vector = await get_query_embedding(query)
-            
-            search_query = {
-                "knn": {
-                    "field": "embedding",
-                    "query_vector": query_vector,
-                    "k": size,
-                    "num_candidates": size * 2
-                },
-                "rank_score": 0.4,  # Вес для kNN
-                "query": {
-                    "script_score": {
-                        "query": text_query,
-                        "script": {
-                            "source": "_score * 0.6"  # Вес для текстового поиска
-                        }
-                    }
+                    ],
+                    "minimum_should_match": 1
                 }
-            }
-        else:
-            search_query = {"query": text_query}
-        
-        # Добавляем подсветку
-        search_query["highlight"] = {
-            "fields": {
-                "text": {
-                    "fragment_size": 150,
-                    "number_of_fragments": 3
+            },
+            "highlight": {
+                "fields": {
+                    "text": {"fragment_size": 150, "number_of_fragments": 3}
                 }
-            }
+            },
+            "size": size
         }
-        
-        # Логируем отправляемый запрос
-        logger.log(f"📤 Отправка запроса в Elasticsearch: {json.dumps(search_query, ensure_ascii=False)}", LogLevel.INFO)
-        
+        logger.log(f"[ES] Отправляем запрос: {json.dumps(search_query)[:300]}...", LogLevel.DEBUG)
         response = es.search(
             index="court_decisions_index",
-            body=search_query,
-            size=size
+            body=search_query
         )
-        
-        # Логируем полученный ответ
-        logger.log(f"📥 Получен ответ от Elasticsearch. Найдено результатов: {response['hits']['total']['value']}", LogLevel.INFO)
-        
+        hits = response['hits']['hits']
+        logger.log(f"[ES] Получено {len(hits)} результатов из Elasticsearch", LogLevel.INFO)
+        if hits:
+            logger.log(f"[ES] Пример первого результата: {json.dumps(hits[0], ensure_ascii=False)[:500]}...", LogLevel.DEBUG)
+        else:
+            logger.log(f"[ES] Нет результатов по запросу '{query}'", LogLevel.WARNING)
         results = []
-        for hit in response['hits']['hits']:
+        for hit in hits:
             result = {
-                "text": hit["_source"]["text"],
+                "text": hit["_source"].get("text", ""),
                 "title": hit["_source"].get("title", ""),
-                "metadata": hit["_source"].get("metadata", {}),
                 "score": hit["_score"],
-                "highlights": hit.get("highlight", {}).get("text", []),
-                "vector_score": hit.get("_vector_score")  # Добавляем score векторного поиска
+                "highlights": hit.get("highlight", {}).get("text", [])
             }
             results.append(result)
-            # Логируем каждый найденный результат
-            logger.log(f"📄 Найден документ: {result['title']} (score: {result['score']}, vector_score: {result.get('vector_score')})", LogLevel.INFO)
-        
         return results
     except Exception as e:
         logger.log(f"❌ Ошибка при поиске в Elasticsearch: {str(e)}", LogLevel.ERROR)

@@ -1,6 +1,8 @@
 from typing import List, Dict, Any, Protocol
 from dataclasses import dataclass
 import tiktoken
+import logging
+import os
 
 class ContextManager:
     def __init__(
@@ -9,17 +11,33 @@ class ContextManager:
         model: str = 'deepseek-reasoner'
     ):
         self.max_tokens = max_tokens
-        # Используем encoding_for_model, если модель поддерживается, 
-        # иначе используем cl100k_base, который подходит для многих моделей
-        try:
-            self.tokenizer = tiktoken.encoding_for_model(model)
-        except KeyError:
-            self.tokenizer = tiktoken.get_encoding("cl100k_base")
-    
+        self.tokenizer = None
+        
+        # Список токенизаторов для попытки в порядке приоритета
+        tokenizer_names = ["cl100k_base", "p50k_base", "gpt2"]
+        
+        # Пытаемся инициализировать токенизатор
+        for name in tokenizer_names:
+            try:
+                logging.info(f"Попытка инициализации токенизатора {name}")
+                self.tokenizer = tiktoken.get_encoding(name)
+                logging.info(f"✅ Успешно инициализирован токенизатор {name}")
+                break
+            except Exception as e:
+                logging.warning(f"⚠️ Не удалось инициализировать токенизатор {name}: {str(e)}")
+                continue
+        
+        # Если не удалось инициализировать ни один токенизатор, используем базовый fallback
+        if self.tokenizer is None:
+            logging.warning("⚠️ Используем базовый токенизатор по словам")
+            self.tokenizer = BasicTokenizer()
+
     def _count_tokens(self, text: str) -> int:
         """Подсчет токенов в тексте."""
         if not text:
             return 0
+        if isinstance(self.tokenizer, BasicTokenizer):
+            return self.tokenizer.encode(text)
         return len(self.tokenizer.encode(text))
     
     def prepare_context(
@@ -159,3 +177,13 @@ class ThreadService:
         )
         
         return prepared_context
+
+class BasicTokenizer:
+    """Простой токенизатор, используемый как fallback"""
+    def encode(self, text: str) -> int:
+        """Возвращает примерное количество токенов, считая по словам"""
+        if not text:
+            return 0
+        # Грубая оценка: считаем слова и знаки препинания
+        words = text.split()
+        return len(words) + len([c for c in text if c in '.,!?;:()[]{}""\''])

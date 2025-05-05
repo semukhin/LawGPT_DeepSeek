@@ -29,7 +29,7 @@ deep_research_service = DeepResearchService()
 deepseek_service = DeepSeekService(
     api_key=DEEPSEEK_API_KEY, 
     model=DEEPSEEK_MODEL,
-    temperature=0.7,    
+    temperature=0.6,    
 )
 
 # Инициализация менеджера контекста
@@ -67,26 +67,40 @@ def format_chat_history(chat_history: List[Dict]) -> str:
     return "\n".join(formatted)
 
 @measure_time
-async def send_custom_request(user_query: str, thread_id: Optional[str] = None, db: Optional[Session] = None, document_text: str = "") -> str:
+async def send_custom_request(
+    user_query: str,
+    thread_id: Optional[str] = None,
+    db: Optional[Session] = None,
+    document_text: str = "",
+    chat_history: Optional[str] = None
+) -> str:
     """
     Отправляет пользовательский запрос и выполняет прямой поиск без function calling.
-    
     Args:
         user_query: Запрос пользователя
         thread_id: ID треда чата
         db: Сессия базы данных
         document_text: Текст документа (если есть)
-        
+        chat_history: История чата в формате JSON строки
     Returns:
         str: Ответ ассистента
     """
     logger.info(f"📝 Новый запрос пользователя: {user_query[:100]}...")
     try:
-        # Получаем историю сообщений, если есть thread_id
-        chat_history = []
-        if thread_id and db:
-            chat_history = await get_messages(thread_id, db)
-            logger.info(f"📜 Получена история чата: {len(chat_history)} сообщений")
+        # Получаем историю сообщений, если она не передана явно
+        messages = None
+        if chat_history:
+            try:
+                messages = json.loads(chat_history)
+            except json.JSONDecodeError:
+                logger.warning("❌ Не удалось распарсить переданную историю чата как JSON")
+        
+        if not messages and thread_id and db:
+            messages = await get_messages(thread_id, db)
+            logger.info(f"📜 Получена история чата: {len(messages)} сообщений")
+        
+        if messages:
+            chat_history = json.dumps(messages, ensure_ascii=False)
 
         # Создаем экземпляр DeepResearchService
         research_service = DeepResearchService()
@@ -102,11 +116,13 @@ async def send_custom_request(user_query: str, thread_id: Optional[str] = None, 
         else:
             logger.info("📝 Обработка общего запроса без поиска")
 
-        # Получаем результат исследования, передавая результаты поиска
+        # Получаем результат исследования, передавая результаты поиска и историю чата
         result = await research_service.research(
             query=user_query,
-            chat_history=format_chat_history(chat_history) if chat_history else None,
-            search_data=search_results
+            chat_history=chat_history,
+            search_data=search_results,
+            thread_id=thread_id,
+            db=db
         )
 
         return result.analysis

@@ -2,9 +2,10 @@ import sys
 from dotenv import load_dotenv
 import os
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 from typing import Optional
+import uuid
 
 # Добавляем путь к директории scripts в путь поиска модулей Python
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,6 +49,8 @@ if THIRD_PARTY_DIR not in sys.path:
 
 from app import models, database, auth
 from app.chat import router as chat_router
+from app.auth import get_current_user
+from sqlalchemy.orm import Session
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
@@ -106,10 +109,38 @@ class DeepResearchRequest(BaseModel):
     thread_id: Optional[str] = None
 
 @app.post("/deep-research/")
-async def deep_research(request: DeepResearchRequest):
+async def deep_research(
+    request: DeepResearchRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(database.get_db)
+):
     """Эндпоинт для глубокого исследования."""
-    results = await deep_research_service.research(request.query)
-    return {"results": results}
+    # 1. Сохраняем сообщение пользователя
+    thread_id = request.thread_id or f"thread_{uuid.uuid4().hex}"
+    # Проверяем, существует ли тред, если нет — создаём
+    thread = db.query(models.Thread).filter_by(id=thread_id, user_id=current_user.id).first()
+    if not thread:
+        thread = models.Thread(id=thread_id, user_id=current_user.id)
+        db.add(thread)
+        db.commit()
+    user_message = models.Message(thread_id=thread_id, role="user", content=request.query)
+    db.add(user_message)
+    db.commit()
+    db.refresh(user_message)
+    # 2. Запускаем исследование с передачей всех параметров
+    result = await deep_research_service.research(
+        request.query,
+        thread_id=thread_id,
+        user_id=current_user.id,
+        db=db,
+        message_id=user_message.id
+    )
+    # 3. Сохраняем ответ ассистента
+    assistant_message = models.Message(thread_id=thread_id, role="assistant", content=result.analysis)
+    db.add(assistant_message)
+    db.commit()
+    # 4. Возвращаем результат в старом и новом формате
+    return {"assistant_response": result.analysis, "results": result}
 
 # Подключение роутеров
 app.include_router(chat_router, prefix="/api")

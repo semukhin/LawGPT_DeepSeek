@@ -82,14 +82,16 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    original_name = Column(String(255), nullable=False)
     file_path = Column(String(255), nullable=False)
-    description = Column(String(1000))
-    mime_type = Column(String(100))
-    upload_date = Column(DateTime, default=datetime.utcnow)
-    content_text = Column(Text)  # Добавляем поле для хранения извлеченного текста
+    created_at = Column(DateTime, default=datetime.utcnow)
+    document_id = Column(Integer, nullable=True)
+    document_name = Column(String(255), nullable=True)
+    document_num = Column(String(255), nullable=True)
+    document_url = Column(String(255), nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    download_date = Column(DateTime, default=datetime.utcnow)
 
+    # Связи
     user = relationship("User", back_populates="documents")
 
 
@@ -108,3 +110,16 @@ class PromptLog(Base):
     thread = relationship("Thread", back_populates="prompt_logs")
     message = relationship("Message", back_populates="prompt_log", uselist=False)
     user = relationship("User", back_populates="prompt_logs")
+
+class ResearchResult(Base):
+    __tablename__ = "research_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(String(50), ForeignKey("threads.id"), nullable=False)
+    query = Column(Text, nullable=False)
+    findings = Column(Text, nullable=True)  # JSON строка с результатами поиска
+    analysis = Column(Text, nullable=False)  # Итоговый анализ
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Связи
+    thread = relationship("Thread", backref="research_results")

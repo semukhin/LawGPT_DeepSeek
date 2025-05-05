@@ -126,179 +126,111 @@ async def chat_in_thread(
 ):
     """
     Основной эндпоинт для общения с ассистентом.
-
-    Новая логика:
-    1. Если загружен только файл (без текстового запроса) — просто извлекает текст и возвращает его.
-    2. Если загружен файл с текстовым запросом — сначала возвращает распознанный текст, 
-       а затем выполняет задание из запроса.
-    3. Если только текстовый запрос без файла — обрабатывает запрос обычным способом.
+    Обрабатывает текстовые запросы и загруженные файлы.
     """
-    # Проверка и обработка случая, когда query равен None
     if query is None and file is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Необходимо предоставить текстовый запрос или файл")
+        raise HTTPException(status_code=400, detail="Необходимо предоставить текстовый запрос или файл")
 
-    # Если query None, но файл есть, устанавливаем пустой запрос
     query = query or ""
+    query = fix_encoding(query)
+    query = unicodedata.normalize('NFC', query)
 
-    # 1. Проверка и нормализация текста запроса
-    try:
-        # Исправляем кодировку запроса
-        query = fix_encoding(query)
-
-        # Нормализация Unicode для решения проблем с составными символами
-        query = unicodedata.normalize('NFC', query)
-
-        # Логируем запрос, ограничивая длину для читаемости
-        log_query = query[:100] + "..." if len(query) > 100 else query
-        logging.info(
-            f"📥 Получен запрос: thread_id={thread_id}, query='{log_query}'")
-    except Exception as e:
-        logging.error(f"❌ Ошибка декодирования запроса: {str(e)}")
-        # Попытка исправить кодировку, если она неправильная
-        try:
-            query = query.encode('latin1').decode('utf-8')
-            logging.info(f"✅ Исправлена кодировка запроса")
-        except Exception as e:
-            logging.error(f"❌ Не удалось исправить кодировку: {str(e)}")
-            query = ""  # Устанавливаем пустой запрос
-
-    # 2. Проверка кодировки перед дальнейшей обработкой
-    if isinstance(query, str):
-        # Убедимся, что query действительно строка в UTF-8
-        try:
-            query.encode('utf-8').decode('utf-8')
-        except UnicodeError:
-            logging.warning(
-                "⚠️ Проблема с кодировкой в тексте запроса, пытаемся исправить"
-            )
-            # Дополнительная попытка исправить кодировку
-            try:
-                query = query.encode('latin1').decode('utf-8',
-                                                      errors='replace')
-            except:
-                pass
-
-    # 3. Проверка и исправление thread_id
-    # Если thread_id буквально равен 'thread_id' или не соответствует формату UUID
+    # Проверка и исправление thread_id
     uuid_pattern = re.compile(r'^thread_[0-9a-f]{32}$')
-    if thread_id == 'thread_id' or (not uuid_pattern.match(thread_id)
-                                    and not thread_id.startswith('existing_')):
-        # Создаем новый thread_id
-        new_thread_id = f"thread_{uuid.uuid4().hex}"
-        logging.info(
-            f"⚠️ Получен некорректный thread_id: {thread_id}. Создан новый: {new_thread_id}"
-        )
-        thread_id = new_thread_id
+    if thread_id == 'thread_id' or (not uuid_pattern.match(thread_id) and not thread_id.startswith('existing_')):
+        thread_id = f"thread_{uuid.uuid4().hex}"
+        logging.info(f"⚠️ Создан новый thread_id: {thread_id}")
 
-    # 4. Поиск или создание треда
-    thread = db.query(Thread).filter_by(id=thread_id,
-                                        user_id=current_user.id).first()
+    # Поиск или создание треда
+    thread = db.query(Thread).filter_by(id=thread_id, user_id=current_user.id).first()
     if not thread:
-        logging.info("🔑 Тред не найден. Создаем новый.")
         thread = Thread(id=thread_id, user_id=current_user.id)
         db.add(thread)
         db.commit()
 
-    # 5. Обработка файла (если есть)
+    # Обработка файла
     if file:
-        logging.info(f"📄 Обработка загруженного файла: {file.filename}")
-        file_path, extracted_text, file_metadata = await process_chat_uploaded_file(
-            file)
+        logging.info(f"📄 Обработка файла: {file.filename}")
+        file_path, extracted_text, file_metadata = await process_uploaded_file(
+            file=file,
+            user_id=current_user.id,
+            db=db
+        )
 
-        # Создаем информативное сообщение о загруженном документе
+        # Формируем информацию о файле
         file_info = (
             f"Документ: {file.filename}\n"
             f"Размер: {file_metadata.get('file_size_formatted', 'неизвестно')}\n"
-            f"Тип: {file_metadata.get('extension', 'неизвестно')}")
-
-        # Формируем ответ с распознанным текстом
-        text_preview = extracted_text[:5000] + "..." if len(
-            extracted_text) > 5000 else extracted_text
-
-        # Формируем информацию о сохраненном файле
-        saved_filename = os.path.basename(file_metadata.get("recognized_text_file_txt", ""))
-        download_url = f"/api/download/{saved_filename}"
-        file_metadata.update({
-            "download_url": download_url,
-            "saved_filename": saved_filename,
-            "file_size_formatted": file_metadata.get("file_size_formatted", ""),
-            "char_count": file_metadata.get("char_count", 0),
-            "word_count": file_metadata.get("word_count", 0)
-        })
-
-        # Формируем ссылку на скачивание с полной информацией
-        download_link = (
-            f"\n\n**Распознанный текст сохранен:**\n"
-            f"- Имя файла: `{saved_filename}`\n"
-            f"- Размер: {file_metadata.get('file_size_formatted')}\n"
-            f"- Символов: {file_metadata.get('char_count')}\n"
-            f"- Слов: {file_metadata.get('word_count')}\n"
-            f"\n[Скачать распознанный текст]({download_url})"
+            f"Тип: {file_metadata.get('extension', 'неизвестно')}"
         )
 
+        # Формируем ответ с распознанным текстом
+        text_preview = extracted_text[:5000] + "..." if len(extracted_text) > 5000 else extracted_text
+        download_url = file_metadata.get("download_url", "")
+        
         recognized_text_response = (
             f"**Распознанный текст из файла {file.filename}:**\n\n"
             f"```\n{text_preview}\n```\n\n"
             f"*Распознано {file_metadata.get('char_count', 0)} символов, "
-            f"{file_metadata.get('word_count', 0)} слов.*{download_link}")
+            f"{file_metadata.get('word_count', 0)} слов.*\n\n"
+            f"[Скачать распознанный текст]({download_url})"
+        )
 
-        # Сохраняем сообщение пользователя и ответ с распознанным текстом
+        # Сохраняем сообщения в чат
         db.add_all([
             Message(thread_id=thread_id, role="user", content=file_info),
-            Message(thread_id=thread_id,
-                    role="assistant",
-                    content=recognized_text_response)
+            Message(thread_id=thread_id, role="assistant", content=recognized_text_response)
         ])
         db.commit()
 
-        # Возвращаем результат с полными метаданными
         result = {
             "assistant_response": recognized_text_response,
             "recognized_text": extracted_text,
-            "file_name": file.filename,
-            "file_path": file_path,
             "file_metadata": file_metadata,
-            "success": True,
-            "text": extracted_text,
-            "download_url": download_url,
-            "saved_filename": saved_filename
+            "success": True
         }
 
-        # Если есть текстовый запрос (не пустой), обрабатываем его как обычное задание,
-        # но с учетом контекста файла
-        assistant_response = None
+        # Если есть текстовый запрос, обрабатываем его с учетом контекста файла
         if query.strip():
-            logging.info(
-                "💬 Обработка текстового запроса с учетом загруженного файла.")
-
-            # Создаем запрос с учетом содержимого документа
+            logging.info("💬 Обработка запроса с учетом контекста файла")
+            
+            # Получаем историю чата
+            chat_history = await get_messages(thread_id=thread_id, db=db, user_id=current_user.id)
+            chat_history_str = json.dumps(chat_history, ensure_ascii=False)
+            
             enhanced_query = f"{query}\n\nДокумент содержит:\n{extracted_text[:3000]}..."
-
-            # Получаем ответ ассистента
-            assistant_response = await send_custom_request(user_query=enhanced_query, thread_id=thread_id, db=db)
+            assistant_response = await send_custom_request(
+                user_query=enhanced_query,
+                thread_id=thread_id,
+                db=db,
+                chat_history=chat_history_str  # Передаем историю чата
+            )
+            result["additional_response"] = assistant_response
 
         # Обновляем first_message треда, если он пустой
         if not thread.first_message:
             thread.first_message = file.filename
             db.commit()
 
-        # Если был обработан дополнительный запрос, добавляем его в результат
-        if assistant_response:
-            result["additional_response"] = assistant_response
-
         return result
-    else:
-        # 6. Обработка только текстового запроса (без файла)
-        logging.info("💬 Обработка текстового запроса без файла.")
 
-        assistant_response = await send_custom_request(user_query=query, thread_id=thread_id, db=db)
+    else:
+        # Обработка только текстового запроса
+        logging.info("💬 Обработка текстового запроса")
+        # Получаем последние 5 сообщений истории чата
+        chat_history = await get_messages(thread_id=thread_id, db=db, user_id=current_user.id)
+        last_5_history = chat_history[-5:] if len(chat_history) > 5 else chat_history
+        chat_history_str = json.dumps(last_5_history, ensure_ascii=False)
+        assistant_response = await send_custom_request(
+            user_query=query,
+            thread_id=thread_id,
+            db=db,
+            chat_history=chat_history_str  # Передаем историю чата
+        )
 
         # Обновляем first_message треда, если он пустой
         if not thread.first_message and query:
-            thread.first_message = query[:100] + ('...'
-                                                  if len(query) > 100 else '')
+            thread.first_message = query[:100] + ('...' if len(query) > 100 else '')
             db.commit()
 
         return {"assistant_response": assistant_response}
@@ -346,7 +278,7 @@ async def get_thread_messages(
     db: Session = Depends(get_db)
 ):
     """Возвращает сообщения из выбранного треда."""
-    return await get_messages(thread_id=thread_id, db=db, current_user_id=current_user.id)
+    return await get_messages(thread_id=thread_id, db=db, user_id=current_user.id)
 
 
 # ===================== Эндпоинты для загрузки и скачивания файлов =====================

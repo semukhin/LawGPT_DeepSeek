@@ -20,13 +20,20 @@ class TavilyExtract:
     def scrape(self) -> tuple:
         try:
             response = self.tavily_client.extract(urls=self.link)
-            if response['failed_results']:
+            if not isinstance(response, dict):
+                print("TavilyExtract: неожиданный формат ответа:", response)
+                return "", [], ""
+            if response.get('failed_results'):
+                return "", [], ""
+            results = response.get('results', [])
+            if not isinstance(results, list) or not results:
+                print("TavilyExtract: нет успешных результатов:", response)
                 return "", [], ""
             response_bs = self.session.get(self.link, timeout=4)
             soup = BeautifulSoup(
                 response_bs.content, "lxml", from_encoding=response_bs.encoding
             )
-            content = response['results'][0]['raw_content']
+            content = results[0].get('raw_content', '')
             image_urls = get_relevant_images(soup, self.link)
             title = extract_title(soup)
             return content, image_urls, title
