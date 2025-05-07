@@ -1,20 +1,22 @@
+import os
+from dotenv import load_dotenv
+
+# Явно указываем путь к .env
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+print("DEBUG: DB_USER_MYSQL =", os.getenv("DB_USER_MYSQL"))
+
 """
 Конфигурационный файл для приложения.
 Содержит настройки API, базы данных и других компонентов.
 """
-import os
-from dotenv import load_dotenv
 from fastapi.security import OAuth2PasswordBearer
-import logging
+from app.utils.logger import get_logger
 from elasticsearch import Elasticsearch
 from urllib.parse import quote_plus
 
-# Load environment variables from .env file
-load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+# Инициализируем логгер
+logger = get_logger()
 
 # ===== PostgreSQL Configuration (для RAG ElasticSearch) =====
 PG_DB_HOST = os.getenv("DB_HOST")
@@ -36,8 +38,10 @@ PG_DB_CONFIG = {
 if all([PG_DB_HOST, PG_DB_PORT, PG_DB_NAME, PG_DB_USER, PG_DB_PASSWORD]):
     PG_DB_PASSWORD_ENCODED = quote_plus(PG_DB_PASSWORD)
     POSTGRES_DATABASE_URL = f"postgresql+psycopg2://{PG_DB_USER}:{PG_DB_PASSWORD_ENCODED}@{PG_DB_HOST}:{PG_DB_PORT}/{PG_DB_NAME}"
+    logger.info("✅ Конфигурация PostgreSQL успешно загружена")
 else:
     POSTGRES_DATABASE_URL = None
+    logger.warning("⚠️ Не все переменные окружения для PostgreSQL определены")
 
 # ===== MySQL Configuration (основная БД) =====
 MYSQL_DB_USER = os.getenv("DB_USER_MYSQL")
@@ -50,8 +54,10 @@ MYSQL_DB_NAME = os.getenv("DB_NAME_MYSQL")
 if all([MYSQL_DB_USER, MYSQL_DB_PASSWORD, MYSQL_DB_HOST, MYSQL_DB_PORT, MYSQL_DB_NAME]):
     MYSQL_DB_PASSWORD_ENCODED = quote_plus(MYSQL_DB_PASSWORD)
     MYSQL_DATABASE_URL = f"mysql+pymysql://{MYSQL_DB_USER}:{MYSQL_DB_PASSWORD_ENCODED}@{MYSQL_DB_HOST}:{MYSQL_DB_PORT}/{MYSQL_DB_NAME}"
+    logger.info("✅ Конфигурация MySQL успешно загружена")
 else:
     MYSQL_DATABASE_URL = None
+    logger.warning("⚠️ Не все переменные окружения для MySQL определены")
 
 # Основной URL для базы данных (используется в приложении)
 DATABASE_URL = MYSQL_DATABASE_URL
@@ -73,6 +79,7 @@ try:
             max_retries=3,
             request_timeout=30
         )
+        logger.info(f"✅ Подключение к Elasticsearch с аутентификацией: {ES_HOST}")
     else:
         es = Elasticsearch(
             [ES_HOST],
@@ -80,12 +87,12 @@ try:
             max_retries=3,
             request_timeout=30
         )
+        logger.info(f"✅ Подключение к Elasticsearch без аутентификации: {ES_HOST}")
 
     health = es.cluster.health()
-    print("Статус кластера Elasticsearch:", health['status'])
+    logger.info(f"Статус кластера Elasticsearch: {health['status']}")
 except Exception as e:
-    logging.error(f"Ошибка подключения к Elasticsearch: {e}")
-    print(f"Ошибка подключения к Elasticsearch: {e}")
+    logger.error(f"❌ Ошибка подключения к Elasticsearch: {e}")
 
 # ===== JWT Configuration =====
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -99,8 +106,14 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "deepseek")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-reasoner")
-USE_SHANDU_RESEARCH_AGENT = os.getenv("USE_SHANDU_RESEARCH_AGENT", "False") == "True"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", DEEPSEEK_API_KEY)  # Используем DEEPSEEK_API_KEY как запасной вариант
 
+# Логируем конфигурацию AI провайдера
+logger.info(f"AI Provider: {AI_PROVIDER}")
+if DEEPSEEK_API_KEY:
+    logger.info("✅ DEEPSEEK_API_KEY установлен")
+else:
+    logger.warning("⚠️ DEEPSEEK_API_KEY не установлен")
 
 # ===== Google Configuration =====
 # GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").replace('"', '')  # Отключаем Google API

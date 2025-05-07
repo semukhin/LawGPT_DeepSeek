@@ -2,31 +2,30 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import MYSQL_DATABASE_URL, POSTGRES_DATABASE_URL
-import logging
+from app.utils.logger import get_logger
 import os
 from urllib.parse import quote_plus
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+# Инициализируем логгер
+logger = get_logger()
 
 # Используем MySQL для основных данных приложения
 try:
     if not MYSQL_DATABASE_URL:
         raise ValueError("MYSQL_DATABASE_URL не определен")
         
-    logging.info(f"Попытка подключения к MySQL: {MYSQL_DATABASE_URL.split('@')[1] if '@' in MYSQL_DATABASE_URL else 'URL скрыт'}")
+    logger.info(f"Попытка подключения к MySQL: {MYSQL_DATABASE_URL.split('@')[1] if '@' in MYSQL_DATABASE_URL else 'URL скрыт'}")
     engine = create_engine(MYSQL_DATABASE_URL, pool_pre_ping=True, pool_recycle=3600)
     connection = engine.connect()
     result = connection.execute(text("SELECT 1"))
     connection.close()
-    logging.info(f"✅ Успешное подключение к MySQL БД")
+    logger.info("✅ Успешное подключение к MySQL БД")
 except Exception as e:
-    logging.error(f"❌ Ошибка подключения к MySQL: {e}")
+    logger.error(f"❌ Ошибка подключения к MySQL: {e}")
     # Фоллбек на SQLite
     DATABASE_URL = "sqlite:///./app.db"
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-    logging.warning(f"⚠️ Используется фоллбек на SQLite: {DATABASE_URL}")
+    logger.warning(f"⚠️ Используется фоллбек на SQLite: {DATABASE_URL}")
 
 
 
@@ -50,12 +49,12 @@ try:
         # Проверка соединения
         with es_engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
-            logging.info("✅ Успешное подключение к PostgreSQL для хранения данных Elasticsearch")
+            logger.info("✅ Успешное подключение к PostgreSQL для хранения данных Elasticsearch")
     else:
-        logging.warning("❌ Не все переменные окружения для PostgreSQL определены, пропускаем подключение")
+        logger.warning("❌ Не все переменные окружения для PostgreSQL определены, пропускаем подключение")
         es_engine = None
 except Exception as e:
-    logging.error(f"❌ Ошибка подключения к PostgreSQL для Elasticsearch: {e}")
+    logger.error(f"❌ Ошибка подключения к PostgreSQL для Elasticsearch: {e}")
     es_engine = None # Устанавливаем None чтобы показать, что подключение не удалось
 
 

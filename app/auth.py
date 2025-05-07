@@ -1,19 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status, Form
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from datetime import timedelta, datetime
 from jose import jwt, JWTError
 from random import randint
 from app import mail_utils, models, schemas, database, config
-from app.schemas import CodeVerificationRequest
-from app.config import SECRET_KEY, ALGORITHM
-from pydantic import BaseModel, EmailStr
-from app.mail_utils import send_verification_email, send_recovery_email
-from app.models import TempUser
-from sqlalchemy.orm import Session
-from random import randint
-from app import models, database, mail_utils
 from app.schemas import PasswordResetRequest, PasswordResetConfirm
+from app.config import SECRET_KEY, ALGORITHM
 from fastapi.security import OAuth2PasswordBearer
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -172,8 +165,14 @@ async def verify_code(
 
 
 @router.post("/login")
-async def login(user: schemas.UserLogin, db: Session = Depends(database.get_db)):
+async def login(
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(database.get_db)
+):
     """Авторизация пользователя."""
+    # Создаём объект схемы вручную
+    user = schemas.UserLogin(email=email, password=password)
     # 1. Проверяем основной users
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
@@ -285,3 +284,5 @@ async def logout():
     """Выход из системы."""
     # В FastAPI токены хранятся на клиенте, так что для "выхода" можно просто уведомить клиента.
     return {"message": "Выход успешно выполнен"}
+
+print("Маршруты auth_router:", [r.path for r in router.routes])

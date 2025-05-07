@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 from typing import Optional
 import uuid
+from sqlalchemy.orm import Session
 
 # Добавляем путь к директории scripts в путь поиска модулей Python
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,40 +18,42 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
-from app.services.research_factory import ResearchAdapter
+from app.utils.logger import get_logger
+from app.services.deepresearch_service import deep_research_service
+
+# Инициализируем логгер
+logger = get_logger()
 
 try:
     from app.services.es_init import init_elasticsearch_async, get_indexing_status
 except ModuleNotFoundError:
     # Создаем заглушки для функций, если модуль недоступен
-    logging.warning("Модуль scripts.es_init не найден. Используются заглушки функций.")
+    logger.warning("Модуль scripts.es_init не найден. Используются заглушки функций.")
     def init_elasticsearch_async():
-        logging.warning("Elasticsearch инициализация пропущена (модуль недоступен)")
+        logger.warning("Elasticsearch инициализация пропущена (модуль недоступен)")
         return False
 
     def get_indexing_status():
         return {"status": "unavailable", "error": "Модуль es_init недоступен"}
+
 import time
 from contextlib import asynccontextmanager
 import asyncio
 
-deep_research_service = ResearchAdapter()
-
 # Загрузка переменных окружения из .env файла
 load_dotenv()
 # Проверка загрузки переменных окружения
-print("DATABASE_URL:", os.getenv("DATABASE_URL"))
+logger.info(f"DATABASE_URL: {os.getenv('DATABASE_URL')}")
 
 # Добавляем путь к сторонним пакетам (third_party) до импорта роутеров
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-THIRD_PARTY_DIR = os.path.join(BASE_DIR, "third_party")
-if THIRD_PARTY_DIR not in sys.path:
-    sys.path.insert(0, THIRD_PARTY_DIR)
 
-from app import models, database, auth
+from app.models import PromptLog, ResearchResult, User, Thread, Message
+from app.database import Base, engine, get_db
+print("Импорт auth_router ОК")
+from app.auth import router as auth_router, get_current_user
+print("Импорт chat_router ОК")
 from app.chat import router as chat_router
-from app.auth import get_current_user
-from sqlalchemy.orm import Session
 
 # ✅ Единственный экземпляр FastAPI
 app = FastAPI(
@@ -59,15 +62,12 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Монтируем статику для фронтенда
-app.mount("/frontend", StaticFiles(directory="frontend", html=True), name="frontend")
+# --- Диагностика: вывод всех маршрутов ---
+for route in app.routes:
+    print(f"{route.path} -> {route.methods}")
 
-# Настраиваем логирование
-logging.basicConfig(
-    level=logging.INFO,  # Уровень логирования
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Формат сообщений
-)
-logger = logging.getLogger(__name__)  # Создаем логгер для текущего модуля
+# Монтирую папку frontend как корень сайта
+app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 # Отключаем отладочные сообщения для multipart parser
 logging.getLogger('fastapi.multipart.multipart').setLevel(logging.INFO)
@@ -81,6 +81,7 @@ async def add_process_time_header(request: Request, call_next):
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+    logger.info(f"Запрос {request.method} {request.url.path} обработан за {process_time:.2f}с")
     return response
 
 # Middleware для установки правильной кодировки в HTTP заголовках
@@ -98,32 +99,39 @@ async def add_charset_middleware(request: Request, call_next):
 
     return response
 
-@app.get("/items/{item_id}")
-async def read_item(item_id: int):
-    logger.info(f"Получен запрос для item_id: {item_id}")
-    # Ваш код обработки запроса
-    return {"item_id": item_id}
+# --- Переношу вспомогательные эндпоинты под /api ---
+from fastapi import APIRouter
+api_router = APIRouter()
+
+@api_router.get("/ping")
+async def ping():
+    return {"message": "pong"}
+
+@api_router.get("/indexing-status")
+async def indexing_status():
+    """Возвращает текущий статус индексации"""
+    return get_indexing_status()
 
 class DeepResearchRequest(BaseModel):
     query: str
     thread_id: Optional[str] = None
 
-@app.post("/deep-research/")
+@api_router.post("/deep-research/")
 async def deep_research(
     request: DeepResearchRequest,
-    current_user: models.User = Depends(auth.get_current_user),
-    db: Session = Depends(database.get_db)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Эндпоинт для глубокого исследования."""
     # 1. Сохраняем сообщение пользователя
     thread_id = request.thread_id or f"thread_{uuid.uuid4().hex}"
     # Проверяем, существует ли тред, если нет — создаём
-    thread = db.query(models.Thread).filter_by(id=thread_id, user_id=current_user.id).first()
+    thread = db.query(Thread).filter_by(id=thread_id, user_id=current_user.id).first()
     if not thread:
-        thread = models.Thread(id=thread_id, user_id=current_user.id)
+        thread = Thread(id=thread_id, user_id=current_user.id)
         db.add(thread)
         db.commit()
-    user_message = models.Message(thread_id=thread_id, role="user", content=request.query)
+    user_message = Message(thread_id=thread_id, role="user", content=request.query)
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
@@ -136,19 +144,43 @@ async def deep_research(
         message_id=user_message.id
     )
     # 3. Сохраняем ответ ассистента
-    assistant_message = models.Message(thread_id=thread_id, role="assistant", content=result.analysis)
+    assistant_message = Message(thread_id=thread_id, role="assistant", content=result.analysis)
     db.add(assistant_message)
     db.commit()
     # 4. Возвращаем результат в старом и новом формате
     return {"assistant_response": result.analysis, "results": result}
 
-# Подключение роутеров
-app.include_router(chat_router, prefix="/api")
-app.include_router(auth.router, prefix="/api")
+@api_router.get("/items/{item_id}")
+async def read_item(item_id: int):
+    logger.info(f"Получен запрос для item_id: {item_id}", context={"item_id": item_id})
+    return {"item_id": item_id}
 
+# --- Подключаю api_router ---
+app.include_router(api_router, prefix="/api")
+print("api_router подключён")
+app.include_router(chat_router, prefix="/api")
+print("chat_router подключён")
+app.include_router(auth_router, prefix="/api")
+print("auth_router подключён")
+
+# --- Fallback для SPA: отдаём index.html на все не-API-запросы ---
+from starlette.responses import FileResponse as StarletteFileResponse
+from starlette.requests import Request as StarletteRequest
+
+@app.middleware("http")
+async def spa_fallback(request: StarletteRequest, call_next):
+    # Если путь начинается с /api или /static, отдаём как есть
+    if request.url.path.startswith("/api") or request.url.path.startswith("/static"):
+        return await call_next(request)
+    # Если файл реально существует, отдаём его
+    static_path = os.path.join("frontend", request.url.path.lstrip("/"))
+    if os.path.isfile(static_path):
+        return StarletteFileResponse(static_path)
+    # Иначе отдаём index.html (SPA fallback)
+    return StarletteFileResponse("frontend/index.html")
 
 # Создание всех таблиц в базе данных
-models.Base.metadata.create_all(bind=database.engine)
+Base.metadata.create_all(bind=engine)
 
 # Настройка CORS с указанием кодировки
 app.add_middleware(
@@ -173,44 +205,29 @@ app.add_middleware(
     expose_headers=["X-Process-Time", "Content-Disposition"]
 )
 
-# Главная страница
-@app.get("/", response_class=FileResponse)
-async def read_root():
-    """Отдаем index.html из папки frontend"""
-    return FileResponse("frontend/index.html")
-
-@app.get("/ping")
-async def ping():
-    return {"message": "pong"}
-
-@app.get("/indexing-status")
-async def indexing_status():
-    """Возвращает текущий статус индексации"""
-    return get_indexing_status()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Обработчик событий жизненного цикла приложения."""
     # Действия при запуске
     try:
         from sqlalchemy import text
-        with database.engine.connect() as conn:
+        with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
-            logging.info("Соединение с MySQL успешно установлено")
+            logger.info("✅ Соединение с MySQL успешно установлено")
     except Exception as e:
-        logging.error(f"Ошибка соединения с MySQL: {str(e)}")
+        logger.error(f"❌ Ошибка соединения с MySQL: {str(e)}")
 
     # Асинхронная инициализация Elasticsearch
     try:
         if 'init_elasticsearch_async' in globals():
             if init_elasticsearch_async():
-                logger.info("Запущена асинхронная инициализация Elasticsearch")
+                logger.info("✅ Запущена асинхронная инициализация Elasticsearch")
             else:
-                logger.warning("Elasticsearch инициализация пропущена. Поиск по базе знаний будет недоступен.")
+                logger.warning("⚠️ Elasticsearch инициализация пропущена. Поиск по базе знаний будет недоступен.")
         else:
-            logger.warning("Функция init_elasticsearch_async недоступна. Elasticsearch не будет инициализирован.")
+            logger.warning("⚠️ Функция init_elasticsearch_async недоступна. Elasticsearch не будет инициализирован.")
     except Exception as e:
-        logger.warning(f"Ошибка при инициализации Elasticsearch: {str(e)}. Приложение продолжит работу без поддержки поиска.")
+        logger.warning(f"⚠️ Ошибка при инициализации Elasticsearch: {str(e)}. Приложение продолжит работу без поддержки поиска.")
 
     yield  # Здесь можно добавить код, который будет выполняться во время работы приложения
 

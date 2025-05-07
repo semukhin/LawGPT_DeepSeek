@@ -2,23 +2,18 @@
 Модуль для работы с DeepSeek API.
 Поддерживает отправку запросов пользователей к ассистенту с возможностью функциональных вызовов.
 """
-from typing import Dict, Optional, List, Any, Union, AsyncGenerator
+from typing import Dict, Optional, List, Any
 from sqlalchemy.orm import Session 
 import json
 import asyncio
 from app.handlers.parallel_search import run_parallel_search
-from app.utils import measure_time
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.web_search import WebSearchHandler, run_multiple_searches
-from app.services.deepresearch_service import DeepResearchService, ResearchResult
+from app.handlers.web_search import run_multiple_searches
+from app.services.deepresearch_service import DeepResearchService
 from app.services.deepseek_service import DeepSeekService
-from app.models import User, Message, Thread
+from app.models import get_messages
 from app.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
 from app.context_manager import ContextManager
-from app.utils.chat_utils import get_messages
-from app.database import get_db
-from app.auth import get_current_user
-from app.handlers.user_doc_request import extract_text_from_any_document
 from app.utils.logger import get_logger
 
 # Инициализация логгера
@@ -26,11 +21,7 @@ logger = get_logger()
 
 # Инициализация сервисов
 deep_research_service = DeepResearchService()
-deepseek_service = DeepSeekService(
-    api_key=DEEPSEEK_API_KEY, 
-    model=DEEPSEEK_MODEL,
-    temperature=0.6,    
-)
+deepseek_service = DeepSeekService()
 
 # Инициализация менеджера контекста
 context_manager = ContextManager(model=DEEPSEEK_MODEL)
@@ -40,6 +31,11 @@ MAX_PROMPT_CHARS = 30000  # Максимальная длина итоговог
 MAX_SEARCH_RESULTS_CHARS = 10000  # Лимит на результаты поиска
 MAX_ES_RESULT_CHARS = 10000  # Лимит на один фрагмент из ElasticSearch
 MAX_WEB_RESULT_CHARS = 3800  # Лимит на один веб-результат
+
+# Системные промпты
+GENERAL_SYSTEM_PROMPT = """Ты - профессиональный юридический ассистент. Отвечай на вопросы пользователя, основываясь на законодательстве РФ."""
+
+RESEARCH_SYSTEM_PROMPT = """Ты - профессиональный юридический исследователь. Анализируй правовые вопросы, используя законодательство РФ, судебную практику и правовые позиции."""
 
 def log_function_call(function_name: str, arguments: Dict) -> None:
     """Логирует вызов функции с аргументами для отладки."""
@@ -66,7 +62,14 @@ def format_chat_history(chat_history: List[Dict]) -> str:
     
     return "\n".join(formatted)
 
-@measure_time
+def build_deepseek_messages(system_prompt: str, chat_history: List[Dict], user_query: str) -> List[Dict]:
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in chat_history[-10:]:
+        if msg["role"] in ("user", "assistant"):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_query})
+    return messages
+
 async def send_custom_request(
     user_query: str,
     thread_id: Optional[str] = None,
@@ -87,27 +90,23 @@ async def send_custom_request(
     """
     logger.info(f"📝 Новый запрос пользователя: {user_query[:100]}...")
     try:
-        # Получаем историю сообщений, если она не передана явно
+        # Получаем историю сообщений
         messages = None
         if chat_history:
             try:
                 messages = json.loads(chat_history)
             except json.JSONDecodeError:
                 logger.warning("❌ Не удалось распарсить переданную историю чата как JSON")
-        
         if not messages and thread_id and db:
             messages = await get_messages(thread_id, db)
             logger.info(f"📜 Получена история чата: {len(messages)} сообщений")
-        
-        if messages:
-            chat_history = json.dumps(messages, ensure_ascii=False)
-
-        # Создаем экземпляр DeepResearchService
+        if not messages:
+            messages = []
+        # Определяем тип запроса
         research_service = DeepResearchService()
-        
-        # Проверяем, является ли запрос общим
         is_general = research_service.is_general_query(user_query)
-        
+        system_prompt = GENERAL_SYSTEM_PROMPT if is_general else RESEARCH_SYSTEM_PROMPT
+        deepseek_messages = build_deepseek_messages(system_prompt, messages, user_query)
         # Выполняем поиск только для юридических запросов
         search_results = None
         if not is_general:
@@ -115,18 +114,15 @@ async def send_custom_request(
             search_results = await run_parallel_search(user_query)
         else:
             logger.info("📝 Обработка общего запроса без поиска")
-
-        # Получаем результат исследования, передавая результаты поиска и историю чата
+        # Получаем результат исследования, передавая массив сообщений
         result = await research_service.research(
             query=user_query,
-            chat_history=chat_history,
+            chat_history=deepseek_messages,  # теперь это массив сообщений
             search_data=search_results,
             thread_id=thread_id,
             db=db
         )
-
         return result.analysis
-
     except Exception as e:
         logger.error(f"❌ Ошибка при обработке запроса: {str(e)}")
         return f"Извините, произошла ошибка при обработке запроса: {str(e)}"
@@ -179,7 +175,6 @@ AVAILABLE_FUNCTIONS = [
 ]
 
 
-@measure_time
 async def handle_function_call(function_name: str, arguments: Dict, thread_id: Optional[str] = None, db: Optional[Session] = None) -> Dict[str, Any]:
     """
     Обработка вызова функций ассистентом.

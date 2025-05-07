@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   backend:
     platform: linux/amd64
@@ -54,16 +56,16 @@ services:
       - es_network
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    image: elasticsearch:8.11.1
     container_name: elasticsearch_2
     environment:
       - discovery.type=single-node
+      - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false 
     ports:
-      - "9201:9200"
+      - "9200:9200"
     volumes:
-      - elasticsearch_data_2:/usr/share/elasticsearch/data
+      - es_data:/usr/share/elasticsearch/data
     networks:
       - es_network
     healthcheck:
@@ -96,7 +98,7 @@ volumes:
   documents_html:
   uploads:
   static:
-  elasticsearch_data_2:
+  es_data:
 
 networks:
   es_network:

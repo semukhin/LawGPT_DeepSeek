@@ -1,30 +1,24 @@
+"""
+Сервис для глубокого исследования юридических вопросов.
+Использует DeepSeek API и различные источники данных для анализа.
+"""
 import re
 import os
 import sys
 import json
 import asyncio
-import aiohttp
 import logging
-from typing import Dict, Optional, Any, List, Union, AsyncGenerator
-from pathlib import Path
+from typing import Dict, Optional, Any, List, Union
 from datetime import datetime
-from app.handlers.user_doc_request import extract_text_from_any_document
+from sqlalchemy.orm import Session
+
 from app.handlers.es_law_search import search_law_chunks
 from app.services.tavily_service import TavilyService
 from app.services.deepseek_service import DeepSeekService
-from app.models import PromptLog  # Импорт модели для логов промптов
-from sqlalchemy.orm import Session
-from app import models
-from app.handlers.parallel_search import run_parallel_search  # Добавляем импорт
+from app.services.prompt_builder import PromptBuilder
 from app.services.web_scraper import WebScraper
-from app.services.db_service import DBService
-from app.handlers.web_search import WebSearchHandler
-from app.utils import ensure_correct_encoding  # Добавляем импорт
-from app.utils.logger import EnhancedLogger, LogLevel, get_logger
-import types
-
-# Импортируем настройки из config.py
-from app.config import DEEPSEEK_API_KEY, DEEPSEEK_MODEL
+from app.models import PromptLog, ResearchResult
+from app.utils.logger import LogLevel, get_logger
 
 # Системные промпты
 GENERAL_SYSTEM_PROMPT = """
@@ -55,6 +49,29 @@ LEGAL_SYSTEM_PROMPT = """
 
                 4. ПРАКТИЧЕСКАЯ НАПРАВЛЕННОСТЬ: Предлагай конкретные правовые механизмы решения проблемы с указанием процессуальных сроков, подсудности, формы и содержания необходимых документов.
 
+                **ДОСТУПНЫЕ ФУНКЦИИ ПОИСКА:**
+                1. search_law - обязательно используй для поиска в законодательстве РФ, когда нужно:
+                   - найти конкретные нормы законов
+                   - проверить актуальные редакции статей
+                   - найти судебную практику по схожим делам
+                   - уточнить правовые нормы и их толкование
+
+                2. search_web - обязательно используй для поиска в интернете, когда нужно:
+                   - найти актуальную судебную практику
+                   - проверить последние изменения в законодательстве
+                   - найти аналитические материалы и комментарии экспертов
+                   - получить информацию о правоприменении
+
+                ВАЖНО: Используй функции поиска, когда:
+                - Запрос касается конкретных правовых норм или судебной практики
+                - Нужна актуальная информация о законодательстве
+                - Требуется подтверждение правовой позиции примерами из практики
+                - Есть сомнения в актуальности информации
+
+                НЕ используй функции поиска, когда:
+                - Запрос общий или приветственный
+                - Вопрос не требует специальных правовых знаний
+                - Достаточно базовых юридических принципов для ответа
                 
                 **ПРАВИЛА РАБОТЫ С ДОКУМЕНТАМИ И ИСТОЧНИКАМИ:**
                     1. СУДЕБНАЯ ПРАКТИКА:
@@ -323,14 +340,10 @@ class DeepResearchService:
         self.output_dir = output_dir or "research_results"
         os.makedirs(self.output_dir, exist_ok=True)
 
-        # Инициализируем DeepSeek сервис
-        self.deepseek_service = DeepSeekService(api_key=DEEPSEEK_API_KEY,
-                                                model=DEEPSEEK_MODEL,
-                                                temperature=0.6,
-                                                max_tokens=8192,
-                                                timeout=180)
-
         # Инициализируем сервисы
+        self.deepseek_service = DeepSeekService()
+        self.tavily_service = TavilyService()
+        self.prompt_builder = PromptBuilder(self.deepseek_service)
         self.web_scraper = WebScraper(
             timeout=20,
             max_retries=2,
@@ -338,7 +351,7 @@ class DeepResearchService:
         )
 
         # Инициализируем логгер
-        self.logger = get_logger()  # Используем глобальный логгер
+        self.logger = get_logger()
         self.prompt_logger = self.logger
 
         self.logger.log(
@@ -346,6 +359,153 @@ class DeepResearchService:
             LogLevel.INFO
         )
         self.usage_counter = 0
+
+    async def research(
+        self, 
+        query: str, 
+        context: Optional[str] = None,
+        chat_history: Optional[Union[str, List[Dict]]] = None,
+        search_data: Optional[dict] = None,
+        thread_id: Optional[str] = None,
+        user_id: Optional[int] = None,
+        db: Optional[Session] = None,
+        message_id: Optional[int] = None
+    ) -> ResearchResult:
+        """
+        Выполняет глубокое исследование по запросу пользователя.
+        
+        Args:
+            query: Запрос пользователя
+            context: Дополнительный контекст (опционально)
+            chat_history: История чата
+            search_data: Данные предыдущего поиска (опционально)
+            thread_id: ID треда
+            user_id: ID пользователя
+            db: Сессия БД
+            message_id: ID сообщения
+            
+        Returns:
+            ResearchResult с результатами исследования
+        """
+        try:
+            # 1. Логируем начало исследования
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "action": "research",
+                "query": query,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "message_id": message_id
+            }
+            
+            # 2. Определяем тип запроса
+            is_general = self.is_general_query(query)
+            log_entry["query_type"] = "general" if is_general else "legal"
+            
+            # 3. Для общих запросов используем упрощенный промпт
+            if is_general:
+                messages = [
+                    {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
+                    {"role": "user", "content": query}
+                ]
+                response = await self.deepseek_service.chat_completion(messages=messages)
+                content, reasoning_content = self.get_response_content(response)
+                
+                log_entry.update({
+                    "status": "success",
+                    "is_general": True
+                })
+                self.logger.log(json.dumps(log_entry), LogLevel.INFO)
+                
+                return ResearchResult(
+                    query=query,
+                    analysis=content,
+                    timestamp=self._get_timestamp(),
+                    reasoning_content=reasoning_content
+                )
+            
+            # 4. Для юридических запросов выполняем поиск и формируем обогащенный промпт
+            # Выполняем поиск параллельно
+            es_results, tavily_results = await asyncio.gather(
+                search_law_chunks(query, size=6),  # Ограничиваем до 6 результатов
+                self.tavily_service.search(query, max_results=5)  # Минимум 5 результатов
+            )
+            
+            log_entry.update({
+                "es_results_count": len(es_results),
+                "tavily_results_count": len(tavily_results)
+            })
+            
+            # 5. Формируем промпт через PromptBuilder
+            prompt_result = await self.prompt_builder.build_prompt(
+                query=query,
+                es_results=es_results,
+                tavily_results=tavily_results,
+                chat_history=chat_history,
+                system_prompt=LEGAL_SYSTEM_PROMPT,
+                max_tokens=10000  # Используем расширенный лимит
+            )
+            
+            # 6. Получаем ответ от DeepSeek
+            response = await self.deepseek_service.chat_completion(
+                messages=prompt_result["messages"],
+                max_tokens=8192
+            )
+            content, reasoning_content = self.get_response_content(response)
+            
+            # 7. Сохраняем результаты в БД
+            if db and thread_id and user_id:
+                try:
+                    # Сохраняем промпт
+                    db.add(PromptLog(
+                        thread_id=thread_id,
+                        user_id=user_id,
+                        system_prompt=LEGAL_SYSTEM_PROMPT,
+                        user_prompt=query,
+                        message_id=message_id
+                    ))
+                    
+                    # Сохраняем результат исследования
+                    db.add(ResearchResult(
+                        thread_id=thread_id,
+                        query=query,
+                        findings=json.dumps({
+                            "es_results": es_results,
+                            "tavily_results": tavily_results
+                        }),
+                        analysis=content
+                    ))
+                    
+                    db.commit()
+                except Exception as e:
+                    self.logger.log(f"❌ Ошибка при сохранении в БД: {str(e)}", LogLevel.ERROR)
+            
+            # 8. Логируем успешное завершение
+            log_entry.update({
+                "status": "success",
+                "is_general": False,
+                "prompt_metadata": prompt_result["metadata"]
+            })
+            self.logger.log(json.dumps(log_entry), LogLevel.INFO)
+            
+            return ResearchResult(
+                query=query,
+                analysis=content,
+                timestamp=self._get_timestamp(),
+                reasoning_content=reasoning_content
+            )
+
+        except Exception as e:
+            error_log = {**log_entry, "status": "error", "error": str(e)}
+            self.logger.log(json.dumps(error_log), LogLevel.ERROR)
+            
+            return ResearchResult(
+                query=query,
+                analysis="Извините, произошла ошибка при обработке запроса.",
+                error=str(e),
+                timestamp=self._get_timestamp(),
+                reasoning_content=None
+            )
 
     def is_general_query(self, query: str) -> bool:
         """
@@ -507,15 +667,6 @@ class DeepResearchService:
         self.logger.log("Запрос не определен как юридический, считаем общим", LogLevel.INFO)
         return True
 
-    def _extract_optimized_query(self, response):
-        # Исправлено: если response — dict, берем поле 'content', иначе работаем как со строкой
-        if isinstance(response, dict):
-            content = response.get('content', '')
-            return content.strip()
-        elif isinstance(response, str):
-            return response.strip()
-        return ''
-
     def get_response_content(self, response):
         """
         Универсальный способ получить content и reasoning_content из ответа DeepSeek (dict или объект).
@@ -526,7 +677,7 @@ class DeepResearchService:
                 content = response["choices"][0]["message"]["content"]
                 reasoning_content = response["choices"][0]["message"].get("reasoning_content")
             else:
-                # объект-стиль
+                # объект-стиль (на всякий случай)
                 content = response.choices[0].message.content
                 reasoning_content = getattr(response.choices[0].message, "reasoning_content", None)
             return content, reasoning_content
@@ -534,391 +685,9 @@ class DeepResearchService:
             self.logger.log(f"❌ Ошибка при разборе ответа DeepSeek: {str(e)}", LogLevel.ERROR)
             return "Извините, произошла ошибка при обработке ответа от модели.", None
 
-    async def research(
-        self, 
-        query: str, 
-        context: Optional[str] = None, 
-        is_general: Optional[bool] = None, 
-        chat_history: Optional[str] = None, 
-        search_data: Optional[dict] = None,
-        thread_id: Optional[str] = None,
-        user_id: Optional[int] = None,
-        db: Optional[Session] = None,
-        message_id: Optional[int] = None
-    ) -> ResearchResult:
-        try:
-            if is_general is None:
-                is_general = self.is_general_query(query)
-                self.logger.log(f"📝 Определен тип запроса: {'общий' if is_general else 'юридический'}", LogLevel.INFO)
-
-            if is_general:
-                self.logger.log("📝 Обработка общего запроса", LogLevel.INFO)
-                messages = [
-                    {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
-                    {"role": "user", "content": query}
-                ]
-                response = await self.deepseek_service.chat_completion(messages)
-                content, reasoning_content = self.get_response_content(response)
-                # --- Сохраняем промпт в prompt_logs ---
-                if db and thread_id and user_id:
-                    try:
-                        from app.models import PromptLog
-                        db.add(PromptLog(
-                            thread_id=thread_id,
-                            user_id=user_id,
-                            system_prompt=GENERAL_SYSTEM_PROMPT,
-                            user_prompt=query,
-                            message_id=message_id
-                        ))
-                        db.commit()
-                    except Exception as e:
-                        self.logger.log(f"❌ Ошибка при сохранении prompt_log: {str(e)}", LogLevel.ERROR)
-                # --- Сохраняем результат в research_results ---
-                if db and thread_id:
-                    try:
-                        from app.models import ResearchResult as ResearchResultModel
-                        db.add(ResearchResultModel(
-                            thread_id=thread_id,
-                            query=query,
-                            findings=None,
-                            analysis=content
-                        ))
-                        db.commit()
-                    except Exception as e:
-                        self.logger.log(f"❌ Ошибка при сохранении research_result: {str(e)}", LogLevel.ERROR)
-                return ResearchResult(
-                    query=query,
-                    analysis=content,
-                    timestamp=self._get_timestamp(),
-                    reasoning_content=reasoning_content
-                )
-
-            # --- Новый алгоритм для юридических запросов ---
-            from app.services.query_optimizer import QueryOptimizer
-            optimizer = QueryOptimizer()
-            self.logger.log("🔎 Генерация двух уточнённых поисковых формулировок через DeepSeek...", LogLevel.INFO)
-            queries = await optimizer.get_two_search_queries(query)
-            if not queries or len(queries) != 2:
-                self.logger.log(f"❌ Не удалось сгенерировать две поисковые формулировки, используем исходный запрос дважды", LogLevel.WARNING)
-                queries = [query, query]
-            self.logger.log(f"✅ Сформулированы поисковые запросы: {queries}", LogLevel.INFO)
-
-            # Поиск по каждой формулировке
-            tavily_service = TavilyService()
-            es_results = []
-            tavily_results = []
-            for q in queries:
-                es = await search_law_chunks(q, 5)
-                tav = await tavily_service.search(q, 5)
-                es_results.append(es)
-                tavily_results.append(tav)
-
-            # Формируем блоки для промпта
-            es_block = self._format_es_results([item for sublist in es_results for item in sublist])
-            tavily_block = self._format_tavily_results(queries, tavily_results)
-            es_by_tavily_block = ""
-            chat_block = self._format_chat_history(chat_history) if chat_history else ""
-
-            research_prompt = self._build_research_prompt(
-                query=query,
-                es_block=es_block,
-                es_by_tavily_block=es_by_tavily_block,
-                tavily_block=tavily_block,
-                chat_block=chat_block
-            )
-
-            messages = [
-                {"role": "system", "content": RESEARCH_SYSTEM_PROMPT},
-                {"role": "user", "content": research_prompt}
-            ]
-            # --- Сохраняем промпт в prompt_logs ---
-            if db and thread_id and user_id:
-                try:
-                    from app.models import PromptLog
-                    db.add(PromptLog(
-                        thread_id=thread_id,
-                        user_id=user_id,
-                        system_prompt=RESEARCH_SYSTEM_PROMPT,
-                        user_prompt=research_prompt,
-                        message_id=message_id
-                    ))
-                    db.commit()
-                except Exception as e:
-                    self.logger.log(f"❌ Ошибка при сохранении prompt_log: {str(e)}", LogLevel.ERROR)
-            response = await self.deepseek_service.chat_completion(messages)
-            content, reasoning_content = self.get_response_content(response)
-            # --- Сохраняем результат в research_results ---
-            if db and thread_id:
-                try:
-                    from app.models import ResearchResult as ResearchResultModel
-                    db.add(ResearchResultModel(
-                        thread_id=thread_id,
-                        query=query,
-                        findings=str({
-                            'queries': queries,
-                            'es_results': es_results,
-                            'tavily_results': tavily_results
-                        }),
-                        analysis=content
-                    ))
-                    db.commit()
-                except Exception as e:
-                    self.logger.log(f"❌ Ошибка при сохранении research_result: {str(e)}", LogLevel.ERROR)
-
-            # --- Сохраняем промпт и ответ в .json ---
-            if hasattr(self, 'logger') and hasattr(self.logger, 'save_prompt'):
-                try:
-                    self.logger.save_prompt(messages, query, parameters={"thread_id": thread_id, "user_id": user_id})
-                except Exception as e:
-                    self.logger.log(f"Ошибка при сохранении промпта: {e}", LogLevel.ERROR)
-            if hasattr(self, 'logger') and hasattr(self.logger, 'save_response'):
-                try:
-                    self.logger.save_response({"result": content, "reasoning": reasoning_content}, query)
-                except Exception as e:
-                    self.logger.log(f"Ошибка при сохранении ответа: {e}", LogLevel.ERROR)
-
-            return ResearchResult(
-                query=query,
-                analysis=content,
-                timestamp=self._get_timestamp(),
-                reasoning_content=reasoning_content
-            )
-
-        except Exception as e:
-            self.logger.log(f"❌ Ошибка при выполнении исследования: {str(e)}", LogLevel.ERROR)
-            return ResearchResult(
-                query=query,
-                analysis="Извините, произошла ошибка при обработке запроса.",
-                error=str(e),
-                timestamp=self._get_timestamp(),
-                reasoning_content=None
-            )
-
-    def _format_es_results(self, results: List[Dict]) -> str:
-        """Форматирует результаты ElasticSearch."""
-        self.logger.log(f"[ES] Получено результатов: {len(results)}", LogLevel.INFO)
-        if not results:
-            self.logger.log("[ES] Нет результатов для форматирования", LogLevel.WARNING)
-            return "Нет результатов из законодательства."
-        formatted = []
-        for idx, r in enumerate(results):
-            text = ensure_correct_encoding(str(r.get("text", "")))
-            title = ensure_correct_encoding(str(r.get("title", "")))
-            score = r.get("score", 0)
-            highlights = r.get("highlights", [])
-            # Логируем структуру результата
-            self.logger.log(f"[ES] Результат {idx+1}: title='{title}', score={score}, highlights={len(highlights)}", LogLevel.DEBUG)
-            if text:
-                result_parts = []
-                if title:
-                    result_parts.append(f"Документ: {title}")
-                result_parts.append(f"Текст: {text}")
-                if highlights:
-                    highlight_text = "\n".join(highlights)
-                    result_parts.append(f"Релевантные фрагменты: {highlight_text}")
-                result_parts.append(f"Релевантность: {score:.2f}")
-                formatted.append("\n".join(result_parts))
-        if not formatted:
-            self.logger.log("[ES] После форматирования нет валидных результатов", LogLevel.WARNING)
-            return "Нет результатов из законодательства."
-        formatted.sort(key=lambda x: float(x.split("Релевантность:")[-1].strip() or "0"), reverse=True)
-        formatted = formatted[:10]
-        final_text = "\n\n" + "=" * 80 + "\n\n".join(formatted)
-        if len(final_text) > 15000:
-            final_text = truncate_text_intelligently(final_text, 15000)
-        self.logger.log(f"[ES] Итоговый размер форматированного блока: {len(final_text)} символов", LogLevel.INFO)
-        return final_text
-        
-    def _format_tavily_results(self, queries: List[str], results: List[List[Dict]]) -> str:
-        """Форматирует результаты Tavily."""
-        if not queries or not results or not isinstance(results, list):
-            self.logger.log("❌ Нет результатов Tavily для форматирования", LogLevel.WARNING)
-            return "Нет результатов."
-        self.logger.log(f"[TAVILY] Получено запросов: {len(queries)}", LogLevel.INFO)
-        self.logger.log(f"[TAVILY] Получено списков результатов: {len(results)}", LogLevel.INFO)
-        blocks = []
-        for i, (query, result_list) in enumerate(zip(queries, results)):
-            self.logger.log(f"[TAVILY] Форматирование результатов для запроса {i+1}: {query}", LogLevel.INFO)
-            self.logger.log(f"[TAVILY] Количество результатов: {len(result_list)}", LogLevel.INFO)
-            if result_list and isinstance(result_list, list):
-                sorted_results = sorted(
-                    result_list,
-                    key=lambda x: float(x.get("score", 0)),
-                    reverse=True
-                )
-                formatted_results = []
-                for idx, r in enumerate(sorted_results):
-                    title = r.get("title", "").strip()
-                    body = r.get("body", r.get("content", "")).strip()
-                    url = r.get("href", r.get("url", "")).strip()
-                    source = r.get("source", "").strip()
-                    score = r.get("score", 0)
-                    # Логируем структуру результата
-                    self.logger.log(f"[TAVILY] Результат {idx+1}: title='{title}', score={score}, url='{url}'", LogLevel.DEBUG)
-                    if body:
-                        result_parts = []
-                        if title:
-                            result_parts.append(f"Заголовок: {title}")
-                        result_parts.append(f"Содержание: {body}")
-                        if url:
-                            result_parts.append(f"Источник: {url}")
-                        if source:
-                            result_parts.append(f"Домен: {source}")
-                        result_parts.append(f"Релевантность: {score:.2f}")
-                        formatted_results.append("\n".join(result_parts))
-                if formatted_results:
-                    content = "\n\n".join(formatted_results[:5])
-                    blocks.append(f"Результаты поиска для запроса '{query}':\n{content}")
-        if not blocks:
-            self.logger.log("[TAVILY] После форматирования нет валидных результатов", LogLevel.WARNING)
-            return "Нет релевантных результатов."
-        final_text = "\n\n" + "=" * 80 + "\n\n".join(blocks)
-        self.logger.log(f"[TAVILY] Итоговый размер форматированного блока: {len(final_text)} символов", LogLevel.INFO)
-        return final_text
-        
-    def _format_chat_history(self, history: str) -> str:
-        """
-        Форматирует историю чата для включения в промпт.
-        Преобразует историю в структурированный формат диалога.
-        Args:
-            history: JSON строка с историей чата в формате:
-            [{"role": "user"/"assistant", "content": "text"}]
-        Returns:
-            str: Отформатированная история чата
-        """
-        if not history:
-            return ""
-            
-        try:
-            # Пробуем распарсить историю как JSON
-            if isinstance(history, str):
-                try:
-                    messages = json.loads(history)
-                except json.JSONDecodeError:
-                    self.logger.log("❌ Не удалось распарсить историю чата как JSON", LogLevel.ERROR)
-                    return ""
-            else:
-                messages = history
-
-            # Проверяем формат сообщений
-            if not isinstance(messages, list):
-                self.logger.log("❌ История чата должна быть списком", LogLevel.ERROR)
-                return ""
-
-            # Форматируем диалог
-            formatted_messages = []
-            for msg in messages[-5:]:  # Берем только последние 5 сообщений
-                if isinstance(msg, dict):
-                    role = msg.get("role", "")
-                    content = msg.get("content", "").strip()
-                    if role and content:
-                        prefix = "Ассистент" if role == "assistant" else "Пользователь"
-                        formatted_messages.append(f"{prefix}: {content}")
-
-            # Объединяем сообщения
-            formatted_history = "\n\n".join(formatted_messages)
-
-            # Если история слишком длинная, обрезаем
-            if len(formatted_history) > 5000:
-                formatted_history = truncate_text_intelligently(formatted_history, 5000)
-
-            self.logger.log(f"📝 История чата отформатирована, размер: {len(formatted_history)} символов", LogLevel.INFO)
-            return formatted_history
-
-        except Exception as e:
-            self.logger.log(f"⚠️ Ошибка при форматировании истории чата: {str(e)}", LogLevel.ERROR)
-            return ""
-        
-    def _format_es_results_by_tavily(self, queries: list, results_by_query: list) -> str:
-        """Форматирует результаты ElasticSearch по уточнённым запросам Tavily."""
-        if not queries or not results_by_query:
-            return "Нет результатов по уточнённым запросам."
-        blocks = []
-        for i, (query, results) in enumerate(zip(queries, results_by_query)):
-            content = "\n".join([
-                ensure_correct_encoding(str(r.get("text", "")))
-                for r in results
-            ])[:8000]
-            blocks.append(f"Уточнённый запрос {i+1}: {query}\n{content}")
-        return "\n\n".join(blocks)
-
-    def _build_research_prompt(
-        self,
-        query: str,
-        es_block: str,
-        es_by_tavily_block: str,
-        tavily_block: str,
-        chat_block: str
-    ) -> str:
-        """
-        Собирает промпт для исследования.
-        Структурирует информацию по приоритетности и релевантности.
-        """
-        parts = []
-        
-        # 1. Добавляем исходный запрос
-        parts.append(f"ЗАПРОС ПОЛЬЗОВАТЕЛЯ:\n{query}\n")
-        
-        # 2. Добавляем историю чата, если есть
-        if chat_block:
-            parts.append(f"ИСТОРИЯ ДИАЛОГА:\n{chat_block}\n")
-        
-        # 3. Добавляем результаты поиска в законодательстве
-        if es_block and es_block != "Нет результатов из законодательства.":
-            parts.append(f"РЕЗУЛЬТАТЫ ПОИСКА В ЗАКОНОДАТЕЛЬСТВЕ:\n{es_block}\n")
-        
-        # 4. Добавляем результаты поиска по уточнённым запросам
-        if es_by_tavily_block and es_by_tavily_block != "Нет результатов по уточнённым запросам.":
-            parts.append(f"ДОПОЛНИТЕЛЬНЫЕ РЕЗУЛЬТАТЫ ИЗ ЗАКОНОДАТЕЛЬСТВА:\n{es_by_tavily_block}\n")
-        
-        # 5. Добавляем результаты поиска в интернете
-        if tavily_block and tavily_block != "Нет релевантных результатов.":
-            parts.append(f"РЕЗУЛЬТАТЫ ПОИСКА В ИНТЕРНЕТЕ:\n{tavily_block}\n")
-        
-        # 6. Добавляем LEGAL_SYSTEM_PROMPT вместо старых инструкций
-        parts.append(LEGAL_SYSTEM_PROMPT)
-        
-        # Объединяем все части с разделителями
-        return "\n" + "=" * 80 + "\n\n".join(parts)
-
-    def read_document(self, file_path: str) -> Optional[str]:
-        """
-        Извлекает текст из документа.
-            
-        Args:
-            file_path: Путь к документу
-                    
-        Returns:
-            Текстовое содержимое документа или None в случае ошибки
-        """
-        try:
-            self.logger.log(
-                f"[DeepResearch #{self.usage_counter}] Извлечение текста из документа: {file_path}", LogLevel.INFO
-            )
-            extracted_text = extract_text_from_any_document(file_path)
-
-            if extracted_text:
-                self.logger.log(
-                    f"[DeepResearch #{self.usage_counter}] Успешно извлечен текст ({len(extracted_text)} символов)", LogLevel.INFO
-                )
-                # Если текст слишком большой, обрезаем его
-                max_length = 30000
-                if len(extracted_text) > max_length:
-                    extracted_text = extracted_text[:max_length] + "...[текст обрезан из-за ограничений размера]"
-
-                return extracted_text
-
-            return None
-        except Exception as e:
-            self.logger.log(
-                f"[DeepResearch #{self.usage_counter}] Ошибка при извлечении текста из документа {file_path}: {str(e)}", LogLevel.ERROR
-            )
-            return None
-
     def _get_timestamp(self) -> str:
         """Возвращает текущую метку времени в формате для имен файлов."""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    def _get_current_time(self) -> str:
-        """Возвращает текущее время в ISO формате."""
-        return datetime.now().isoformat()
+# Создаем глобальный экземпляр сервиса
+deep_research_service = DeepResearchService()

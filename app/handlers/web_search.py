@@ -3,14 +3,10 @@
 Выполняет поиск через Tavily API с оптимизацией через DeepSeek.
 """
 import logging
-import asyncio
-from typing import List, Dict, Any, Optional, Union, Tuple
-from bs4 import BeautifulSoup
-import aiohttp
-from app.utils import ensure_correct_encoding, sanitize_search_results
-from app.search_result import SearchResult
+from typing import List, Dict, Any
+from app.utils import ensure_correct_encoding
+from app.models.scraping import ScrapedContent
 from app.services.tavily_service import TavilyService
-from app.services.query_optimizer import QueryOptimizer
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -59,7 +55,6 @@ class WebSearchHandler:
     """
     def __init__(self):
         self.tavily_service = TavilyService()
-        self.query_optimizer = QueryOptimizer()
         
     async def search_and_scrape(self, query: str, logs: list, max_results: int = MAX_SCRAPE_RESULTS) -> list:
         """
@@ -105,7 +100,7 @@ class WebSearchHandler:
             logs.append(f"❌ Ошибка при поиске: {str(e)}")
             return []
             
-    async def search_internet(self, query: str, max_results: int = 5) -> List[SearchResult]:
+    async def search_internet(self, query: str, max_results: int = 5) -> List[ScrapedContent]:
         """
         Выполняет поиск в интернете с оптимизацией запроса.
         
@@ -114,7 +109,7 @@ class WebSearchHandler:
             max_results: Максимальное количество результатов
             
         Returns:
-            List[SearchResult]: Список результатов поиска
+            List[ScrapedContent]: Список результатов поиска
         """
         try:
             results = await self.tavily_service.search(query, max_results=max_results)
@@ -125,15 +120,15 @@ class WebSearchHandler:
             for result in results:
                 try:
                     search_results.append(
-                        SearchResult(
+                        ScrapedContent(
                             url=result.get('href', '') or result.get('url', ''),
                             title=result.get('title', '') or result.get('body', '')[:80],
-                            snippet=result.get('body', ''),
-                            source="tavily"
+                            text=result.get('body', ''),
+                            metadata={"source": "tavily"}
                         )
                     )
                 except Exception as e:
-                    logging.error(f"Ошибка при создании SearchResult: {str(e)}")
+                    logging.error(f"Ошибка при создании ScrapedContent: {str(e)}")
                     continue
             return search_results
         except Exception as e:

@@ -3,6 +3,8 @@ from app.database import Base
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
+from typing import List, Dict, Optional
+from fastapi import HTTPException
 
 
 class VerificationCode(Base):
@@ -123,3 +125,15 @@ class ResearchResult(Base):
 
     # Связи
     thread = relationship("Thread", backref="research_results")
+
+async def get_messages(thread_id: str, db, user_id: Optional[int] = None) -> List[Dict]:
+    """Получает историю сообщений из базы данных."""
+    if user_id:
+        thread = db.query(Thread).filter_by(id=thread_id).first()
+        if not thread or thread.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Access denied to this thread")
+    
+    query = db.query(Message).filter(Message.thread_id == thread_id)
+    messages = query.order_by(Message.created_at.asc()).all()
+    
+    return [{'role': msg.role, 'content': msg.content, 'created_at': msg.created_at.isoformat() if msg.created_at else None} for msg in messages]

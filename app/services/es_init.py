@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 import json
 import argparse
 import threading
-import queue
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import traceback

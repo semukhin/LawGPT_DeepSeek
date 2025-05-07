@@ -1,19 +1,11 @@
 import logging
 from typing import Dict, Any, List
 from app.handlers.es_law_search import search_law_chunks
-from app.handlers.web_search import WebSearchHandler
 import asyncio
-import time
 import re
 import chardet
-from app.handlers.web_search import run_multiple_searches
-from app.services.query_optimizer import QueryOptimizer
 from app.services.tavily_service import TavilyService
 from app.utils.logger import get_logger, LogLevel
-import json
-import os
-import hashlib
-from app.handlers.es_law_search import search_law_chunks_multi
 
 # Инициализируем logger
 logger = get_logger()

@@ -1,9 +1,6 @@
 import os
 import logging
-import asyncio
 from typing import Optional, Dict, Any, Union
-import pathlib
-import io
 
 import google.generativeai as genai
 # from google.generativeai import types  # больше не нужен

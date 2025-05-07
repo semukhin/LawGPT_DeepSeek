@@ -19,17 +19,15 @@ import aiofiles
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Message, Thread, Document
+from app.models import User, Message, Thread, Document, get_messages
 from app.auth import get_current_user
 from app.handlers.web_search import WebSearchHandler
 from app.handlers.ai_request import send_custom_request, deep_research_service
 from app.handlers.es_law_search import search_law_chunks
 from app.handlers.user_doc_request import extract_text_from_any_document, process_uploaded_file
-from app.utils import measure_time
 from transliterate import translit
 from app.utils.text_utils import decode_unicode
-from app.utils.chat_utils import get_messages
-from app.services.deepresearch_service import DeepResearchService
+
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -49,12 +47,6 @@ os.makedirs(DOCX_FOLDER, exist_ok=True)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # Инициализация FastAPI
-app = FastAPI(
-    title="LawGPT Chat API",
-    description=
-    "API для обработки чатов с использованием DeepResearch и других источников.",
-    version="2.0.0")
-
 router = APIRouter()
 
 # ===================== Модели запросов =====================
@@ -67,7 +59,6 @@ class ChatRequest(BaseModel):
 # ===================== Вспомогательные функции =====================
 
 
-@measure_time
 async def process_chat_uploaded_file(
         file: UploadFile) -> tuple[str, str, dict]:
     """
@@ -114,7 +105,6 @@ def fix_encoding(query: str) -> str:
 
 
 # ===================== Эндпоинты чата =====================
-@measure_time
 @router.post("/chat/{thread_id}")
 async def chat_in_thread(
         request: Request,
@@ -239,7 +229,6 @@ async def chat_in_thread(
 # ===================== Эндпоинты работы с тредами =====================
 
 
-@measure_time
 @router.post("/create_thread")
 async def create_thread(current_user: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
@@ -253,7 +242,6 @@ async def create_thread(current_user: User = Depends(get_current_user),
     return {"thread_id": new_thread_id}
 
 
-@measure_time
 @router.get("/chat/threads")
 async def get_threads(current_user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)):
@@ -270,7 +258,6 @@ async def get_threads(current_user: User = Depends(get_current_user),
     }
 
 
-@measure_time
 @router.get("/messages/{thread_id}")
 async def get_thread_messages(
     thread_id: str,
@@ -435,7 +422,6 @@ async def download_recognized_text(
                             detail=f"Ошибка при скачивании файла: {str(e)}")
 
 
-@measure_time
 @router.post("/upload_file")
 async def upload_file(file: UploadFile = File(...),
                       current_user: User = Depends(get_current_user),
@@ -619,7 +605,4 @@ async def download_recognized_text(
         raise HTTPException(status_code=400,
                             detail="Отсутствует содержимое файла")
 
-
-# ===================== Подключение роутера =====================
-
-app.include_router(router)
+print("Маршруты chat_router:", [r.path for r in router.routes])

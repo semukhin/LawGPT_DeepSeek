@@ -1,15 +1,13 @@
-import logging
 from typing import List, Dict, Any, Optional
 from elasticsearch import Elasticsearch
 import re
 import os
 import json
 from app.config import ELASTICSEARCH_URL, ES_INDICES as CONFIG_ES_INDICES
-from app.utils import decode_unicode, sanitize_search_results, ensure_correct_encoding, validate_messages, validate_context
 from app.utils.logger import get_logger, LogLevel
 from app.services.embedding_service import EmbeddingService
 
-# Получаем глобальный логгер
+# Инициализируем логгер
 logger = get_logger()
 
 ES_HOST = os.getenv("ES_HOST", "http://localhost:9200")
@@ -599,7 +597,7 @@ async def get_query_embedding(query: str) -> List[float]:
         return [0.0] * 384  # Возвращаем нулевой вектор в случае ошибки
 
 async def search_law_chunks(query: str, size: int = 5, use_vector: bool = True) -> List[Dict[str, Any]]:
-    logger.log(f"🔍 Начало поиска в Elasticsearch по запросу: '{query}'", LogLevel.INFO)
+    logger.search("ElasticSearch", query, context={"query": query, "size": size})
     try:
         es = get_es_client()
         search_query = {
@@ -644,7 +642,7 @@ async def search_law_chunks(query: str, size: int = 5, use_vector: bool = True) 
             body=search_query
         )
         hits = response['hits']['hits']
-        logger.log(f"[ES] Получено {len(hits)} результатов из Elasticsearch", LogLevel.INFO)
+        logger.info(f"Найдено {len(hits)} результатов из Elasticsearch", context={"query": query, "results_count": len(hits)})
         if hits:
             logger.log(f"[ES] Пример первого результата: {json.dumps(hits[0], ensure_ascii=False)[:500]}...", LogLevel.DEBUG)
         else:
@@ -660,7 +658,7 @@ async def search_law_chunks(query: str, size: int = 5, use_vector: bool = True) 
             results.append(result)
         return results
     except Exception as e:
-        logger.log(f"❌ Ошибка при поиске в Elasticsearch: {str(e)}", LogLevel.ERROR)
+        logger.error(f"Ошибка при поиске: {e}", context={"query": query, "error": str(e)})
         return []
 
 
@@ -1529,10 +1527,10 @@ async def search_index_with_embeddings(index_name: str, query: str, size: int = 
                 "highlights": sum([hit.get("highlight", {}).get(f, []) for f in ["text", "title", "full_text", "content"]], [])
             }
             results.append(result)
-        logger.log(f"🔍 Найдено {len(results)} результатов по индексу {index_name}", LogLevel.INFO)
+        logger.info(f"Найдено {len(results)} результатов по индексу {index_name}", context={"query": query, "results_count": len(results)})
         return results
     except Exception as e:
-        logger.log(f"❌ Ошибка поиска по индексу {index_name}: {str(e)}", LogLevel.ERROR)
+        logger.error(f"Ошибка поиска по индексу {index_name}: {str(e)}", context={"query": query, "error": str(e)})
         return []
 
 # Обёртки для каждого индекса
@@ -1558,16 +1556,17 @@ async def search_court_decisions_with_embeddings(query: str, size: int = 5, use_
 
 if __name__ == "__main__":
     # Создание индексов при запуске модуля напрямую
+    logger.info("Создание индексов Elasticsearch")
     create_indices()
 
     # Обновляем маппинги для умного поиска
+    logger.info("Обновление маппингов для умного поиска")
     update_all_mappings()
 
     # Пример поиска
     test_query = "А65-28469/2012"
+    logger.info(f"Тестовый поиск по запросу: {test_query}")
     results = search_law_chunks(test_query)
-    logger.log(f"Поиск по запросу '{test_query}': найдено {len(results)} результатов", LogLevel.INFO)
-
+    
     if results:
-        logger.log("\nПервый результат:", LogLevel.INFO)
-        logger.log(results[0]['text'][:500] + "...", LogLevel.INFO)
+        logger.info("Первый результат:", context={"result": results[0]['text'][:500]})

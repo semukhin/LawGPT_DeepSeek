@@ -3,12 +3,11 @@
 Раньше этот файл использовался для интеграции с Vertex AI,
 теперь используется только для обратной совместимости.
 """
-import os
 import logging
 from typing import Optional, Dict, Any
 
 # Импорт конфигурации
-from app.config import GEMINI_API_KEY, GEMINI_MODEL, GEMINI_API_ENABLED
+from app.config import GEMINI_API_KEY, GEMINI_API_ENABLED
 
 import google.generativeai as genai
 from google.generativeai import types

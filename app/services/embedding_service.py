@@ -2,11 +2,9 @@
 Сервис для работы с эмбеддингами.
 Использует sentence-transformers для генерации векторных представлений текста.
 """
-import os
-from typing import List, Optional
+from typing import List
 from sentence_transformers import SentenceTransformer
 import torch
-import logging
 from app.utils.logger import get_logger, LogLevel
 
 logger = get_logger()
