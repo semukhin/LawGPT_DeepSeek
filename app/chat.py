@@ -108,7 +108,7 @@ def fix_encoding(query: str) -> str:
 @router.post("/chat/{thread_id}")
 async def chat_in_thread(
         request: Request,
-        thread_id: str,
+        thread_id: str, # Получить либо из API, если сообщение первое, либо из БД если не первое.
         query: str = Form(None),
         file: UploadFile = File(None),
         current_user: User = Depends(get_current_user),
@@ -140,7 +140,7 @@ async def chat_in_thread(
 
     # Обработка файла
     if file:
-        logging.info(f"📄 Обработка файла: {file.filename}")
+        logging.info(f"Обработка файла: {file.filename}")
         file_path, extracted_text, file_metadata = await process_uploaded_file(
             file=file,
             user_id=current_user.id,
@@ -182,7 +182,7 @@ async def chat_in_thread(
 
         # Если есть текстовый запрос, обрабатываем его с учетом контекста файла
         if query.strip():
-            logging.info("💬 Обработка запроса с учетом контекста файла")
+            logging.info("Обработка запроса с учетом контекста файла")
             
             # Получаем историю чата
             chat_history = await get_messages(thread_id=thread_id, db=db, user_id=current_user.id)
