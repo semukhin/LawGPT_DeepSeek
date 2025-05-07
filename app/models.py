@@ -55,7 +55,7 @@ class PasswordReset(Base):
 
 class Thread(Base):
     __tablename__ = "threads"
-    id = Column(String(50), primary_key=True, default=lambda: f"thread_{uuid.uuid4().hex}")
+    id = Column(String(50), primary_key=True, default=lambda: f"thread_{uuid.uuid4().hex}")  # Сюда передать ИМЯ треда ("thread_ ....") которое нам приходит по API. 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     first_message = Column(Text, nullable=True)
@@ -125,6 +125,7 @@ class ResearchResult(Base):
 
     # Связи
     thread = relationship("Thread", backref="research_results")
+
 
 async def get_messages(thread_id: str, db, user_id: Optional[int] = None) -> List[Dict]:
     """Получает историю сообщений из базы данных."""
